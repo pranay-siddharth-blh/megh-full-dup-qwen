@@ -1,0 +1,4081 @@
+built: 2026-11-16 01:43
+chains:
+- id: K1-MGNREGA-EASTKHASIH
+  kind: K1
+  scheme: MGNREGA
+  district: EAST KHASI HILLS
+  turns:
+  - q: MGNREGA person-days by district
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, SUM(person_days) FROM curated.v_employment WHERE TRUE AND lgd_district IS NOT NULL GROUP BY
+        1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: break down East Khasi Hills by block
+    pause: false
+    place: East Khasi Hills
+    rows:
+    - sql: SELECT lgd_block, SUM(person_days) FROM curated.v_employment WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district
+        = 'EAST KHASI HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: which block has the most
+    pause: false
+    place: East Khasi Hills
+    rows:
+    - sql: SELECT lgd_block, SUM(person_days) FROM curated.v_employment WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district
+        = 'EAST KHASI HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: 1
+  - q: show this as a bar chart
+    view: bar
+- id: K2-MGNREGA-WESTGAROHI
+  kind: K2
+  scheme: MGNREGA
+  district: WEST GARO HILLS
+  turns:
+  - q: MGNREGA person-days in West Garo Hills
+    pause: false
+    place: West Garo Hills
+    figures:
+    - sql: SELECT SUM(person_days) FROM curated.v_employment WHERE TRUE AND lgd_district = 'WEST GARO HILLS'
+      unit: count
+  - q: break that down by block
+    pause: false
+    place: West Garo Hills
+    rows:
+    - sql: SELECT lgd_block, SUM(person_days) FROM curated.v_employment WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district
+        = 'WEST GARO HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: top 3
+    pause: false
+    place: West Garo Hills
+    rows:
+    - sql: SELECT lgd_block, SUM(person_days) FROM curated.v_employment WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district
+        = 'WEST GARO HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: 3
+  - q: as a pie
+    view: pie
+- id: K3-MGNREGA-RIBHOI
+  kind: K3
+  scheme: MGNREGA
+  district: RI BHOI
+  turns:
+  - q: MGNREGA person-days in Ri Bhoi
+    pause: false
+    place: Ri Bhoi
+    figures:
+    - sql: SELECT SUM(person_days) FROM curated.v_employment WHERE TRUE AND lgd_district = 'RI BHOI'
+      unit: count
+  - q: break it down by block
+    pause: false
+    place: Ri Bhoi
+    rows:
+    - sql: SELECT lgd_block, SUM(person_days) FROM curated.v_employment WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district
+        = 'RI BHOI' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: which block has the lowest
+    pause: false
+    place: Ri Bhoi
+    rows:
+    - sql: SELECT lgd_block, SUM(person_days) FROM curated.v_employment WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district
+        = 'RI BHOI' GROUP BY 1 ORDER BY 2 ASC NULLS LAST, 1
+      unit: count
+      take: 1
+  - q: as a table
+    view: table
+- id: K4-MGNREGA-NORTHGAROH
+  kind: K4
+  scheme: MGNREGA
+  district: NORTH GARO HILLS
+  turns:
+  - q: MGNREGA person-days in North Garo Hills by block
+    pause: false
+    place: North Garo Hills
+    rows:
+    - sql: SELECT lgd_block, SUM(person_days) FROM curated.v_employment WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district
+        = 'NORTH GARO HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: only Resubelpara
+    pause: false
+    place: Resubelpara
+    figures:
+    - sql: SELECT SUM(person_days) FROM curated.v_employment WHERE TRUE AND lgd_district = 'NORTH GARO HILLS' AND lgd_block
+        = 'RESUBELPARA'
+      unit: count
+  - q: show it on the map
+    view: map
+- id: K5-MGNREGA-WESTJAINTI
+  kind: K5
+  scheme: MGNREGA
+  district: WEST JAINTIA HILLS
+  turns:
+  - q: MGNREGA person-days by district
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, SUM(person_days) FROM curated.v_employment WHERE TRUE AND lgd_district IS NOT NULL GROUP BY
+        1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: what about 2023-24
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, SUM(person_days) FROM curated.v_employment WHERE TRUE AND lgd_district IS NOT NULL AND year_key
+        = 2023 GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: break down West Jaintia Hills by block
+    pause: false
+    place: West Jaintia Hills
+    rows:
+    - sql: SELECT lgd_block, SUM(person_days) FROM curated.v_employment WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district
+        = 'WEST JAINTIA HILLS' AND year_key = 2023 GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+- id: K6-MGNREGA-SOUTHWESTG
+  kind: K6
+  scheme: MGNREGA
+  district: SOUTH WEST GARO HILLS
+  turns:
+  - q: can you break South West Garo Hills by the blocks for MGNREGA person-days
+    pause: false
+    place: South West Garo Hills
+    rows:
+    - sql: SELECT lgd_block, SUM(person_days) FROM curated.v_employment WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district
+        = 'SOUTH WEST GARO HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: and for East Garo Hills
+    pause: false
+    place: East Garo Hills
+    rows:
+    - sql: SELECT lgd_block, SUM(person_days) FROM curated.v_employment WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district
+        = 'EAST GARO HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: show it as a bar chart please
+    view: bar
+- id: K7-MGNREGA-WESTKHASIH
+  kind: K7
+  scheme: MGNREGA
+  district: WEST KHASI HILLS
+  turns:
+  - q: MGNREGA person-days by district
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, SUM(person_days) FROM curated.v_employment WHERE TRUE AND lgd_district IS NOT NULL GROUP BY
+        1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: West Khasi Hills block-wise
+    pause: false
+    place: West Khasi Hills
+    rows:
+    - sql: SELECT lgd_block, SUM(person_days) FROM curated.v_employment WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district
+        = 'WEST KHASI HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: the expenditure instead
+    pause: false
+    place: West Khasi Hills
+    rows:
+    - sql: SELECT lgd_block, ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND lgd_block IS NOT NULL AND
+        lgd_district = 'WEST KHASI HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: lakh
+      take: all
+- id: K8-MGNREGA-SOUTHGAROH
+  kind: K8
+  scheme: MGNREGA
+  district: SOUTH GARO HILLS
+  turns:
+  - q: breakdown by blocks of South Garo Hills
+    pause: true
+  - q: MGNREGA
+    pause: false
+    place: South Garo Hills
+    rows:
+    - sql: SELECT lgd_block, SUM(person_days) FROM curated.v_employment WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district
+        = 'SOUTH GARO HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+- id: K9-MGNREGA-EASTJAINTI
+  kind: K9
+  scheme: MGNREGA
+  district: EAST JAINTIA HILLS
+  turns:
+  - q: okay so um MGNREGA person-days by district please
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, SUM(person_days) FROM curated.v_employment WHERE TRUE AND lgd_district IS NOT NULL GROUP BY
+        1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: okay, now could you break down East Jaintia Hills by the blocks for the same
+    pause: false
+    place: East Jaintia Hills
+    rows:
+    - sql: SELECT lgd_block, SUM(person_days) FROM curated.v_employment WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district
+        = 'EAST JAINTIA HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: um which block is having the lowest
+    pause: false
+    place: East Jaintia Hills
+    rows:
+    - sql: SELECT lgd_block, SUM(person_days) FROM curated.v_employment WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district
+        = 'EAST JAINTIA HILLS' GROUP BY 1 ORDER BY 2 ASC NULLS LAST, 1
+      unit: count
+      take: 1
+  - q: in a line graph
+    view: line
+- id: K10-MGNREGA-SOUTHWESTK
+  kind: K10
+  scheme: MGNREGA
+  district: SOUTH WEST KHASI HILLS
+  turns:
+  - q: MGNREGA person-days by district
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, SUM(person_days) FROM curated.v_employment WHERE TRUE AND lgd_district IS NOT NULL GROUP BY
+        1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: show me South West Khasi Hills block-wise
+    pause: false
+    place: South West Khasi Hills
+    rows:
+    - sql: SELECT lgd_block, SUM(person_days) FROM curated.v_employment WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district
+        = 'SOUTH WEST KHASI HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: top 3
+    pause: false
+    place: South West Khasi Hills
+    rows:
+    - sql: SELECT lgd_block, SUM(person_days) FROM curated.v_employment WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district
+        = 'SOUTH WEST KHASI HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: 3
+  - q: on the map
+    view: map
+- id: K11-MGNREGA-EASTERNWES
+  kind: K11
+  scheme: MGNREGA
+  district: EASTERN WEST KHASI HILLS
+  turns:
+  - q: MGNREGA person-days by block in Eastern West Khasi Hills
+    pause: false
+    place: Eastern West Khasi Hills
+    rows:
+    - sql: SELECT lgd_block, SUM(person_days) FROM curated.v_employment WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district
+        = 'EASTERN WEST KHASI HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: which block has the most
+    pause: false
+    place: Eastern West Khasi Hills
+    rows:
+    - sql: SELECT lgd_block, SUM(person_days) FROM curated.v_employment WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district
+        = 'EASTERN WEST KHASI HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: 1
+  - q: give me this as a pie chart
+    view: pie
+- id: K1-PMAY-G-WESTGAROHI
+  kind: K1
+  scheme: PMAY-G
+  district: WEST GARO HILLS
+  turns:
+  - q: PMAY-G houses completed by district
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, COUNT(*) FROM curated.v_pmay WHERE is_completed AND lgd_district IS NOT NULL GROUP BY 1 ORDER
+        BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: can you break West Garo Hills by the blocks for the same
+    pause: false
+    place: West Garo Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_pmay WHERE is_completed AND lgd_block IS NOT NULL AND lgd_district =
+        'WEST GARO HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: which block has the most
+    pause: false
+    place: West Garo Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_pmay WHERE is_completed AND lgd_block IS NOT NULL AND lgd_district =
+        'WEST GARO HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: 1
+  - q: show this as a bar chart
+    view: bar
+- id: K2-PMAY-G-RIBHOI
+  kind: K2
+  scheme: PMAY-G
+  district: RI BHOI
+  turns:
+  - q: PMAY-G houses completed in Ri Bhoi
+    pause: false
+    place: Ri Bhoi
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_pmay WHERE is_completed AND lgd_district = 'RI BHOI'
+      unit: count
+  - q: break that down by block
+    pause: false
+    place: Ri Bhoi
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_pmay WHERE is_completed AND lgd_block IS NOT NULL AND lgd_district =
+        'RI BHOI' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: top 3
+    pause: false
+    place: Ri Bhoi
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_pmay WHERE is_completed AND lgd_block IS NOT NULL AND lgd_district =
+        'RI BHOI' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: 3
+  - q: as a pie
+    view: pie
+- id: K3-PMAY-G-NORTHGAROH
+  kind: K3
+  scheme: PMAY-G
+  district: NORTH GARO HILLS
+  turns:
+  - q: PMAY-G houses completed in North Garo Hills
+    pause: false
+    place: North Garo Hills
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_pmay WHERE is_completed AND lgd_district = 'NORTH GARO HILLS'
+      unit: count
+  - q: break it down by block
+    pause: false
+    place: North Garo Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_pmay WHERE is_completed AND lgd_block IS NOT NULL AND lgd_district =
+        'NORTH GARO HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: which block has the lowest
+    pause: false
+    place: North Garo Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_pmay WHERE is_completed AND lgd_block IS NOT NULL AND lgd_district =
+        'NORTH GARO HILLS' GROUP BY 1 ORDER BY 2 ASC NULLS LAST, 1
+      unit: count
+      take: 1
+  - q: as a table
+    view: table
+- id: K4-PMAY-G-WESTJAINTI
+  kind: K4
+  scheme: PMAY-G
+  district: WEST JAINTIA HILLS
+  turns:
+  - q: PMAY-G houses completed in West Jaintia Hills by block
+    pause: false
+    place: West Jaintia Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_pmay WHERE is_completed AND lgd_block IS NOT NULL AND lgd_district =
+        'WEST JAINTIA HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: only Laskein
+    pause: false
+    place: Laskein
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_pmay WHERE is_completed AND lgd_district = 'WEST JAINTIA HILLS' AND lgd_block =
+        'LASKEIN'
+      unit: count
+  - q: show it on the map
+    view: map
+- id: K5-PMAY-G-SOUTHWESTG
+  kind: K5
+  scheme: PMAY-G
+  district: SOUTH WEST GARO HILLS
+  turns:
+  - q: PMAY-G houses completed by district
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, COUNT(*) FROM curated.v_pmay WHERE is_completed AND lgd_district IS NOT NULL GROUP BY 1 ORDER
+        BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: what about 2022-23
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, COUNT(*) FROM curated.v_pmay WHERE is_completed AND lgd_district IS NOT NULL AND year_key
+        = 2022 GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: break down South West Garo Hills by block
+    pause: false
+    place: South West Garo Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_pmay WHERE is_completed AND lgd_block IS NOT NULL AND lgd_district =
+        'SOUTH WEST GARO HILLS' AND year_key = 2022 GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+- id: K6-PMAY-G-EASTGAROHI
+  kind: K6
+  scheme: PMAY-G
+  district: EAST GARO HILLS
+  turns:
+  - q: can you break East Garo Hills by the blocks for PMAY-G houses completed
+    pause: false
+    place: East Garo Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_pmay WHERE is_completed AND lgd_block IS NOT NULL AND lgd_district =
+        'EAST GARO HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: and for West Khasi Hills
+    pause: false
+    place: West Khasi Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_pmay WHERE is_completed AND lgd_block IS NOT NULL AND lgd_district =
+        'WEST KHASI HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: show it as a bar chart please
+    view: bar
+- id: K7-PMAY-G-SOUTHGAROH
+  kind: K7
+  scheme: PMAY-G
+  district: SOUTH GARO HILLS
+  turns:
+  - q: PMAY-G houses completed by district
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, COUNT(*) FROM curated.v_pmay WHERE is_completed AND lgd_district IS NOT NULL GROUP BY 1 ORDER
+        BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: South Garo Hills block-wise
+    pause: false
+    place: South Garo Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_pmay WHERE is_completed AND lgd_block IS NOT NULL AND lgd_district =
+        'SOUTH GARO HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: the amount released instead
+    pause: false
+    place: South Garo Hills
+    rows:
+    - sql: SELECT lgd_block, SUM(amount_released) FROM curated.v_pmay WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district
+        = 'SOUTH GARO HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: rupees
+      take: all
+- id: K8-PMAY-G-EASTJAINTI
+  kind: K8
+  scheme: PMAY-G
+  district: EAST JAINTIA HILLS
+  turns:
+  - q: breakdown by blocks of East Jaintia Hills
+    pause: true
+  - q: PMAY-G
+    pause: false
+    place: East Jaintia Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_pmay WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district = 'EAST JAINTIA
+        HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+- id: K9-PMAY-G-SOUTHWESTK
+  kind: K9
+  scheme: PMAY-G
+  district: SOUTH WEST KHASI HILLS
+  turns:
+  - q: okay so um PMAY-G houses completed by district please
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, COUNT(*) FROM curated.v_pmay WHERE is_completed AND lgd_district IS NOT NULL GROUP BY 1 ORDER
+        BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: okay, now could you break down South West Khasi Hills by the blocks for the same
+    pause: false
+    place: South West Khasi Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_pmay WHERE is_completed AND lgd_block IS NOT NULL AND lgd_district =
+        'SOUTH WEST KHASI HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: um which block is having the lowest
+    pause: false
+    place: South West Khasi Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_pmay WHERE is_completed AND lgd_block IS NOT NULL AND lgd_district =
+        'SOUTH WEST KHASI HILLS' GROUP BY 1 ORDER BY 2 ASC NULLS LAST, 1
+      unit: count
+      take: 1
+  - q: in a line graph
+    view: line
+- id: K10-PMAY-G-EASTERNWES
+  kind: K10
+  scheme: PMAY-G
+  district: EASTERN WEST KHASI HILLS
+  turns:
+  - q: PMAY-G houses completed by district
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, COUNT(*) FROM curated.v_pmay WHERE is_completed AND lgd_district IS NOT NULL GROUP BY 1 ORDER
+        BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: show me Eastern West Khasi Hills block-wise
+    pause: false
+    place: Eastern West Khasi Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_pmay WHERE is_completed AND lgd_block IS NOT NULL AND lgd_district =
+        'EASTERN WEST KHASI HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: top 3
+    pause: false
+    place: Eastern West Khasi Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_pmay WHERE is_completed AND lgd_block IS NOT NULL AND lgd_district =
+        'EASTERN WEST KHASI HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: 3
+  - q: on the map
+    view: map
+- id: K11-PMAY-G-EASTKHASIH
+  kind: K11
+  scheme: PMAY-G
+  district: EAST KHASI HILLS
+  turns:
+  - q: PMAY-G houses completed by block in East Khasi Hills
+    pause: false
+    place: East Khasi Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_pmay WHERE is_completed AND lgd_block IS NOT NULL AND lgd_district =
+        'EAST KHASI HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: which block has the most
+    pause: false
+    place: East Khasi Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_pmay WHERE is_completed AND lgd_block IS NOT NULL AND lgd_district =
+        'EAST KHASI HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: 1
+  - q: give me this as a pie chart
+    view: pie
+- id: K1-FocusPlus-RIBHOI
+  kind: K1
+  scheme: Focus Plus
+  district: RI BHOI
+  turns:
+  - q: Focus Plus beneficiaries by district
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE TRUE AND lgd_district IS NOT
+        NULL GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: okay, now could you break down Ri Bhoi by the blocks please
+    pause: false
+    place: Ri Bhoi
+    rows:
+    - sql: SELECT UPPER(block_name_raw), COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE TRUE AND UPPER(block_name_raw)
+        IS NOT NULL AND lgd_district = 'RI BHOI' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: which block has the most
+    pause: false
+    place: Ri Bhoi
+    rows:
+    - sql: SELECT UPPER(block_name_raw), COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE TRUE AND UPPER(block_name_raw)
+        IS NOT NULL AND lgd_district = 'RI BHOI' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: 1
+  - q: show this as a bar chart
+    view: bar
+- id: K2-FocusPlus-NORTHGAROH
+  kind: K2
+  scheme: Focus Plus
+  district: NORTH GARO HILLS
+  turns:
+  - q: Focus Plus beneficiaries in North Garo Hills
+    pause: false
+    place: North Garo Hills
+    figures:
+    - sql: SELECT COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE TRUE AND lgd_district = 'NORTH GARO HILLS'
+      unit: count
+  - q: break that down by block
+    pause: false
+    place: North Garo Hills
+    rows:
+    - sql: SELECT UPPER(block_name_raw), COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE TRUE AND UPPER(block_name_raw)
+        IS NOT NULL AND lgd_district = 'NORTH GARO HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: top 3
+    pause: false
+    place: North Garo Hills
+    rows:
+    - sql: SELECT UPPER(block_name_raw), COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE TRUE AND UPPER(block_name_raw)
+        IS NOT NULL AND lgd_district = 'NORTH GARO HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: 3
+  - q: as a pie
+    view: pie
+- id: K3-FocusPlus-WESTJAINTI
+  kind: K3
+  scheme: Focus Plus
+  district: WEST JAINTIA HILLS
+  turns:
+  - q: Focus Plus beneficiaries in West Jaintia Hills
+    pause: false
+    place: West Jaintia Hills
+    figures:
+    - sql: SELECT COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE TRUE AND lgd_district = 'WEST JAINTIA HILLS'
+      unit: count
+  - q: break it down by block
+    pause: false
+    place: West Jaintia Hills
+    rows:
+    - sql: SELECT UPPER(block_name_raw), COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE TRUE AND UPPER(block_name_raw)
+        IS NOT NULL AND lgd_district = 'WEST JAINTIA HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: which block has the lowest
+    pause: false
+    place: West Jaintia Hills
+    rows:
+    - sql: SELECT UPPER(block_name_raw), COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE TRUE AND UPPER(block_name_raw)
+        IS NOT NULL AND lgd_district = 'WEST JAINTIA HILLS' GROUP BY 1 ORDER BY 2 ASC NULLS LAST, 1
+      unit: count
+      take: 1
+  - q: as a table
+    view: table
+- id: K4-FocusPlus-SOUTHWESTG
+  kind: K4
+  scheme: Focus Plus
+  district: SOUTH WEST GARO HILLS
+  turns:
+  - q: Focus Plus beneficiaries in South West Garo Hills by block
+    pause: false
+    place: South West Garo Hills
+    rows:
+    - sql: SELECT UPPER(block_name_raw), COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE TRUE AND UPPER(block_name_raw)
+        IS NOT NULL AND lgd_district = 'SOUTH WEST GARO HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: only Zikzak
+    pause: false
+    place: Zikzak
+    figures:
+    - sql: SELECT COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE TRUE AND lgd_district = 'SOUTH WEST GARO
+        HILLS' AND UPPER(block_name_raw) = 'ZIKZAK'
+      unit: count
+  - q: show it on the map
+    view: map
+- id: K5-FocusPlus-EASTGAROHI
+  kind: K5
+  scheme: Focus Plus
+  district: EAST GARO HILLS
+  turns:
+  - q: Focus Plus beneficiaries by district
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE TRUE AND lgd_district IS NOT
+        NULL GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: what about 2025-26
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE TRUE AND lgd_district IS NOT
+        NULL AND year_key = 2025 GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: break down East Garo Hills by block
+    pause: false
+    place: East Garo Hills
+    rows:
+    - sql: SELECT UPPER(block_name_raw), COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE TRUE AND UPPER(block_name_raw)
+        IS NOT NULL AND lgd_district = 'EAST GARO HILLS' AND year_key = 2025 GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+- id: K6-FocusPlus-WESTKHASIH
+  kind: K6
+  scheme: Focus Plus
+  district: WEST KHASI HILLS
+  turns:
+  - q: can you break West Khasi Hills by the blocks for Focus Plus beneficiaries
+    pause: false
+    place: West Khasi Hills
+    rows:
+    - sql: SELECT UPPER(block_name_raw), COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE TRUE AND UPPER(block_name_raw)
+        IS NOT NULL AND lgd_district = 'WEST KHASI HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: and for South Garo Hills
+    pause: false
+    place: South Garo Hills
+    rows:
+    - sql: SELECT UPPER(block_name_raw), COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE TRUE AND UPPER(block_name_raw)
+        IS NOT NULL AND lgd_district = 'SOUTH GARO HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: show it as a bar chart please
+    view: bar
+- id: K7-FocusPlus-EASTJAINTI
+  kind: K7
+  scheme: Focus Plus
+  district: EAST JAINTIA HILLS
+  turns:
+  - q: Focus Plus beneficiaries by district
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE TRUE AND lgd_district IS NOT
+        NULL GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: East Jaintia Hills block-wise
+    pause: false
+    place: East Jaintia Hills
+    rows:
+    - sql: SELECT UPPER(block_name_raw), COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE TRUE AND UPPER(block_name_raw)
+        IS NOT NULL AND lgd_district = 'EAST JAINTIA HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: the amount disbursed instead
+    pause: false
+    place: East Jaintia Hills
+    rows:
+    - sql: SELECT UPPER(block_name_raw), SUM(amount_disbursed) FROM curated.v_focus_plus WHERE TRUE AND UPPER(block_name_raw)
+        IS NOT NULL AND lgd_district = 'EAST JAINTIA HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: rupees
+      take: all
+- id: K8-FocusPlus-SOUTHWESTK
+  kind: K8
+  scheme: Focus Plus
+  district: SOUTH WEST KHASI HILLS
+  turns:
+  - q: breakdown by blocks of South West Khasi Hills
+    pause: true
+  - q: Focus Plus
+    pause: false
+    place: South West Khasi Hills
+    rows:
+    - sql: SELECT UPPER(block_name_raw), COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE TRUE AND UPPER(block_name_raw)
+        IS NOT NULL AND lgd_district = 'SOUTH WEST KHASI HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+- id: K9-FocusPlus-EASTERNWES
+  kind: K9
+  scheme: Focus Plus
+  district: EASTERN WEST KHASI HILLS
+  turns:
+  - q: okay so um Focus Plus beneficiaries by district please
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE TRUE AND lgd_district IS NOT
+        NULL GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: okay, now could you break down Eastern West Khasi Hills by the blocks for the same
+    pause: false
+    place: Eastern West Khasi Hills
+    rows:
+    - sql: SELECT UPPER(block_name_raw), COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE TRUE AND UPPER(block_name_raw)
+        IS NOT NULL AND lgd_district = 'EASTERN WEST KHASI HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: um which block is having the lowest
+    pause: false
+    place: Eastern West Khasi Hills
+    rows:
+    - sql: SELECT UPPER(block_name_raw), COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE TRUE AND UPPER(block_name_raw)
+        IS NOT NULL AND lgd_district = 'EASTERN WEST KHASI HILLS' GROUP BY 1 ORDER BY 2 ASC NULLS LAST, 1
+      unit: count
+      take: 1
+  - q: in a line graph
+    view: line
+- id: K10-FocusPlus-EASTKHASIH
+  kind: K10
+  scheme: Focus Plus
+  district: EAST KHASI HILLS
+  turns:
+  - q: Focus Plus beneficiaries by district
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE TRUE AND lgd_district IS NOT
+        NULL GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: show me East Khasi Hills block-wise
+    pause: false
+    place: East Khasi Hills
+    rows:
+    - sql: SELECT UPPER(block_name_raw), COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE TRUE AND UPPER(block_name_raw)
+        IS NOT NULL AND lgd_district = 'EAST KHASI HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: top 3
+    pause: false
+    place: East Khasi Hills
+    rows:
+    - sql: SELECT UPPER(block_name_raw), COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE TRUE AND UPPER(block_name_raw)
+        IS NOT NULL AND lgd_district = 'EAST KHASI HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: 3
+  - q: on the map
+    view: map
+- id: K11-FocusPlus-WESTGAROHI
+  kind: K11
+  scheme: Focus Plus
+  district: WEST GARO HILLS
+  turns:
+  - q: Focus Plus beneficiaries by block in West Garo Hills
+    pause: false
+    place: West Garo Hills
+    rows:
+    - sql: SELECT UPPER(block_name_raw), COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE TRUE AND UPPER(block_name_raw)
+        IS NOT NULL AND lgd_district = 'WEST GARO HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: which block has the most
+    pause: false
+    place: West Garo Hills
+    rows:
+    - sql: SELECT UPPER(block_name_raw), COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE TRUE AND UPPER(block_name_raw)
+        IS NOT NULL AND lgd_district = 'WEST GARO HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: 1
+  - q: give me this as a pie chart
+    view: pie
+- id: K1-FocusLegacy-NORTHGAROH
+  kind: K1
+  scheme: Focus Legacy
+  district: NORTH GARO HILLS
+  turns:
+  - q: Focus Legacy amount disbursed by district
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE TRUE AND lgd_district IS NOT NULL
+        GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: rupees
+      take: all
+  - q: North Garo Hills block-wise
+    pause: false
+    place: North Garo Hills
+    rows:
+    - sql: SELECT lgd_block, SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district
+        = 'NORTH GARO HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: rupees
+      take: all
+  - q: which block has the most
+    pause: false
+    place: North Garo Hills
+    rows:
+    - sql: SELECT lgd_block, SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district
+        = 'NORTH GARO HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: rupees
+      take: 1
+  - q: show this as a bar chart
+    view: bar
+- id: K2-FocusLegacy-WESTJAINTI
+  kind: K2
+  scheme: Focus Legacy
+  district: WEST JAINTIA HILLS
+  turns:
+  - q: Focus Legacy amount disbursed in West Jaintia Hills
+    pause: false
+    place: West Jaintia Hills
+    figures:
+    - sql: SELECT SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE TRUE AND lgd_district = 'WEST JAINTIA HILLS'
+      unit: rupees
+  - q: break that down by block
+    pause: false
+    place: West Jaintia Hills
+    rows:
+    - sql: SELECT lgd_block, SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district
+        = 'WEST JAINTIA HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: rupees
+      take: all
+  - q: top 3
+    pause: false
+    place: West Jaintia Hills
+    rows:
+    - sql: SELECT lgd_block, SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district
+        = 'WEST JAINTIA HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: rupees
+      take: 3
+  - q: as a pie
+    view: pie
+- id: K3-FocusLegacy-SOUTHWESTG
+  kind: K3
+  scheme: Focus Legacy
+  district: SOUTH WEST GARO HILLS
+  turns:
+  - q: Focus Legacy amount disbursed in South West Garo Hills
+    pause: false
+    place: South West Garo Hills
+    figures:
+    - sql: SELECT SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE TRUE AND lgd_district = 'SOUTH WEST GARO HILLS'
+      unit: rupees
+  - q: break it down by block
+    pause: false
+    place: South West Garo Hills
+    rows:
+    - sql: SELECT lgd_block, SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district
+        = 'SOUTH WEST GARO HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: rupees
+      take: all
+  - q: which block has the lowest
+    pause: false
+    place: South West Garo Hills
+    rows:
+    - sql: SELECT lgd_block, SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district
+        = 'SOUTH WEST GARO HILLS' GROUP BY 1 ORDER BY 2 ASC NULLS LAST, 1
+      unit: rupees
+      take: 1
+  - q: as a table
+    view: table
+- id: K4-FocusLegacy-EASTGAROHI
+  kind: K4
+  scheme: Focus Legacy
+  district: EAST GARO HILLS
+  turns:
+  - q: Focus Legacy amount disbursed in East Garo Hills by block
+    pause: false
+    place: East Garo Hills
+    rows:
+    - sql: SELECT lgd_block, SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district
+        = 'EAST GARO HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: rupees
+      take: all
+  - q: only Samanda
+    pause: false
+    place: Samanda
+    figures:
+    - sql: SELECT SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE TRUE AND lgd_district = 'EAST GARO HILLS' AND lgd_block
+        = 'SAMANDA'
+      unit: rupees
+  - q: show it on the map
+    view: map
+- id: K5-FocusLegacy-WESTKHASIH
+  kind: K5
+  scheme: Focus Legacy
+  district: WEST KHASI HILLS
+  turns:
+  - q: Focus Legacy amount disbursed by district
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE TRUE AND lgd_district IS NOT NULL
+        GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: rupees
+      take: all
+  - q: what about 2024-25
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE TRUE AND lgd_district IS NOT NULL
+        AND year_key = 2024 GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: rupees
+      take: all
+  - q: break down West Khasi Hills by block
+    pause: false
+    place: West Khasi Hills
+    rows:
+    - sql: SELECT lgd_block, SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district
+        = 'WEST KHASI HILLS' AND year_key = 2024 GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: rupees
+      take: all
+- id: K6-FocusLegacy-SOUTHGAROH
+  kind: K6
+  scheme: Focus Legacy
+  district: SOUTH GARO HILLS
+  turns:
+  - q: can you break South Garo Hills by the blocks for Focus Legacy amount disbursed
+    pause: false
+    place: South Garo Hills
+    rows:
+    - sql: SELECT lgd_block, SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district
+        = 'SOUTH GARO HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: rupees
+      take: all
+  - q: and for East Jaintia Hills
+    pause: false
+    place: East Jaintia Hills
+    rows:
+    - sql: SELECT lgd_block, SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district
+        = 'EAST JAINTIA HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: rupees
+      take: all
+  - q: show it as a bar chart please
+    view: bar
+- id: K7-FocusLegacy-SOUTHWESTK
+  kind: K7
+  scheme: Focus Legacy
+  district: SOUTH WEST KHASI HILLS
+  turns:
+  - q: Focus Legacy amount disbursed by district
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE TRUE AND lgd_district IS NOT NULL
+        GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: rupees
+      take: all
+  - q: South West Khasi Hills block-wise
+    pause: false
+    place: South West Khasi Hills
+    rows:
+    - sql: SELECT lgd_block, SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district
+        = 'SOUTH WEST KHASI HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: rupees
+      take: all
+  - q: the producer groups instead
+    pause: false
+    place: South West Khasi Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district
+        = 'SOUTH WEST KHASI HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+- id: K8-FocusLegacy-EASTERNWES
+  kind: K8
+  scheme: Focus Legacy
+  district: EASTERN WEST KHASI HILLS
+  turns:
+  - q: breakdown by blocks of Eastern West Khasi Hills
+    pause: true
+  - q: Focus Legacy
+    pause: false
+    place: Eastern West Khasi Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district
+        = 'EASTERN WEST KHASI HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+- id: K9-FocusLegacy-EASTKHASIH
+  kind: K9
+  scheme: Focus Legacy
+  district: EAST KHASI HILLS
+  turns:
+  - q: okay so um Focus Legacy amount disbursed by district please
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE TRUE AND lgd_district IS NOT NULL
+        GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: rupees
+      take: all
+  - q: okay, now could you break down East Khasi Hills by the blocks for the same
+    pause: false
+    place: East Khasi Hills
+    rows:
+    - sql: SELECT lgd_block, SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district
+        = 'EAST KHASI HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: rupees
+      take: all
+  - q: um which block is having the lowest
+    pause: false
+    place: East Khasi Hills
+    rows:
+    - sql: SELECT lgd_block, SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district
+        = 'EAST KHASI HILLS' GROUP BY 1 ORDER BY 2 ASC NULLS LAST, 1
+      unit: rupees
+      take: 1
+  - q: in a line graph
+    view: line
+- id: K10-FocusLegacy-WESTGAROHI
+  kind: K10
+  scheme: Focus Legacy
+  district: WEST GARO HILLS
+  turns:
+  - q: Focus Legacy amount disbursed by district
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE TRUE AND lgd_district IS NOT NULL
+        GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: rupees
+      take: all
+  - q: show me West Garo Hills block-wise
+    pause: false
+    place: West Garo Hills
+    rows:
+    - sql: SELECT lgd_block, SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district
+        = 'WEST GARO HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: rupees
+      take: all
+  - q: top 3
+    pause: false
+    place: West Garo Hills
+    rows:
+    - sql: SELECT lgd_block, SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district
+        = 'WEST GARO HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: rupees
+      take: 3
+  - q: on the map
+    view: map
+- id: K11-FocusLegacy-RIBHOI
+  kind: K11
+  scheme: Focus Legacy
+  district: RI BHOI
+  turns:
+  - q: Focus Legacy amount disbursed by block in Ri Bhoi
+    pause: false
+    place: Ri Bhoi
+    rows:
+    - sql: SELECT lgd_block, SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district
+        = 'RI BHOI' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: rupees
+      take: all
+  - q: which block has the most
+    pause: false
+    place: Ri Bhoi
+    rows:
+    - sql: SELECT lgd_block, SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district
+        = 'RI BHOI' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: rupees
+      take: 1
+  - q: give me this as a pie chart
+    view: pie
+- id: K1-CMElevate-WESTJAINTI
+  kind: K1
+  scheme: CM Elevate
+  district: WEST JAINTIA HILLS
+  turns:
+  - q: CM Elevate applications by district
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, COUNT(DISTINCT request_id) FROM curated.v_cm_elevate WHERE data_verified = 'Valid' AND lgd_district
+        IS NOT NULL GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: can you break down West Jaintia Hills by the blocks
+    pause: false
+    place: West Jaintia Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(DISTINCT request_id) FROM curated.v_cm_elevate WHERE data_verified = 'Valid' AND lgd_block
+        IS NOT NULL AND lgd_district = 'WEST JAINTIA HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: which block has the most
+    pause: false
+    place: West Jaintia Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(DISTINCT request_id) FROM curated.v_cm_elevate WHERE data_verified = 'Valid' AND lgd_block
+        IS NOT NULL AND lgd_district = 'WEST JAINTIA HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: 1
+  - q: show this as a bar chart
+    view: bar
+- id: K2-CMElevate-SOUTHWESTG
+  kind: K2
+  scheme: CM Elevate
+  district: SOUTH WEST GARO HILLS
+  turns:
+  - q: CM Elevate applications in South West Garo Hills
+    pause: false
+    place: South West Garo Hills
+    figures:
+    - sql: SELECT COUNT(DISTINCT request_id) FROM curated.v_cm_elevate WHERE data_verified = 'Valid' AND lgd_district = 'SOUTH
+        WEST GARO HILLS'
+      unit: count
+  - q: break that down by block
+    pause: false
+    place: South West Garo Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(DISTINCT request_id) FROM curated.v_cm_elevate WHERE data_verified = 'Valid' AND lgd_block
+        IS NOT NULL AND lgd_district = 'SOUTH WEST GARO HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: top 3
+    pause: false
+    place: South West Garo Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(DISTINCT request_id) FROM curated.v_cm_elevate WHERE data_verified = 'Valid' AND lgd_block
+        IS NOT NULL AND lgd_district = 'SOUTH WEST GARO HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: 3
+  - q: as a pie
+    view: pie
+- id: K3-CMElevate-EASTGAROHI
+  kind: K3
+  scheme: CM Elevate
+  district: EAST GARO HILLS
+  turns:
+  - q: CM Elevate applications in East Garo Hills
+    pause: false
+    place: East Garo Hills
+    figures:
+    - sql: SELECT COUNT(DISTINCT request_id) FROM curated.v_cm_elevate WHERE data_verified = 'Valid' AND lgd_district = 'EAST
+        GARO HILLS'
+      unit: count
+  - q: break it down by block
+    pause: false
+    place: East Garo Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(DISTINCT request_id) FROM curated.v_cm_elevate WHERE data_verified = 'Valid' AND lgd_block
+        IS NOT NULL AND lgd_district = 'EAST GARO HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: which block has the lowest
+    pause: false
+    place: East Garo Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(DISTINCT request_id) FROM curated.v_cm_elevate WHERE data_verified = 'Valid' AND lgd_block
+        IS NOT NULL AND lgd_district = 'EAST GARO HILLS' GROUP BY 1 ORDER BY 2 ASC NULLS LAST, 1
+      unit: count
+      take: 1
+  - q: as a table
+    view: table
+- id: K4-CMElevate-WESTKHASIH
+  kind: K4
+  scheme: CM Elevate
+  district: WEST KHASI HILLS
+  turns:
+  - q: CM Elevate applications in West Khasi Hills by block
+    pause: false
+    place: West Khasi Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(DISTINCT request_id) FROM curated.v_cm_elevate WHERE data_verified = 'Valid' AND lgd_block
+        IS NOT NULL AND lgd_district = 'WEST KHASI HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: only Nongstoin
+    pause: false
+    place: Nongstoin
+    figures:
+    - sql: SELECT COUNT(DISTINCT request_id) FROM curated.v_cm_elevate WHERE data_verified = 'Valid' AND lgd_district = 'WEST
+        KHASI HILLS' AND lgd_block = 'NONGSTOIN'
+      unit: count
+  - q: show it on the map
+    view: map
+- id: K6-CMElevate-EASTJAINTI
+  kind: K6
+  scheme: CM Elevate
+  district: EAST JAINTIA HILLS
+  turns:
+  - q: can you break East Jaintia Hills by the blocks for CM Elevate applications
+    pause: false
+    place: East Jaintia Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(DISTINCT request_id) FROM curated.v_cm_elevate WHERE data_verified = 'Valid' AND lgd_block
+        IS NOT NULL AND lgd_district = 'EAST JAINTIA HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: and for South West Khasi Hills
+    pause: false
+    place: South West Khasi Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(DISTINCT request_id) FROM curated.v_cm_elevate WHERE data_verified = 'Valid' AND lgd_block
+        IS NOT NULL AND lgd_district = 'SOUTH WEST KHASI HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: show it as a bar chart please
+    view: bar
+- id: K8-CMElevate-EASTKHASIH
+  kind: K8
+  scheme: CM Elevate
+  district: EAST KHASI HILLS
+  turns:
+  - q: breakdown by blocks of East Khasi Hills
+    pause: true
+  - q: CM Elevate
+    pause: false
+    place: East Khasi Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(DISTINCT request_id) FROM curated.v_cm_elevate WHERE data_verified = 'Valid' AND lgd_block
+        IS NOT NULL AND lgd_district = 'EAST KHASI HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+- id: K9-CMElevate-WESTGAROHI
+  kind: K9
+  scheme: CM Elevate
+  district: WEST GARO HILLS
+  turns:
+  - q: okay so um CM Elevate applications by district please
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, COUNT(DISTINCT request_id) FROM curated.v_cm_elevate WHERE data_verified = 'Valid' AND lgd_district
+        IS NOT NULL GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: okay, now could you break down West Garo Hills by the blocks for the same
+    pause: false
+    place: West Garo Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(DISTINCT request_id) FROM curated.v_cm_elevate WHERE data_verified = 'Valid' AND lgd_block
+        IS NOT NULL AND lgd_district = 'WEST GARO HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: um which block is having the lowest
+    pause: false
+    place: West Garo Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(DISTINCT request_id) FROM curated.v_cm_elevate WHERE data_verified = 'Valid' AND lgd_block
+        IS NOT NULL AND lgd_district = 'WEST GARO HILLS' GROUP BY 1 ORDER BY 2 ASC NULLS LAST, 1
+      unit: count
+      take: 1
+  - q: in a line graph
+    view: line
+- id: K10-CMElevate-RIBHOI
+  kind: K10
+  scheme: CM Elevate
+  district: RI BHOI
+  turns:
+  - q: CM Elevate applications by district
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, COUNT(DISTINCT request_id) FROM curated.v_cm_elevate WHERE data_verified = 'Valid' AND lgd_district
+        IS NOT NULL GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: show me Ri Bhoi block-wise
+    pause: false
+    place: Ri Bhoi
+    rows:
+    - sql: SELECT lgd_block, COUNT(DISTINCT request_id) FROM curated.v_cm_elevate WHERE data_verified = 'Valid' AND lgd_block
+        IS NOT NULL AND lgd_district = 'RI BHOI' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: top 3
+    pause: false
+    place: Ri Bhoi
+    rows:
+    - sql: SELECT lgd_block, COUNT(DISTINCT request_id) FROM curated.v_cm_elevate WHERE data_verified = 'Valid' AND lgd_block
+        IS NOT NULL AND lgd_district = 'RI BHOI' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: 3
+  - q: on the map
+    view: map
+- id: K11-CMElevate-NORTHGAROH
+  kind: K11
+  scheme: CM Elevate
+  district: NORTH GARO HILLS
+  turns:
+  - q: CM Elevate applications by block in North Garo Hills
+    pause: false
+    place: North Garo Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(DISTINCT request_id) FROM curated.v_cm_elevate WHERE data_verified = 'Valid' AND lgd_block
+        IS NOT NULL AND lgd_district = 'NORTH GARO HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: which block has the most
+    pause: false
+    place: North Garo Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(DISTINCT request_id) FROM curated.v_cm_elevate WHERE data_verified = 'Valid' AND lgd_block
+        IS NOT NULL AND lgd_district = 'NORTH GARO HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: 1
+  - q: give me this as a pie chart
+    view: pie
+- id: K1-CMElevateLegacy-SOUTHWESTG
+  kind: K1
+  scheme: CM Elevate Legacy
+  district: SOUTH WEST GARO HILLS
+  turns:
+  - q: CM Elevate Legacy total disbursed by district
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, SUM(total_disbursement) FROM curated.v_cm_elevate_disbursement WHERE TRUE AND lgd_district
+        IS NOT NULL GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: rupees
+      take: all
+  - q: break down South West Garo Hills by the block for the same
+    pause: false
+    place: South West Garo Hills
+    rows:
+    - sql: SELECT lgd_block, SUM(total_disbursement) FROM curated.v_cm_elevate_disbursement WHERE TRUE AND lgd_block IS NOT
+        NULL AND lgd_district = 'SOUTH WEST GARO HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: rupees
+      take: all
+  - q: which block has the most
+    pause: false
+    place: South West Garo Hills
+    rows:
+    - sql: SELECT lgd_block, SUM(total_disbursement) FROM curated.v_cm_elevate_disbursement WHERE TRUE AND lgd_block IS NOT
+        NULL AND lgd_district = 'SOUTH WEST GARO HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: rupees
+      take: 1
+  - q: show this as a bar chart
+    view: bar
+- id: K2-CMElevateLegacy-EASTGAROHI
+  kind: K2
+  scheme: CM Elevate Legacy
+  district: EAST GARO HILLS
+  turns:
+  - q: CM Elevate Legacy total disbursed in East Garo Hills
+    pause: false
+    place: East Garo Hills
+    figures:
+    - sql: SELECT SUM(total_disbursement) FROM curated.v_cm_elevate_disbursement WHERE TRUE AND lgd_district = 'EAST GARO
+        HILLS'
+      unit: rupees
+  - q: break that down by block
+    pause: false
+    place: East Garo Hills
+    rows:
+    - sql: SELECT lgd_block, SUM(total_disbursement) FROM curated.v_cm_elevate_disbursement WHERE TRUE AND lgd_block IS NOT
+        NULL AND lgd_district = 'EAST GARO HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: rupees
+      take: all
+  - q: top 3
+    pause: false
+    place: East Garo Hills
+    rows:
+    - sql: SELECT lgd_block, SUM(total_disbursement) FROM curated.v_cm_elevate_disbursement WHERE TRUE AND lgd_block IS NOT
+        NULL AND lgd_district = 'EAST GARO HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: rupees
+      take: 3
+  - q: as a pie
+    view: pie
+- id: K3-CMElevateLegacy-WESTKHASIH
+  kind: K3
+  scheme: CM Elevate Legacy
+  district: WEST KHASI HILLS
+  turns:
+  - q: CM Elevate Legacy total disbursed in West Khasi Hills
+    pause: false
+    place: West Khasi Hills
+    figures:
+    - sql: SELECT SUM(total_disbursement) FROM curated.v_cm_elevate_disbursement WHERE TRUE AND lgd_district = 'WEST KHASI
+        HILLS'
+      unit: rupees
+  - q: break it down by block
+    pause: false
+    place: West Khasi Hills
+    rows:
+    - sql: SELECT lgd_block, SUM(total_disbursement) FROM curated.v_cm_elevate_disbursement WHERE TRUE AND lgd_block IS NOT
+        NULL AND lgd_district = 'WEST KHASI HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: rupees
+      take: all
+  - q: which block has the lowest
+    pause: false
+    place: West Khasi Hills
+    rows:
+    - sql: SELECT lgd_block, SUM(total_disbursement) FROM curated.v_cm_elevate_disbursement WHERE TRUE AND lgd_block IS NOT
+        NULL AND lgd_district = 'WEST KHASI HILLS' GROUP BY 1 ORDER BY 2 ASC NULLS LAST, 1
+      unit: rupees
+      take: 1
+  - q: as a table
+    view: table
+- id: K4-CMElevateLegacy-SOUTHGAROH
+  kind: K4
+  scheme: CM Elevate Legacy
+  district: SOUTH GARO HILLS
+  turns:
+  - q: CM Elevate Legacy total disbursed in South Garo Hills by block
+    pause: false
+    place: South Garo Hills
+    rows:
+    - sql: SELECT lgd_block, SUM(total_disbursement) FROM curated.v_cm_elevate_disbursement WHERE TRUE AND lgd_block IS NOT
+        NULL AND lgd_district = 'SOUTH GARO HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: rupees
+      take: all
+  - q: only Chokpot
+    pause: false
+    place: Chokpot
+    figures:
+    - sql: SELECT SUM(total_disbursement) FROM curated.v_cm_elevate_disbursement WHERE TRUE AND lgd_district = 'SOUTH GARO
+        HILLS' AND lgd_block = 'CHOKPOT'
+      unit: rupees
+  - q: show it on the map
+    view: map
+- id: K5-CMElevateLegacy-EASTJAINTI
+  kind: K5
+  scheme: CM Elevate Legacy
+  district: EAST JAINTIA HILLS
+  turns:
+  - q: CM Elevate Legacy total disbursed by district
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, SUM(total_disbursement) FROM curated.v_cm_elevate_disbursement WHERE TRUE AND lgd_district
+        IS NOT NULL GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: rupees
+      take: all
+  - q: what about 2024-25
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, SUM(total_disbursement) FROM curated.v_cm_elevate_disbursement WHERE TRUE AND lgd_district
+        IS NOT NULL AND year_key = 2024 GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: rupees
+      take: all
+  - q: break down East Jaintia Hills by block
+    pause: false
+    place: East Jaintia Hills
+    rows:
+    - sql: SELECT lgd_block, SUM(total_disbursement) FROM curated.v_cm_elevate_disbursement WHERE TRUE AND lgd_block IS NOT
+        NULL AND lgd_district = 'EAST JAINTIA HILLS' AND year_key = 2024 GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: rupees
+      take: all
+- id: K6-CMElevateLegacy-SOUTHWESTK
+  kind: K6
+  scheme: CM Elevate Legacy
+  district: SOUTH WEST KHASI HILLS
+  turns:
+  - q: can you break South West Khasi Hills by the blocks for CM Elevate Legacy total disbursed
+    pause: false
+    place: South West Khasi Hills
+    rows:
+    - sql: SELECT lgd_block, SUM(total_disbursement) FROM curated.v_cm_elevate_disbursement WHERE TRUE AND lgd_block IS NOT
+        NULL AND lgd_district = 'SOUTH WEST KHASI HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: rupees
+      take: all
+  - q: and for Eastern West Khasi Hills
+    pause: false
+    place: Eastern West Khasi Hills
+    rows:
+    - sql: SELECT lgd_block, SUM(total_disbursement) FROM curated.v_cm_elevate_disbursement WHERE TRUE AND lgd_block IS NOT
+        NULL AND lgd_district = 'EASTERN WEST KHASI HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: rupees
+      take: all
+  - q: show it as a bar chart please
+    view: bar
+- id: K7-CMElevateLegacy-EASTKHASIH
+  kind: K7
+  scheme: CM Elevate Legacy
+  district: EAST KHASI HILLS
+  turns:
+  - q: CM Elevate Legacy total disbursed by district
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, SUM(total_disbursement) FROM curated.v_cm_elevate_disbursement WHERE TRUE AND lgd_district
+        IS NOT NULL GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: rupees
+      take: all
+  - q: East Khasi Hills block-wise
+    pause: false
+    place: East Khasi Hills
+    rows:
+    - sql: SELECT lgd_block, SUM(total_disbursement) FROM curated.v_cm_elevate_disbursement WHERE TRUE AND lgd_block IS NOT
+        NULL AND lgd_district = 'EAST KHASI HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: rupees
+      take: all
+  - q: the sanctioned amount instead
+    pause: false
+    place: East Khasi Hills
+    rows:
+    - sql: SELECT lgd_block, SUM(sanctioned_amount) FROM curated.v_cm_elevate_disbursement WHERE TRUE AND lgd_block IS NOT
+        NULL AND lgd_district = 'EAST KHASI HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: rupees
+      take: all
+- id: K9-CMElevateLegacy-RIBHOI
+  kind: K9
+  scheme: CM Elevate Legacy
+  district: RI BHOI
+  turns:
+  - q: okay so um CM Elevate Legacy total disbursed by district please
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, SUM(total_disbursement) FROM curated.v_cm_elevate_disbursement WHERE TRUE AND lgd_district
+        IS NOT NULL GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: rupees
+      take: all
+  - q: okay, now could you break down Ri Bhoi by the blocks for the same
+    pause: false
+    place: Ri Bhoi
+    rows:
+    - sql: SELECT lgd_block, SUM(total_disbursement) FROM curated.v_cm_elevate_disbursement WHERE TRUE AND lgd_block IS NOT
+        NULL AND lgd_district = 'RI BHOI' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: rupees
+      take: all
+  - q: um which block is having the lowest
+    pause: false
+    place: Ri Bhoi
+    rows:
+    - sql: SELECT lgd_block, SUM(total_disbursement) FROM curated.v_cm_elevate_disbursement WHERE TRUE AND lgd_block IS NOT
+        NULL AND lgd_district = 'RI BHOI' GROUP BY 1 ORDER BY 2 ASC NULLS LAST, 1
+      unit: rupees
+      take: 1
+  - q: in a line graph
+    view: line
+- id: K10-CMElevateLegacy-NORTHGAROH
+  kind: K10
+  scheme: CM Elevate Legacy
+  district: NORTH GARO HILLS
+  turns:
+  - q: CM Elevate Legacy total disbursed by district
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, SUM(total_disbursement) FROM curated.v_cm_elevate_disbursement WHERE TRUE AND lgd_district
+        IS NOT NULL GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: rupees
+      take: all
+  - q: show me North Garo Hills block-wise
+    pause: false
+    place: North Garo Hills
+    rows:
+    - sql: SELECT lgd_block, SUM(total_disbursement) FROM curated.v_cm_elevate_disbursement WHERE TRUE AND lgd_block IS NOT
+        NULL AND lgd_district = 'NORTH GARO HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: rupees
+      take: all
+  - q: top 3
+    pause: false
+    place: North Garo Hills
+    rows:
+    - sql: SELECT lgd_block, SUM(total_disbursement) FROM curated.v_cm_elevate_disbursement WHERE TRUE AND lgd_block IS NOT
+        NULL AND lgd_district = 'NORTH GARO HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: rupees
+      take: 3
+  - q: on the map
+    view: map
+- id: K11-CMElevateLegacy-WESTJAINTI
+  kind: K11
+  scheme: CM Elevate Legacy
+  district: WEST JAINTIA HILLS
+  turns:
+  - q: CM Elevate Legacy total disbursed by block in West Jaintia Hills
+    pause: false
+    place: West Jaintia Hills
+    rows:
+    - sql: SELECT lgd_block, SUM(total_disbursement) FROM curated.v_cm_elevate_disbursement WHERE TRUE AND lgd_block IS NOT
+        NULL AND lgd_district = 'WEST JAINTIA HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: rupees
+      take: all
+  - q: which block has the most
+    pause: false
+    place: West Jaintia Hills
+    rows:
+    - sql: SELECT lgd_block, SUM(total_disbursement) FROM curated.v_cm_elevate_disbursement WHERE TRUE AND lgd_block IS NOT
+        NULL AND lgd_district = 'WEST JAINTIA HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: rupees
+      take: 1
+  - q: give me this as a pie chart
+    view: pie
+- id: K1-CMSS-EASTGAROHI
+  kind: K1
+  scheme: CMSS
+  district: EAST GARO HILLS
+  turns:
+  - q: CMSS students paid by district
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, COUNT(*) FROM curated.v_cmss WHERE is_disbursed AND lgd_district IS NOT NULL GROUP BY 1 ORDER
+        BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: break down East Garo Hills by block
+    pause: false
+    place: East Garo Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_cmss WHERE is_disbursed AND lgd_block IS NOT NULL AND lgd_district =
+        'EAST GARO HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: which block has the most
+    pause: false
+    place: East Garo Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_cmss WHERE is_disbursed AND lgd_block IS NOT NULL AND lgd_district =
+        'EAST GARO HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: 1
+  - q: show this as a bar chart
+    view: bar
+- id: K2-CMSS-WESTKHASIH
+  kind: K2
+  scheme: CMSS
+  district: WEST KHASI HILLS
+  turns:
+  - q: CMSS students paid in West Khasi Hills
+    pause: false
+    place: West Khasi Hills
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_cmss WHERE is_disbursed AND lgd_district = 'WEST KHASI HILLS'
+      unit: count
+  - q: break that down by block
+    pause: false
+    place: West Khasi Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_cmss WHERE is_disbursed AND lgd_block IS NOT NULL AND lgd_district =
+        'WEST KHASI HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: top 3
+    pause: false
+    place: West Khasi Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_cmss WHERE is_disbursed AND lgd_block IS NOT NULL AND lgd_district =
+        'WEST KHASI HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: 3
+  - q: as a pie
+    view: pie
+- id: K3-CMSS-SOUTHGAROH
+  kind: K3
+  scheme: CMSS
+  district: SOUTH GARO HILLS
+  turns:
+  - q: CMSS students paid in South Garo Hills
+    pause: false
+    place: South Garo Hills
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_cmss WHERE is_disbursed AND lgd_district = 'SOUTH GARO HILLS'
+      unit: count
+  - q: break it down by block
+    pause: false
+    place: South Garo Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_cmss WHERE is_disbursed AND lgd_block IS NOT NULL AND lgd_district =
+        'SOUTH GARO HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: which block has the lowest
+    pause: false
+    place: South Garo Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_cmss WHERE is_disbursed AND lgd_block IS NOT NULL AND lgd_district =
+        'SOUTH GARO HILLS' GROUP BY 1 ORDER BY 2 ASC NULLS LAST, 1
+      unit: count
+      take: 1
+  - q: as a table
+    view: table
+- id: K4-CMSS-EASTJAINTI
+  kind: K4
+  scheme: CMSS
+  district: EAST JAINTIA HILLS
+  turns:
+  - q: CMSS students paid in East Jaintia Hills by block
+    pause: false
+    place: East Jaintia Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_cmss WHERE is_disbursed AND lgd_block IS NOT NULL AND lgd_district =
+        'EAST JAINTIA HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: only Wapung
+    pause: false
+    place: Wapung
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_cmss WHERE is_disbursed AND lgd_district = 'EAST JAINTIA HILLS' AND lgd_block =
+        'WAPUNG'
+      unit: count
+  - q: show it on the map
+    view: map
+- id: K6-CMSS-EASTERNWES
+  kind: K6
+  scheme: CMSS
+  district: EASTERN WEST KHASI HILLS
+  turns:
+  - q: can you break Eastern West Khasi Hills by the blocks for CMSS students paid
+    pause: false
+    place: Eastern West Khasi Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_cmss WHERE is_disbursed AND lgd_block IS NOT NULL AND lgd_district =
+        'EASTERN WEST KHASI HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: and for East Khasi Hills
+    pause: false
+    place: East Khasi Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_cmss WHERE is_disbursed AND lgd_block IS NOT NULL AND lgd_district =
+        'EAST KHASI HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: show it as a bar chart please
+    view: bar
+- id: K7-CMSS-WESTGAROHI
+  kind: K7
+  scheme: CMSS
+  district: WEST GARO HILLS
+  turns:
+  - q: CMSS students paid by district
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, COUNT(*) FROM curated.v_cmss WHERE is_disbursed AND lgd_district IS NOT NULL GROUP BY 1 ORDER
+        BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: West Garo Hills block-wise
+    pause: false
+    place: West Garo Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_cmss WHERE is_disbursed AND lgd_block IS NOT NULL AND lgd_district =
+        'WEST GARO HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: the amount disbursed instead
+    pause: false
+    place: West Garo Hills
+    rows:
+    - sql: SELECT lgd_block, SUM(amount_disbursed) FROM curated.v_cmss WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district
+        = 'WEST GARO HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: rupees
+      take: all
+- id: K8-CMSS-RIBHOI
+  kind: K8
+  scheme: CMSS
+  district: RI BHOI
+  turns:
+  - q: breakdown by blocks of Ri Bhoi
+    pause: true
+  - q: CMSS
+    pause: false
+    place: Ri Bhoi
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_cmss WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district = 'RI BHOI'
+        GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+- id: K9-CMSS-NORTHGAROH
+  kind: K9
+  scheme: CMSS
+  district: NORTH GARO HILLS
+  turns:
+  - q: okay so um CMSS students paid by district please
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, COUNT(*) FROM curated.v_cmss WHERE is_disbursed AND lgd_district IS NOT NULL GROUP BY 1 ORDER
+        BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: okay, now could you break down North Garo Hills by the blocks for the same
+    pause: false
+    place: North Garo Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_cmss WHERE is_disbursed AND lgd_block IS NOT NULL AND lgd_district =
+        'NORTH GARO HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: um which block is having the lowest
+    pause: false
+    place: North Garo Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_cmss WHERE is_disbursed AND lgd_block IS NOT NULL AND lgd_district =
+        'NORTH GARO HILLS' GROUP BY 1 ORDER BY 2 ASC NULLS LAST, 1
+      unit: count
+      take: 1
+  - q: in a line graph
+    view: line
+- id: K10-CMSS-WESTJAINTI
+  kind: K10
+  scheme: CMSS
+  district: WEST JAINTIA HILLS
+  turns:
+  - q: CMSS students paid by district
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, COUNT(*) FROM curated.v_cmss WHERE is_disbursed AND lgd_district IS NOT NULL GROUP BY 1 ORDER
+        BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: show me West Jaintia Hills block-wise
+    pause: false
+    place: West Jaintia Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_cmss WHERE is_disbursed AND lgd_block IS NOT NULL AND lgd_district =
+        'WEST JAINTIA HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: top 3
+    pause: false
+    place: West Jaintia Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_cmss WHERE is_disbursed AND lgd_block IS NOT NULL AND lgd_district =
+        'WEST JAINTIA HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: 3
+  - q: on the map
+    view: map
+- id: K11-CMSS-SOUTHWESTG
+  kind: K11
+  scheme: CMSS
+  district: SOUTH WEST GARO HILLS
+  turns:
+  - q: CMSS students paid by block in South West Garo Hills
+    pause: false
+    place: South West Garo Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_cmss WHERE is_disbursed AND lgd_block IS NOT NULL AND lgd_district =
+        'SOUTH WEST GARO HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: which block has the most
+    pause: false
+    place: South West Garo Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_cmss WHERE is_disbursed AND lgd_block IS NOT NULL AND lgd_district =
+        'SOUTH WEST GARO HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: 1
+  - q: give me this as a pie chart
+    view: pie
+- id: K1-Homestay-WESTKHASIH
+  kind: K1
+  scheme: Homestay
+  district: WEST KHASI HILLS
+  turns:
+  - q: Homestay applications by district
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, COUNT(*) FROM curated.v_homestay_api WHERE TRUE AND lgd_district IS NOT NULL GROUP BY 1 ORDER
+        BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: can you break West Khasi Hills by the blocks for the same
+    pause: false
+    place: West Khasi Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_homestay_api WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district =
+        'WEST KHASI HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: which block has the most
+    pause: false
+    place: West Khasi Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_homestay_api WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district =
+        'WEST KHASI HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: 1
+  - q: show this as a bar chart
+    view: bar
+- id: K2-Homestay-SOUTHGAROH
+  kind: K2
+  scheme: Homestay
+  district: SOUTH GARO HILLS
+  turns:
+  - q: Homestay applications in South Garo Hills
+    pause: false
+    place: South Garo Hills
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_homestay_api WHERE TRUE AND lgd_district = 'SOUTH GARO HILLS'
+      unit: count
+  - q: break that down by block
+    pause: false
+    place: South Garo Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_homestay_api WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district =
+        'SOUTH GARO HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: top 3
+    pause: false
+    place: South Garo Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_homestay_api WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district =
+        'SOUTH GARO HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: 3
+  - q: as a pie
+    view: pie
+- id: K3-Homestay-EASTJAINTI
+  kind: K3
+  scheme: Homestay
+  district: EAST JAINTIA HILLS
+  turns:
+  - q: Homestay applications in East Jaintia Hills
+    pause: false
+    place: East Jaintia Hills
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_homestay_api WHERE TRUE AND lgd_district = 'EAST JAINTIA HILLS'
+      unit: count
+  - q: break it down by block
+    pause: false
+    place: East Jaintia Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_homestay_api WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district =
+        'EAST JAINTIA HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: which block has the lowest
+    pause: false
+    place: East Jaintia Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_homestay_api WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district =
+        'EAST JAINTIA HILLS' GROUP BY 1 ORDER BY 2 ASC NULLS LAST, 1
+      unit: count
+      take: 1
+  - q: as a table
+    view: table
+- id: K4-Homestay-SOUTHWESTK
+  kind: K4
+  scheme: Homestay
+  district: SOUTH WEST KHASI HILLS
+  turns:
+  - q: Homestay applications in South West Khasi Hills by block
+    pause: false
+    place: South West Khasi Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_homestay_api WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district =
+        'SOUTH WEST KHASI HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: only Mawkyrwat
+    pause: false
+    place: Mawkyrwat
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_homestay_api WHERE TRUE AND lgd_district = 'SOUTH WEST KHASI HILLS' AND lgd_block
+        = 'MAWKYRWAT'
+      unit: count
+  - q: show it on the map
+    view: map
+- id: K5-Homestay-EASTERNWES
+  kind: K5
+  scheme: Homestay
+  district: EASTERN WEST KHASI HILLS
+  turns:
+  - q: Homestay applications by district
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, COUNT(*) FROM curated.v_homestay_api WHERE TRUE AND lgd_district IS NOT NULL GROUP BY 1 ORDER
+        BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: what about 2025-26
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, COUNT(*) FROM curated.v_homestay_api WHERE TRUE AND lgd_district IS NOT NULL AND year_key
+        = 2025 GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: break down Eastern West Khasi Hills by block
+    pause: false
+    place: Eastern West Khasi Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_homestay_api WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district =
+        'EASTERN WEST KHASI HILLS' AND year_key = 2025 GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+- id: K6-Homestay-EASTKHASIH
+  kind: K6
+  scheme: Homestay
+  district: EAST KHASI HILLS
+  turns:
+  - q: can you break East Khasi Hills by the blocks for Homestay applications
+    pause: false
+    place: East Khasi Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_homestay_api WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district =
+        'EAST KHASI HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: and for West Garo Hills
+    pause: false
+    place: West Garo Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_homestay_api WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district =
+        'WEST GARO HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: show it as a bar chart please
+    view: bar
+- id: K7-Homestay-RIBHOI
+  kind: K7
+  scheme: Homestay
+  district: RI BHOI
+  turns:
+  - q: Homestay applications by district
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, COUNT(*) FROM curated.v_homestay_api WHERE TRUE AND lgd_district IS NOT NULL GROUP BY 1 ORDER
+        BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: Ri Bhoi block-wise
+    pause: false
+    place: Ri Bhoi
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_homestay_api WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district =
+        'RI BHOI' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: the approved applications instead
+    pause: false
+    place: Ri Bhoi
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_homestay_api WHERE file_status = 'Approved' AND lgd_block IS NOT NULL
+        AND lgd_district = 'RI BHOI' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+- id: K8-Homestay-NORTHGAROH
+  kind: K8
+  scheme: Homestay
+  district: NORTH GARO HILLS
+  turns:
+  - q: breakdown by blocks of North Garo Hills
+    pause: true
+  - q: Homestay
+    pause: false
+    place: North Garo Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_homestay_api WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district =
+        'NORTH GARO HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+- id: K9-Homestay-WESTJAINTI
+  kind: K9
+  scheme: Homestay
+  district: WEST JAINTIA HILLS
+  turns:
+  - q: okay so um Homestay applications by district please
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, COUNT(*) FROM curated.v_homestay_api WHERE TRUE AND lgd_district IS NOT NULL GROUP BY 1 ORDER
+        BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: okay, now could you break down West Jaintia Hills by the blocks for the same
+    pause: false
+    place: West Jaintia Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_homestay_api WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district =
+        'WEST JAINTIA HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: um which block is having the lowest
+    pause: false
+    place: West Jaintia Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_homestay_api WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district =
+        'WEST JAINTIA HILLS' GROUP BY 1 ORDER BY 2 ASC NULLS LAST, 1
+      unit: count
+      take: 1
+  - q: in a line graph
+    view: line
+- id: K10-Homestay-SOUTHWESTG
+  kind: K10
+  scheme: Homestay
+  district: SOUTH WEST GARO HILLS
+  turns:
+  - q: Homestay applications by district
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, COUNT(*) FROM curated.v_homestay_api WHERE TRUE AND lgd_district IS NOT NULL GROUP BY 1 ORDER
+        BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: show me South West Garo Hills block-wise
+    pause: false
+    place: South West Garo Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_homestay_api WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district =
+        'SOUTH WEST GARO HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: top 3
+    pause: false
+    place: South West Garo Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_homestay_api WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district =
+        'SOUTH WEST GARO HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: 3
+  - q: on the map
+    view: map
+- id: K11-Homestay-EASTGAROHI
+  kind: K11
+  scheme: Homestay
+  district: EAST GARO HILLS
+  turns:
+  - q: Homestay applications by block in East Garo Hills
+    pause: false
+    place: East Garo Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_homestay_api WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district =
+        'EAST GARO HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: which block has the most
+    pause: false
+    place: East Garo Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_homestay_api WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district =
+        'EAST GARO HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: 1
+  - q: give me this as a pie chart
+    view: pie
+- id: K12-MAIRANG
+  kind: K12
+  scheme: MGNREGA
+  district: EASTERN WEST KHASI HILLS
+  turns:
+  - q: MGNREGA expenditure for the financial year 2023-24 in Eastern West Khasi Hills, Mairang block
+    pause: false
+    place: Mairang
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND lgd_district = 'EASTERN WEST KHASI HILLS'
+        AND year_key = 2023 AND lgd_block = 'MAIRANG'
+      unit: lakh
+    voice_q: MGNREGA expenditure for the financial year twenty twenty-three twenty-four in Eastern West Khasi Hills, Mairang
+      block
+- id: K12-MAWTHADRAISHAN
+  kind: K12
+  scheme: MGNREGA
+  district: EASTERN WEST KHASI HILLS
+  turns:
+  - q: MGNREGA expenditure for the financial year 2023-24 in Eastern West Khasi Hills, Mawthadraishan block
+    pause: false
+    place: Mawthadraishan
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND lgd_district = 'EASTERN WEST KHASI HILLS'
+        AND year_key = 2023 AND lgd_block = 'MAWTHADRAISHAN'
+      unit: lakh
+    voice_q: MGNREGA expenditure for 23-24 in Eastern West Khasi Hills Mawthadraishan block
+- id: K12-DAMBORONGJENG
+  kind: K12
+  scheme: MGNREGA
+  district: EAST GARO HILLS
+  turns:
+  - q: MGNREGA expenditure for the financial year 2023-24 in East Garo Hills, Dambo Rongjeng block
+    pause: false
+    place: Dambo Rongjeng
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND lgd_district = 'EAST GARO HILLS' AND
+        year_key = 2023 AND lgd_block = 'DAMBO RONGJENG'
+      unit: lakh
+    voice_q: Dambo Rongjeng block of East Garo Hills, MGNREGA expenditure in 2023-24
+- id: K12-SAMANDA
+  kind: K12
+  scheme: MGNREGA
+  district: EAST GARO HILLS
+  turns:
+  - q: MGNREGA expenditure for the financial year 2023-24 in East Garo Hills, Samanda block
+    pause: false
+    place: Samanda
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND lgd_district = 'EAST GARO HILLS' AND
+        year_key = 2023 AND lgd_block = 'SAMANDA'
+      unit: lakh
+    voice_q: MGNREGA expenditure for the financial year twenty twenty-three twenty-four in East Garo Hills, Samanda block
+- id: K12-SONGSAK
+  kind: K12
+  scheme: MGNREGA
+  district: EAST GARO HILLS
+  turns:
+  - q: MGNREGA expenditure for the financial year 2023-24 in East Garo Hills, Songsak block
+    pause: false
+    place: Songsak
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND lgd_district = 'EAST GARO HILLS' AND
+        year_key = 2023 AND lgd_block = 'SONGSAK'
+      unit: lakh
+    voice_q: MGNREGA expenditure for 23-24 in East Garo Hills Songsak block
+- id: K12-LUMSHNONG
+  kind: K12
+  scheme: MGNREGA
+  district: EAST JAINTIA HILLS
+  turns:
+  - q: MGNREGA expenditure for the financial year 2023-24 in East Jaintia Hills, Lumshnong block
+    pause: false
+    place: Lumshnong
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND lgd_district = 'EAST JAINTIA HILLS' AND
+        year_key = 2023 AND lgd_block = 'LUMSHNONG'
+      unit: lakh
+    voice_q: Lumshnong block of East Jaintia Hills, MGNREGA expenditure in 2023-24
+- id: K12-SAIPUNG
+  kind: K12
+  scheme: MGNREGA
+  district: EAST JAINTIA HILLS
+  turns:
+  - q: MGNREGA expenditure for the financial year 2023-24 in East Jaintia Hills, Saipung block
+    pause: false
+    place: Saipung
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND lgd_district = 'EAST JAINTIA HILLS' AND
+        year_key = 2023 AND lgd_block = 'SAIPUNG'
+      unit: lakh
+    voice_q: MGNREGA expenditure for the financial year twenty twenty-three twenty-four in East Jaintia Hills, Saipung block
+- id: K12-WAPUNG
+  kind: K12
+  scheme: MGNREGA
+  district: EAST JAINTIA HILLS
+  turns:
+  - q: MGNREGA expenditure for the financial year 2023-24 in East Jaintia Hills, Wapung block
+    pause: false
+    place: Wapung
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND lgd_district = 'EAST JAINTIA HILLS' AND
+        year_key = 2023 AND lgd_block = 'WAPUNG'
+      unit: lakh
+    voice_q: MGNREGA expenditure for 23-24 in East Jaintia Hills Wapung block
+- id: K12-MAWKYNREW
+  kind: K12
+  scheme: MGNREGA
+  district: EAST KHASI HILLS
+  turns:
+  - q: MGNREGA expenditure for the financial year 2023-24 in East Khasi Hills, Mawkynrew block
+    pause: false
+    place: Mawkynrew
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND lgd_district = 'EAST KHASI HILLS' AND
+        year_key = 2023 AND lgd_block = 'MAWKYNREW'
+      unit: lakh
+    voice_q: Mawkynrew block of East Khasi Hills, MGNREGA expenditure in 2023-24
+- id: K12-MAWLAI
+  kind: K12
+  scheme: MGNREGA
+  district: EAST KHASI HILLS
+  turns:
+  - q: MGNREGA expenditure for the financial year 2023-24 in East Khasi Hills, Mawlai block
+    pause: false
+    place: Mawlai
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND lgd_district = 'EAST KHASI HILLS' AND
+        year_key = 2023 AND lgd_block = 'MAWLAI'
+      unit: lakh
+    voice_q: MGNREGA expenditure for the financial year twenty twenty-three twenty-four in East Khasi Hills, Mawlai block
+- id: K12-MAWPAT
+  kind: K12
+  scheme: MGNREGA
+  district: EAST KHASI HILLS
+  turns:
+  - q: MGNREGA expenditure for the financial year 2023-24 in East Khasi Hills, Mawpat block
+    pause: false
+    place: Mawpat
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND lgd_district = 'EAST KHASI HILLS' AND
+        year_key = 2023 AND lgd_block = 'MAWPAT'
+      unit: lakh
+    voice_q: MGNREGA expenditure for 23-24 in East Khasi Hills Mawpat block
+- id: K12-MAWPHLANG
+  kind: K12
+  scheme: MGNREGA
+  district: EAST KHASI HILLS
+  turns:
+  - q: MGNREGA expenditure for the financial year 2023-24 in East Khasi Hills, Mawphlang block
+    pause: false
+    place: Mawphlang
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND lgd_district = 'EAST KHASI HILLS' AND
+        year_key = 2023 AND lgd_block = 'MAWPHLANG'
+      unit: lakh
+    voice_q: Mawphlang block of East Khasi Hills, MGNREGA expenditure in 2023-24
+- id: K12-MAWRYNGKNENG
+  kind: K12
+  scheme: MGNREGA
+  district: EAST KHASI HILLS
+  turns:
+  - q: MGNREGA expenditure for the financial year 2023-24 in East Khasi Hills, Mawryngkneng block
+    pause: false
+    place: Mawryngkneng
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND lgd_district = 'EAST KHASI HILLS' AND
+        year_key = 2023 AND lgd_block = 'MAWRYNGKNENG'
+      unit: lakh
+    voice_q: MGNREGA expenditure for the financial year twenty twenty-three twenty-four in East Khasi Hills, Mawryngkneng
+      block
+- id: K12-MAWSYNRAM
+  kind: K12
+  scheme: MGNREGA
+  district: EAST KHASI HILLS
+  turns:
+  - q: MGNREGA expenditure for the financial year 2023-24 in East Khasi Hills, Mawsynram block
+    pause: false
+    place: Mawsynram
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND lgd_district = 'EAST KHASI HILLS' AND
+        year_key = 2023 AND lgd_block = 'MAWSYNRAM'
+      unit: lakh
+    voice_q: MGNREGA expenditure for 23-24 in East Khasi Hills Mawsynram block
+- id: K12-MYLLIEM
+  kind: K12
+  scheme: MGNREGA
+  district: EAST KHASI HILLS
+  turns:
+  - q: MGNREGA expenditure for the financial year 2023-24 in East Khasi Hills, Mylliem block
+    pause: false
+    place: Mylliem
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND lgd_district = 'EAST KHASI HILLS' AND
+        year_key = 2023 AND lgd_block = 'MYLLIEM'
+      unit: lakh
+    voice_q: Mylliem block of East Khasi Hills, MGNREGA expenditure in 2023-24
+- id: K12-PYNURSLA
+  kind: K12
+  scheme: MGNREGA
+  district: EAST KHASI HILLS
+  turns:
+  - q: MGNREGA expenditure for the financial year 2023-24 in East Khasi Hills, Pynursla block
+    pause: false
+    place: Pynursla
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND lgd_district = 'EAST KHASI HILLS' AND
+        year_key = 2023 AND lgd_block = 'PYNURSLA'
+      unit: lakh
+    voice_q: MGNREGA expenditure for the financial year twenty twenty-three twenty-four in East Khasi Hills, Pynursla block
+- id: K12-SHELLABHOLAGANJ
+  kind: K12
+  scheme: MGNREGA
+  district: EAST KHASI HILLS
+  turns:
+  - q: MGNREGA expenditure for the financial year 2023-24 in East Khasi Hills, Shella Bholaganj block
+    pause: false
+    place: Shella Bholaganj
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND lgd_district = 'EAST KHASI HILLS' AND
+        year_key = 2023 AND lgd_block = 'SHELLA BHOLAGANJ'
+      unit: lakh
+    voice_q: MGNREGA expenditure for 23-24 in East Khasi Hills Shella Bholaganj block
+- id: K12-SOHIONG
+  kind: K12
+  scheme: MGNREGA
+  district: EAST KHASI HILLS
+  turns:
+  - q: MGNREGA expenditure for the financial year 2023-24 in East Khasi Hills, Sohiong block
+    pause: false
+    place: Sohiong
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND lgd_district = 'EAST KHASI HILLS' AND
+        year_key = 2023 AND lgd_block = 'SOHIONG'
+      unit: lakh
+    voice_q: Sohiong block of East Khasi Hills, MGNREGA expenditure in 2023-24
+- id: K12-ADOKGRE
+  kind: K12
+  scheme: MGNREGA
+  district: NORTH GARO HILLS
+  turns:
+  - q: MGNREGA expenditure for the financial year 2023-24 in North Garo Hills, Adokgre block
+    pause: false
+    place: Adokgre
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND lgd_district = 'NORTH GARO HILLS' AND
+        year_key = 2023 AND lgd_block = 'ADOKGRE'
+      unit: lakh
+    voice_q: MGNREGA expenditure for the financial year twenty twenty-three twenty-four in North Garo Hills, Adokgre block
+- id: K12-BAJENGDOBA
+  kind: K12
+  scheme: MGNREGA
+  district: NORTH GARO HILLS
+  turns:
+  - q: MGNREGA expenditure for the financial year 2023-24 in North Garo Hills, Bajengdoba block
+    pause: false
+    place: Bajengdoba
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND lgd_district = 'NORTH GARO HILLS' AND
+        year_key = 2023 AND lgd_block = 'BAJENGDOBA'
+      unit: lakh
+    voice_q: MGNREGA expenditure for 23-24 in North Garo Hills Bajengdoba block
+- id: K12-KHARKUTTA
+  kind: K12
+  scheme: MGNREGA
+  district: NORTH GARO HILLS
+  turns:
+  - q: MGNREGA expenditure for the financial year 2023-24 in North Garo Hills, Kharkutta block
+    pause: false
+    place: Kharkutta
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND lgd_district = 'NORTH GARO HILLS' AND
+        year_key = 2023 AND lgd_block = 'KHARKUTTA'
+      unit: lakh
+    voice_q: Kharkutta block of North Garo Hills, MGNREGA expenditure in 2023-24
+- id: K12-RESUBELPARA
+  kind: K12
+  scheme: MGNREGA
+  district: NORTH GARO HILLS
+  turns:
+  - q: MGNREGA expenditure for the financial year 2023-24 in North Garo Hills, Resubelpara block
+    pause: false
+    place: Resubelpara
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND lgd_district = 'NORTH GARO HILLS' AND
+        year_key = 2023 AND lgd_block = 'RESUBELPARA'
+      unit: lakh
+    voice_q: MGNREGA expenditure for the financial year twenty twenty-three twenty-four in North Garo Hills, Resubelpara block
+- id: K12-BHOIRYMBONG
+  kind: K12
+  scheme: MGNREGA
+  district: RI BHOI
+  turns:
+  - q: MGNREGA expenditure for the financial year 2023-24 in Ri Bhoi, Bhoirymbong block
+    pause: false
+    place: Bhoirymbong
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND lgd_district = 'RI BHOI' AND year_key
+        = 2023 AND lgd_block = 'BHOIRYMBONG'
+      unit: lakh
+    voice_q: MGNREGA expenditure for 23-24 in Ri Bhoi Bhoirymbong block
+- id: K12-JIRANG
+  kind: K12
+  scheme: MGNREGA
+  district: RI BHOI
+  turns:
+  - q: MGNREGA expenditure for the financial year 2023-24 in Ri Bhoi, Jirang block
+    pause: false
+    place: Jirang
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND lgd_district = 'RI BHOI' AND year_key
+        = 2023 AND lgd_block = 'JIRANG'
+      unit: lakh
+    voice_q: Jirang block of Ri Bhoi, MGNREGA expenditure in 2023-24
+- id: K12-MAWHATI
+  kind: K12
+  scheme: MGNREGA
+  district: RI BHOI
+  turns:
+  - q: MGNREGA expenditure for the financial year 2023-24 in Ri Bhoi, Mawhati block
+    pause: false
+    place: Mawhati
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND lgd_district = 'RI BHOI' AND year_key
+        = 2023 AND lgd_block = 'MAWHATI'
+      unit: lakh
+    voice_q: MGNREGA expenditure for the financial year twenty twenty-three twenty-four in Ri Bhoi, Mawhati block
+- id: K12-UMLING
+  kind: K12
+  scheme: MGNREGA
+  district: RI BHOI
+  turns:
+  - q: MGNREGA expenditure for the financial year 2023-24 in Ri Bhoi, Umling block
+    pause: false
+    place: Umling
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND lgd_district = 'RI BHOI' AND year_key
+        = 2023 AND lgd_block = 'UMLING'
+      unit: lakh
+    voice_q: MGNREGA expenditure for 23-24 in Ri Bhoi Umling block
+- id: K12-UMSNING
+  kind: K12
+  scheme: MGNREGA
+  district: RI BHOI
+  turns:
+  - q: MGNREGA expenditure for the financial year 2023-24 in Ri Bhoi, Umsning block
+    pause: false
+    place: Umsning
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND lgd_district = 'RI BHOI' AND year_key
+        = 2023 AND lgd_block = 'UMSNING'
+      unit: lakh
+    voice_q: Umsning block of Ri Bhoi, MGNREGA expenditure in 2023-24
+- id: K12-BAGHMARA
+  kind: K12
+  scheme: MGNREGA
+  district: SOUTH GARO HILLS
+  turns:
+  - q: MGNREGA expenditure for the financial year 2023-24 in South Garo Hills, Baghmara block
+    pause: false
+    place: Baghmara
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND lgd_district = 'SOUTH GARO HILLS' AND
+        year_key = 2023 AND lgd_block = 'BAGHMARA'
+      unit: lakh
+    voice_q: MGNREGA expenditure for the financial year twenty twenty-three twenty-four in South Garo Hills, Baghmara block
+- id: K12-CHOKPOT
+  kind: K12
+  scheme: MGNREGA
+  district: SOUTH GARO HILLS
+  turns:
+  - q: MGNREGA expenditure for the financial year 2023-24 in South Garo Hills, Chokpot block
+    pause: false
+    place: Chokpot
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND lgd_district = 'SOUTH GARO HILLS' AND
+        year_key = 2023 AND lgd_block = 'CHOKPOT'
+      unit: lakh
+    voice_q: MGNREGA expenditure for 23-24 in South Garo Hills Chokpot block
+- id: K12-GASUAPARA
+  kind: K12
+  scheme: MGNREGA
+  district: SOUTH GARO HILLS
+  turns:
+  - q: MGNREGA expenditure for the financial year 2023-24 in South Garo Hills, Gasuapara block
+    pause: false
+    place: Gasuapara
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND lgd_district = 'SOUTH GARO HILLS' AND
+        year_key = 2023 AND lgd_block = 'GASUAPARA'
+      unit: lakh
+    voice_q: Gasuapara block of South Garo Hills, MGNREGA expenditure in 2023-24
+- id: K12-RONGARA
+  kind: K12
+  scheme: MGNREGA
+  district: SOUTH GARO HILLS
+  turns:
+  - q: MGNREGA expenditure for the financial year 2023-24 in South Garo Hills, Rongara block
+    pause: false
+    place: Rongara
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND lgd_district = 'SOUTH GARO HILLS' AND
+        year_key = 2023 AND lgd_block = 'RONGARA'
+      unit: lakh
+    voice_q: MGNREGA expenditure for the financial year twenty twenty-three twenty-four in South Garo Hills, Rongara block
+- id: K12-SIJU
+  kind: K12
+  scheme: MGNREGA
+  district: SOUTH GARO HILLS
+  turns:
+  - q: MGNREGA expenditure for the financial year 2023-24 in South Garo Hills, Siju block
+    pause: false
+    place: Siju
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND lgd_district = 'SOUTH GARO HILLS' AND
+        year_key = 2023 AND lgd_block = 'SIJU'
+      unit: lakh
+    voice_q: MGNREGA expenditure for 23-24 in South Garo Hills Siju block
+- id: K12-BETASING
+  kind: K12
+  scheme: MGNREGA
+  district: SOUTH WEST GARO HILLS
+  turns:
+  - q: MGNREGA expenditure for the financial year 2023-24 in South West Garo Hills, Betasing block
+    pause: false
+    place: Betasing
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND lgd_district = 'SOUTH WEST GARO HILLS'
+        AND year_key = 2023 AND lgd_block = 'BETASING'
+      unit: lakh
+    voice_q: Betasing block of South West Garo Hills, MGNREGA expenditure in 2023-24
+- id: K12-PURAKHASIA
+  kind: K12
+  scheme: MGNREGA
+  district: SOUTH WEST GARO HILLS
+  turns:
+  - q: MGNREGA expenditure for the financial year 2023-24 in South West Garo Hills, Purakhasia block
+    pause: false
+    place: Purakhasia
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND lgd_district = 'SOUTH WEST GARO HILLS'
+        AND year_key = 2023 AND lgd_block = 'PURAKHASIA'
+      unit: lakh
+    voice_q: MGNREGA expenditure for the financial year twenty twenty-three twenty-four in South West Garo Hills, Purakhasia
+      block
+- id: K12-RERAPARA
+  kind: K12
+  scheme: MGNREGA
+  district: SOUTH WEST GARO HILLS
+  turns:
+  - q: MGNREGA expenditure for the financial year 2023-24 in South West Garo Hills, Rerapara block
+    pause: false
+    place: Rerapara
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND lgd_district = 'SOUTH WEST GARO HILLS'
+        AND year_key = 2023 AND lgd_block = 'RERAPARA'
+      unit: lakh
+    voice_q: MGNREGA expenditure for 23-24 in South West Garo Hills Rerapara block
+- id: K12-ZIKZAK
+  kind: K12
+  scheme: MGNREGA
+  district: SOUTH WEST GARO HILLS
+  turns:
+  - q: MGNREGA expenditure for the financial year 2023-24 in South West Garo Hills, Zikzak block
+    pause: false
+    place: Zikzak
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND lgd_district = 'SOUTH WEST GARO HILLS'
+        AND year_key = 2023 AND lgd_block = 'ZIKZAK'
+      unit: lakh
+    voice_q: Zikzak block of South West Garo Hills, MGNREGA expenditure in 2023-24
+- id: K12-MAWKYRWAT
+  kind: K12
+  scheme: MGNREGA
+  district: SOUTH WEST KHASI HILLS
+  turns:
+  - q: MGNREGA expenditure for the financial year 2023-24 in South West Khasi Hills, Mawkyrwat block
+    pause: false
+    place: Mawkyrwat
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND lgd_district = 'SOUTH WEST KHASI HILLS'
+        AND year_key = 2023 AND lgd_block = 'MAWKYRWAT'
+      unit: lakh
+    voice_q: MGNREGA expenditure for the financial year twenty twenty-three twenty-four in South West Khasi Hills, Mawkyrwat
+      block
+- id: K12-RANIKOR
+  kind: K12
+  scheme: MGNREGA
+  district: SOUTH WEST KHASI HILLS
+  turns:
+  - q: MGNREGA expenditure for the financial year 2023-24 in South West Khasi Hills, Ranikor block
+    pause: false
+    place: Ranikor
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND lgd_district = 'SOUTH WEST KHASI HILLS'
+        AND year_key = 2023 AND lgd_block = 'RANIKOR'
+      unit: lakh
+    voice_q: MGNREGA expenditure for 23-24 in South West Khasi Hills Ranikor block
+- id: K12-BATABARI
+  kind: K12
+  scheme: MGNREGA
+  district: WEST GARO HILLS
+  turns:
+  - q: MGNREGA expenditure for the financial year 2023-24 in West Garo Hills, Batabari block
+    pause: false
+    place: Batabari
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND lgd_district = 'WEST GARO HILLS' AND
+        year_key = 2023 AND lgd_block = 'BATABARI'
+      unit: lakh
+    voice_q: Batabari block of West Garo Hills, MGNREGA expenditure in 2023-24
+- id: K12-DADENGGIRI
+  kind: K12
+  scheme: MGNREGA
+  district: WEST GARO HILLS
+  turns:
+  - q: MGNREGA expenditure for the financial year 2023-24 in West Garo Hills, Dadenggiri block
+    pause: false
+    place: Dadenggiri
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND lgd_district = 'WEST GARO HILLS' AND
+        year_key = 2023 AND lgd_block = 'DADENGGIRI'
+      unit: lakh
+    voice_q: MGNREGA expenditure for the financial year twenty twenty-three twenty-four in West Garo Hills, Dadenggiri block
+- id: K12-DALU
+  kind: K12
+  scheme: MGNREGA
+  district: WEST GARO HILLS
+  turns:
+  - q: MGNREGA expenditure for the financial year 2023-24 in West Garo Hills, Dalu block
+    pause: false
+    place: Dalu
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND lgd_district = 'WEST GARO HILLS' AND
+        year_key = 2023 AND lgd_block = 'DALU'
+      unit: lakh
+    voice_q: MGNREGA expenditure for 23-24 in West Garo Hills Dalu block
+- id: K12-DEMDEMA
+  kind: K12
+  scheme: MGNREGA
+  district: WEST GARO HILLS
+  turns:
+  - q: MGNREGA expenditure for the financial year 2023-24 in West Garo Hills, Demdema block
+    pause: false
+    place: Demdema
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND lgd_district = 'WEST GARO HILLS' AND
+        year_key = 2023 AND lgd_block = 'DEMDEMA'
+      unit: lakh
+    voice_q: Demdema block of West Garo Hills, MGNREGA expenditure in 2023-24
+- id: K12-GAMBEGRE
+  kind: K12
+  scheme: MGNREGA
+  district: WEST GARO HILLS
+  turns:
+  - q: MGNREGA expenditure for the financial year 2023-24 in West Garo Hills, Gambegre block
+    pause: false
+    place: Gambegre
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND lgd_district = 'WEST GARO HILLS' AND
+        year_key = 2023 AND lgd_block = 'GAMBEGRE'
+      unit: lakh
+    voice_q: MGNREGA expenditure for the financial year twenty twenty-three twenty-four in West Garo Hills, Gambegre block
+- id: K12-RONGRAM
+  kind: K12
+  scheme: MGNREGA
+  district: WEST GARO HILLS
+  turns:
+  - q: MGNREGA expenditure for the financial year 2023-24 in West Garo Hills, Rongram block
+    pause: false
+    place: Rongram
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND lgd_district = 'WEST GARO HILLS' AND
+        year_key = 2023 AND lgd_block = 'RONGRAM'
+      unit: lakh
+    voice_q: MGNREGA expenditure for 23-24 in West Garo Hills Rongram block
+- id: K12-SELSELLA
+  kind: K12
+  scheme: MGNREGA
+  district: WEST GARO HILLS
+  turns:
+  - q: MGNREGA expenditure for the financial year 2023-24 in West Garo Hills, Selsella block
+    pause: false
+    place: Selsella
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND lgd_district = 'WEST GARO HILLS' AND
+        year_key = 2023 AND lgd_block = 'SELSELLA'
+      unit: lakh
+    voice_q: Selsella block of West Garo Hills, MGNREGA expenditure in 2023-24
+- id: K12-TIKRIKILLA
+  kind: K12
+  scheme: MGNREGA
+  district: WEST GARO HILLS
+  turns:
+  - q: MGNREGA expenditure for the financial year 2023-24 in West Garo Hills, Tikrikilla block
+    pause: false
+    place: Tikrikilla
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND lgd_district = 'WEST GARO HILLS' AND
+        year_key = 2023 AND lgd_block = 'TIKRIKILLA'
+      unit: lakh
+    voice_q: MGNREGA expenditure for the financial year twenty twenty-three twenty-four in West Garo Hills, Tikrikilla block
+- id: K12-AMLAREM
+  kind: K12
+  scheme: MGNREGA
+  district: WEST JAINTIA HILLS
+  turns:
+  - q: MGNREGA expenditure for the financial year 2023-24 in West Jaintia Hills, Amlarem block
+    pause: false
+    place: Amlarem
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND lgd_district = 'WEST JAINTIA HILLS' AND
+        year_key = 2023 AND lgd_block = 'AMLAREM'
+      unit: lakh
+    voice_q: MGNREGA expenditure for 23-24 in West Jaintia Hills Amlarem block
+- id: K12-LASKEIN
+  kind: K12
+  scheme: MGNREGA
+  district: WEST JAINTIA HILLS
+  turns:
+  - q: MGNREGA expenditure for the financial year 2023-24 in West Jaintia Hills, Laskein block
+    pause: false
+    place: Laskein
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND lgd_district = 'WEST JAINTIA HILLS' AND
+        year_key = 2023 AND lgd_block = 'LASKEIN'
+      unit: lakh
+    voice_q: Laskein block of West Jaintia Hills, MGNREGA expenditure in 2023-24
+- id: K12-NAMDONG
+  kind: K12
+  scheme: MGNREGA
+  district: WEST JAINTIA HILLS
+  turns:
+  - q: MGNREGA expenditure for the financial year 2023-24 in West Jaintia Hills, Namdong block
+    pause: false
+    place: Namdong
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND lgd_district = 'WEST JAINTIA HILLS' AND
+        year_key = 2023 AND lgd_block = 'NAMDONG'
+      unit: lakh
+    voice_q: MGNREGA expenditure for the financial year twenty twenty-three twenty-four in West Jaintia Hills, Namdong block
+- id: K12-THADLASKEIN
+  kind: K12
+  scheme: MGNREGA
+  district: WEST JAINTIA HILLS
+  turns:
+  - q: MGNREGA expenditure for the financial year 2023-24 in West Jaintia Hills, Thadlaskein block
+    pause: false
+    place: Thadlaskein
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND lgd_district = 'WEST JAINTIA HILLS' AND
+        year_key = 2023 AND lgd_block = 'THADLASKEIN'
+      unit: lakh
+    voice_q: MGNREGA expenditure for 23-24 in West Jaintia Hills Thadlaskein block
+- id: K12-MAWSHYNRUT
+  kind: K12
+  scheme: MGNREGA
+  district: WEST KHASI HILLS
+  turns:
+  - q: MGNREGA expenditure for the financial year 2023-24 in West Khasi Hills, Mawshynrut block
+    pause: false
+    place: Mawshynrut
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND lgd_district = 'WEST KHASI HILLS' AND
+        year_key = 2023 AND lgd_block = 'MAWSHYNRUT'
+      unit: lakh
+    voice_q: Mawshynrut block of West Khasi Hills, MGNREGA expenditure in 2023-24
+- id: K12-NONGSTOIN
+  kind: K12
+  scheme: MGNREGA
+  district: WEST KHASI HILLS
+  turns:
+  - q: MGNREGA expenditure for the financial year 2023-24 in West Khasi Hills, Nongstoin block
+    pause: false
+    place: Nongstoin
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND lgd_district = 'WEST KHASI HILLS' AND
+        year_key = 2023 AND lgd_block = 'NONGSTOIN'
+      unit: lakh
+    voice_q: MGNREGA expenditure for the financial year twenty twenty-three twenty-four in West Khasi Hills, Nongstoin block
+- id: K12-RAMBRAI
+  kind: K12
+  scheme: MGNREGA
+  district: WEST KHASI HILLS
+  turns:
+  - q: MGNREGA expenditure for the financial year 2023-24 in West Khasi Hills, Rambrai block
+    pause: false
+    place: Rambrai
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND lgd_district = 'WEST KHASI HILLS' AND
+        year_key = 2023 AND lgd_block = 'RAMBRAI'
+      unit: lakh
+    voice_q: MGNREGA expenditure for 23-24 in West Khasi Hills Rambrai block
+- id: K12-RIMULIANG
+  kind: K12
+  scheme: MGNREGA
+  district: WEST KHASI HILLS
+  turns:
+  - q: MGNREGA expenditure for the financial year 2023-24 in West Khasi Hills, Ri Muliang block
+    pause: false
+    place: Ri Muliang
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND lgd_district = 'WEST KHASI HILLS' AND
+        year_key = 2023 AND lgd_block = 'RI MULIANG'
+      unit: lakh
+    voice_q: Ri Muliang block of West Khasi Hills, MGNREGA expenditure in 2023-24
+- id: K12-SHALLANG
+  kind: K12
+  scheme: MGNREGA
+  district: WEST KHASI HILLS
+  turns:
+  - q: MGNREGA expenditure for the financial year 2023-24 in West Khasi Hills, Shallang block
+    pause: false
+    place: Shallang
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND lgd_district = 'WEST KHASI HILLS' AND
+        year_key = 2023 AND lgd_block = 'SHALLANG'
+      unit: lakh
+    voice_q: MGNREGA expenditure for the financial year twenty twenty-three twenty-four in West Khasi Hills, Shallang block
+- id: K13-MGNREGA-MAIRANG
+  kind: K13
+  scheme: MGNREGA
+  district: EASTERN WEST KHASI HILLS
+  turns:
+  - q: MGNREGA person-days in 2024-25 in Eastern West Khasi Hills, Mairang block
+    pause: false
+    place: Mairang
+    figures:
+    - sql: SELECT SUM(person_days) FROM curated.v_employment WHERE TRUE AND lgd_district = 'EASTERN WEST KHASI HILLS' AND
+        year_key = 2024 AND lgd_block = 'MAIRANG'
+      unit: count
+    voice_q: MGNREGA person-days in twenty twenty-four twenty-five in Eastern West Khasi Hills, Mairang block
+- id: K13-PMAY-G-MAWTHADRAISHAN
+  kind: K13
+  scheme: PMAY-G
+  district: EASTERN WEST KHASI HILLS
+  turns:
+  - q: PMAY-G houses completed in 2022-23 in Eastern West Khasi Hills, Mawthadraishan block
+    pause: false
+    place: Mawthadraishan
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_pmay WHERE is_completed AND lgd_district = 'EASTERN WEST KHASI HILLS' AND year_key
+        = 2022 AND lgd_block = 'MAWTHADRAISHAN'
+      unit: count
+    voice_q: PMAY-G houses completed for 22-23 in Mawthadraishan block, Eastern West Khasi Hills
+- id: K13-FocusLegacy-DAMBORONGJENG
+  kind: K13
+  scheme: Focus Legacy
+  district: EAST GARO HILLS
+  turns:
+  - q: Focus Legacy amount disbursed in 2024-25 in East Garo Hills, Dambo Rongjeng block
+    pause: false
+    place: Dambo Rongjeng
+    figures:
+    - sql: SELECT SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE TRUE AND lgd_district = 'EAST GARO HILLS' AND year_key
+        = 2024 AND lgd_block = 'DAMBO RONGJENG'
+      unit: rupees
+    voice_q: Focus Legacy amount disbursed in twenty twenty-four twenty-five in East Garo Hills, Dambo Rongjeng block
+- id: K13-CMElevateLegacy-SAMANDA
+  kind: K13
+  scheme: CM Elevate Legacy
+  district: EAST GARO HILLS
+  turns:
+  - q: CM Elevate Legacy total disbursed in 2024-25 in East Garo Hills, Samanda block
+    pause: false
+    place: Samanda
+    figures:
+    - sql: SELECT SUM(total_disbursement) FROM curated.v_cm_elevate_disbursement WHERE TRUE AND lgd_district = 'EAST GARO
+        HILLS' AND year_key = 2024 AND lgd_block = 'SAMANDA'
+      unit: rupees
+    voice_q: CM Elevate Legacy total disbursed for 24-25 in Samanda block, East Garo Hills
+- id: K13-CMSS-SONGSAK
+  kind: K13
+  scheme: CMSS
+  district: EAST GARO HILLS
+  turns:
+  - q: CMSS students paid in 2025-26 in East Garo Hills, Songsak block
+    pause: false
+    place: Songsak
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_cmss WHERE is_disbursed AND lgd_district = 'EAST GARO HILLS' AND year_key = 2025
+        AND lgd_block = 'SONGSAK'
+      unit: count
+    voice_q: CMSS students paid in twenty twenty-five twenty-six in East Garo Hills, Songsak block
+- id: K13-Homestay-LUMSHNONG
+  kind: K13
+  scheme: Homestay
+  district: EAST JAINTIA HILLS
+  turns:
+  - q: Homestay applications in 2025-26 in East Jaintia Hills, Lumshnong block
+    pause: false
+    place: Lumshnong
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_homestay_api WHERE TRUE AND lgd_district = 'EAST JAINTIA HILLS' AND year_key = 2025
+        AND lgd_block = 'LUMSHNONG'
+      unit: count
+    voice_q: Homestay applications for 25-26 in Lumshnong block, East Jaintia Hills
+- id: K13-FocusPlus-SAIPUNG
+  kind: K13
+  scheme: Focus Plus
+  district: EAST JAINTIA HILLS
+  turns:
+  - q: Focus Plus beneficiaries in 2025-26 in East Jaintia Hills, Saipung block
+    pause: false
+    place: Saipung
+    figures:
+    - sql: SELECT COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE TRUE AND lgd_district = 'EAST JAINTIA HILLS'
+        AND year_key = 2025 AND UPPER(block_name_raw) = 'SAIPUNG'
+      unit: count
+    voice_q: Focus Plus beneficiaries in twenty twenty-five twenty-six in East Jaintia Hills, Saipung block
+- id: K13-MGNREGA-WAPUNG
+  kind: K13
+  scheme: MGNREGA
+  district: EAST JAINTIA HILLS
+  turns:
+  - q: MGNREGA person-days in 2024-25 in East Jaintia Hills, Wapung block
+    pause: false
+    place: Wapung
+    figures:
+    - sql: SELECT SUM(person_days) FROM curated.v_employment WHERE TRUE AND lgd_district = 'EAST JAINTIA HILLS' AND year_key
+        = 2024 AND lgd_block = 'WAPUNG'
+      unit: count
+    voice_q: MGNREGA person-days for 24-25 in Wapung block, East Jaintia Hills
+- id: K13-PMAY-G-MAWKYNREW
+  kind: K13
+  scheme: PMAY-G
+  district: EAST KHASI HILLS
+  turns:
+  - q: PMAY-G houses completed in 2022-23 in East Khasi Hills, Mawkynrew block
+    pause: false
+    place: Mawkynrew
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_pmay WHERE is_completed AND lgd_district = 'EAST KHASI HILLS' AND year_key = 2022
+        AND lgd_block = 'MAWKYNREW'
+      unit: count
+    voice_q: PMAY-G houses completed in twenty twenty-two twenty-three in East Khasi Hills, Mawkynrew block
+- id: K13-FocusLegacy-MAWLAI
+  kind: K13
+  scheme: Focus Legacy
+  district: EAST KHASI HILLS
+  turns:
+  - q: Focus Legacy amount disbursed in 2024-25 in East Khasi Hills, Mawlai block
+    pause: false
+    place: Mawlai
+    figures:
+    - sql: SELECT SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE TRUE AND lgd_district = 'EAST KHASI HILLS' AND year_key
+        = 2024 AND lgd_block = 'MAWLAI'
+      unit: rupees
+    voice_q: Focus Legacy amount disbursed for 24-25 in Mawlai block, East Khasi Hills
+- id: K13-CMElevateLegacy-MAWPAT
+  kind: K13
+  scheme: CM Elevate Legacy
+  district: EAST KHASI HILLS
+  turns:
+  - q: CM Elevate Legacy total disbursed in 2024-25 in East Khasi Hills, Mawpat block
+    pause: false
+    place: Mawpat
+    figures:
+    - sql: SELECT SUM(total_disbursement) FROM curated.v_cm_elevate_disbursement WHERE TRUE AND lgd_district = 'EAST KHASI
+        HILLS' AND year_key = 2024 AND lgd_block = 'MAWPAT'
+      unit: rupees
+    voice_q: CM Elevate Legacy total disbursed in twenty twenty-four twenty-five in East Khasi Hills, Mawpat block
+- id: K13-CMSS-MAWPHLANG
+  kind: K13
+  scheme: CMSS
+  district: EAST KHASI HILLS
+  turns:
+  - q: CMSS students paid in 2025-26 in East Khasi Hills, Mawphlang block
+    pause: false
+    place: Mawphlang
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_cmss WHERE is_disbursed AND lgd_district = 'EAST KHASI HILLS' AND year_key = 2025
+        AND lgd_block = 'MAWPHLANG'
+      unit: count
+    voice_q: CMSS students paid for 25-26 in Mawphlang block, East Khasi Hills
+- id: K13-Homestay-MAWRYNGKNENG
+  kind: K13
+  scheme: Homestay
+  district: EAST KHASI HILLS
+  turns:
+  - q: Homestay applications in 2025-26 in East Khasi Hills, Mawryngkneng block
+    pause: false
+    place: Mawryngkneng
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_homestay_api WHERE TRUE AND lgd_district = 'EAST KHASI HILLS' AND year_key = 2025
+        AND lgd_block = 'MAWRYNGKNENG'
+      unit: count
+    voice_q: Homestay applications in twenty twenty-five twenty-six in East Khasi Hills, Mawryngkneng block
+- id: K13-FocusPlus-MAWSYNRAM
+  kind: K13
+  scheme: Focus Plus
+  district: EAST KHASI HILLS
+  turns:
+  - q: Focus Plus beneficiaries in 2025-26 in East Khasi Hills, Mawsynram block
+    pause: false
+    place: Mawsynram
+    figures:
+    - sql: SELECT COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE TRUE AND lgd_district = 'EAST KHASI HILLS'
+        AND year_key = 2025 AND UPPER(block_name_raw) = 'MAWSYNRAM'
+      unit: count
+    voice_q: Focus Plus beneficiaries for 25-26 in Mawsynram block, East Khasi Hills
+- id: K13-MGNREGA-MYLLIEM
+  kind: K13
+  scheme: MGNREGA
+  district: EAST KHASI HILLS
+  turns:
+  - q: MGNREGA person-days in 2024-25 in East Khasi Hills, Mylliem block
+    pause: false
+    place: Mylliem
+    figures:
+    - sql: SELECT SUM(person_days) FROM curated.v_employment WHERE TRUE AND lgd_district = 'EAST KHASI HILLS' AND year_key
+        = 2024 AND lgd_block = 'MYLLIEM'
+      unit: count
+    voice_q: MGNREGA person-days in twenty twenty-four twenty-five in East Khasi Hills, Mylliem block
+- id: K13-PMAY-G-PYNURSLA
+  kind: K13
+  scheme: PMAY-G
+  district: EAST KHASI HILLS
+  turns:
+  - q: PMAY-G houses completed in 2022-23 in East Khasi Hills, Pynursla block
+    pause: false
+    place: Pynursla
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_pmay WHERE is_completed AND lgd_district = 'EAST KHASI HILLS' AND year_key = 2022
+        AND lgd_block = 'PYNURSLA'
+      unit: count
+    voice_q: PMAY-G houses completed for 22-23 in Pynursla block, East Khasi Hills
+- id: K13-FocusLegacy-SHELLABHOLAGAN
+  kind: K13
+  scheme: Focus Legacy
+  district: EAST KHASI HILLS
+  turns:
+  - q: Focus Legacy amount disbursed in 2024-25 in East Khasi Hills, Shella Bholaganj block
+    pause: false
+    place: Shella Bholaganj
+    figures:
+    - sql: SELECT SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE TRUE AND lgd_district = 'EAST KHASI HILLS' AND year_key
+        = 2024 AND lgd_block = 'SHELLA BHOLAGANJ'
+      unit: rupees
+    voice_q: Focus Legacy amount disbursed in twenty twenty-four twenty-five in East Khasi Hills, Shella Bholaganj block
+- id: K13-CMElevateLegacy-SOHIONG
+  kind: K13
+  scheme: CM Elevate Legacy
+  district: EAST KHASI HILLS
+  turns:
+  - q: CM Elevate Legacy total disbursed in 2024-25 in East Khasi Hills, Sohiong block
+    pause: false
+    place: Sohiong
+    figures:
+    - sql: SELECT SUM(total_disbursement) FROM curated.v_cm_elevate_disbursement WHERE TRUE AND lgd_district = 'EAST KHASI
+        HILLS' AND year_key = 2024 AND lgd_block = 'SOHIONG'
+      unit: rupees
+    voice_q: CM Elevate Legacy total disbursed for 24-25 in Sohiong block, East Khasi Hills
+- id: K13-CMSS-ADOKGRE
+  kind: K13
+  scheme: CMSS
+  district: NORTH GARO HILLS
+  turns:
+  - q: CMSS students paid in 2025-26 in North Garo Hills, Adokgre block
+    pause: false
+    place: Adokgre
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_cmss WHERE is_disbursed AND lgd_district = 'NORTH GARO HILLS' AND year_key = 2025
+        AND lgd_block = 'ADOKGRE'
+      unit: count
+    voice_q: CMSS students paid in twenty twenty-five twenty-six in North Garo Hills, Adokgre block
+- id: K13-Homestay-BAJENGDOBA
+  kind: K13
+  scheme: Homestay
+  district: NORTH GARO HILLS
+  turns:
+  - q: Homestay applications in 2025-26 in North Garo Hills, Bajengdoba block
+    pause: false
+    place: Bajengdoba
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_homestay_api WHERE TRUE AND lgd_district = 'NORTH GARO HILLS' AND year_key = 2025
+        AND lgd_block = 'BAJENGDOBA'
+      unit: count
+    voice_q: Homestay applications for 25-26 in Bajengdoba block, North Garo Hills
+- id: K13-FocusPlus-KHARKUTTA
+  kind: K13
+  scheme: Focus Plus
+  district: NORTH GARO HILLS
+  turns:
+  - q: Focus Plus beneficiaries in 2025-26 in North Garo Hills, Kharkutta block
+    pause: false
+    place: Kharkutta
+    figures:
+    - sql: SELECT COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE TRUE AND lgd_district = 'NORTH GARO HILLS'
+        AND year_key = 2025 AND UPPER(block_name_raw) = 'KHARKUTTA'
+      unit: count
+    voice_q: Focus Plus beneficiaries in twenty twenty-five twenty-six in North Garo Hills, Kharkutta block
+- id: K13-MGNREGA-RESUBELPARA
+  kind: K13
+  scheme: MGNREGA
+  district: NORTH GARO HILLS
+  turns:
+  - q: MGNREGA person-days in 2024-25 in North Garo Hills, Resubelpara block
+    pause: false
+    place: Resubelpara
+    figures:
+    - sql: SELECT SUM(person_days) FROM curated.v_employment WHERE TRUE AND lgd_district = 'NORTH GARO HILLS' AND year_key
+        = 2024 AND lgd_block = 'RESUBELPARA'
+      unit: count
+    voice_q: MGNREGA person-days for 24-25 in Resubelpara block, North Garo Hills
+- id: K13-PMAY-G-BHOIRYMBONG
+  kind: K13
+  scheme: PMAY-G
+  district: RI BHOI
+  turns:
+  - q: PMAY-G houses completed in 2022-23 in Ri Bhoi, Bhoirymbong block
+    pause: false
+    place: Bhoirymbong
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_pmay WHERE is_completed AND lgd_district = 'RI BHOI' AND year_key = 2022 AND lgd_block
+        = 'BHOIRYMBONG'
+      unit: count
+    voice_q: PMAY-G houses completed in twenty twenty-two twenty-three in Ri Bhoi, Bhoirymbong block
+- id: K13-FocusLegacy-JIRANG
+  kind: K13
+  scheme: Focus Legacy
+  district: RI BHOI
+  turns:
+  - q: Focus Legacy amount disbursed in 2024-25 in Ri Bhoi, Jirang block
+    pause: false
+    place: Jirang
+    figures:
+    - sql: SELECT SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE TRUE AND lgd_district = 'RI BHOI' AND year_key =
+        2024 AND lgd_block = 'JIRANG'
+      unit: rupees
+    voice_q: Focus Legacy amount disbursed for 24-25 in Jirang block, Ri Bhoi
+- id: K13-CMSS-MAWHATI
+  kind: K13
+  scheme: CMSS
+  district: RI BHOI
+  turns:
+  - q: CMSS students paid in 2025-26 in Ri Bhoi, Mawhati block
+    pause: false
+    place: Mawhati
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_cmss WHERE is_disbursed AND lgd_district = 'RI BHOI' AND year_key = 2025 AND lgd_block
+        = 'MAWHATI'
+      unit: count
+    voice_q: CMSS students paid in twenty twenty-five twenty-six in Ri Bhoi, Mawhati block
+- id: K13-CMSS-UMLING
+  kind: K13
+  scheme: CMSS
+  district: RI BHOI
+  turns:
+  - q: CMSS students paid in 2025-26 in Ri Bhoi, Umling block
+    pause: false
+    place: Umling
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_cmss WHERE is_disbursed AND lgd_district = 'RI BHOI' AND year_key = 2025 AND lgd_block
+        = 'UMLING'
+      unit: count
+    voice_q: CMSS students paid for 25-26 in Umling block, Ri Bhoi
+- id: K13-Homestay-UMSNING
+  kind: K13
+  scheme: Homestay
+  district: RI BHOI
+  turns:
+  - q: Homestay applications in 2025-26 in Ri Bhoi, Umsning block
+    pause: false
+    place: Umsning
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_homestay_api WHERE TRUE AND lgd_district = 'RI BHOI' AND year_key = 2025 AND lgd_block
+        = 'UMSNING'
+      unit: count
+    voice_q: Homestay applications in twenty twenty-five twenty-six in Ri Bhoi, Umsning block
+- id: K13-FocusPlus-BAGHMARA
+  kind: K13
+  scheme: Focus Plus
+  district: SOUTH GARO HILLS
+  turns:
+  - q: Focus Plus beneficiaries in 2025-26 in South Garo Hills, Baghmara block
+    pause: false
+    place: Baghmara
+    figures:
+    - sql: SELECT COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE TRUE AND lgd_district = 'SOUTH GARO HILLS'
+        AND year_key = 2025 AND UPPER(block_name_raw) = 'BAGHMARA'
+      unit: count
+    voice_q: Focus Plus beneficiaries for 25-26 in Baghmara block, South Garo Hills
+- id: K13-MGNREGA-CHOKPOT
+  kind: K13
+  scheme: MGNREGA
+  district: SOUTH GARO HILLS
+  turns:
+  - q: MGNREGA person-days in 2024-25 in South Garo Hills, Chokpot block
+    pause: false
+    place: Chokpot
+    figures:
+    - sql: SELECT SUM(person_days) FROM curated.v_employment WHERE TRUE AND lgd_district = 'SOUTH GARO HILLS' AND year_key
+        = 2024 AND lgd_block = 'CHOKPOT'
+      unit: count
+    voice_q: MGNREGA person-days in twenty twenty-four twenty-five in South Garo Hills, Chokpot block
+- id: K13-PMAY-G-GASUAPARA
+  kind: K13
+  scheme: PMAY-G
+  district: SOUTH GARO HILLS
+  turns:
+  - q: PMAY-G houses completed in 2022-23 in South Garo Hills, Gasuapara block
+    pause: false
+    place: Gasuapara
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_pmay WHERE is_completed AND lgd_district = 'SOUTH GARO HILLS' AND year_key = 2022
+        AND lgd_block = 'GASUAPARA'
+      unit: count
+    voice_q: PMAY-G houses completed for 22-23 in Gasuapara block, South Garo Hills
+- id: K13-FocusLegacy-RONGARA
+  kind: K13
+  scheme: Focus Legacy
+  district: SOUTH GARO HILLS
+  turns:
+  - q: Focus Legacy amount disbursed in 2024-25 in South Garo Hills, Rongara block
+    pause: false
+    place: Rongara
+    figures:
+    - sql: SELECT SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE TRUE AND lgd_district = 'SOUTH GARO HILLS' AND year_key
+        = 2024 AND lgd_block = 'RONGARA'
+      unit: rupees
+    voice_q: Focus Legacy amount disbursed in twenty twenty-four twenty-five in South Garo Hills, Rongara block
+- id: K13-CMElevateLegacy-SIJU
+  kind: K13
+  scheme: CM Elevate Legacy
+  district: SOUTH GARO HILLS
+  turns:
+  - q: CM Elevate Legacy total disbursed in 2024-25 in South Garo Hills, Siju block
+    pause: false
+    place: Siju
+    figures:
+    - sql: SELECT SUM(total_disbursement) FROM curated.v_cm_elevate_disbursement WHERE TRUE AND lgd_district = 'SOUTH GARO
+        HILLS' AND year_key = 2024 AND lgd_block = 'SIJU'
+      unit: rupees
+    voice_q: CM Elevate Legacy total disbursed for 24-25 in Siju block, South Garo Hills
+- id: K13-CMSS-BETASING
+  kind: K13
+  scheme: CMSS
+  district: SOUTH WEST GARO HILLS
+  turns:
+  - q: CMSS students paid in 2025-26 in South West Garo Hills, Betasing block
+    pause: false
+    place: Betasing
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_cmss WHERE is_disbursed AND lgd_district = 'SOUTH WEST GARO HILLS' AND year_key
+        = 2025 AND lgd_block = 'BETASING'
+      unit: count
+    voice_q: CMSS students paid in twenty twenty-five twenty-six in South West Garo Hills, Betasing block
+- id: K13-MGNREGA-PURAKHASIA
+  kind: K13
+  scheme: MGNREGA
+  district: SOUTH WEST GARO HILLS
+  turns:
+  - q: MGNREGA person-days in 2024-25 in South West Garo Hills, Purakhasia block
+    pause: false
+    place: Purakhasia
+    figures:
+    - sql: SELECT SUM(person_days) FROM curated.v_employment WHERE TRUE AND lgd_district = 'SOUTH WEST GARO HILLS' AND year_key
+        = 2024 AND lgd_block = 'PURAKHASIA'
+      unit: count
+    voice_q: MGNREGA person-days for 24-25 in Purakhasia block, South West Garo Hills
+- id: K13-FocusPlus-RERAPARA
+  kind: K13
+  scheme: Focus Plus
+  district: SOUTH WEST GARO HILLS
+  turns:
+  - q: Focus Plus beneficiaries in 2025-26 in South West Garo Hills, Rerapara block
+    pause: false
+    place: Rerapara
+    figures:
+    - sql: SELECT COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE TRUE AND lgd_district = 'SOUTH WEST GARO
+        HILLS' AND year_key = 2025 AND UPPER(block_name_raw) = 'RERAPARA'
+      unit: count
+    voice_q: Focus Plus beneficiaries in twenty twenty-five twenty-six in South West Garo Hills, Rerapara block
+- id: K13-MGNREGA-ZIKZAK
+  kind: K13
+  scheme: MGNREGA
+  district: SOUTH WEST GARO HILLS
+  turns:
+  - q: MGNREGA person-days in 2024-25 in South West Garo Hills, Zikzak block
+    pause: false
+    place: Zikzak
+    figures:
+    - sql: SELECT SUM(person_days) FROM curated.v_employment WHERE TRUE AND lgd_district = 'SOUTH WEST GARO HILLS' AND year_key
+        = 2024 AND lgd_block = 'ZIKZAK'
+      unit: count
+    voice_q: MGNREGA person-days for 24-25 in Zikzak block, South West Garo Hills
+- id: K13-PMAY-G-MAWKYRWAT
+  kind: K13
+  scheme: PMAY-G
+  district: SOUTH WEST KHASI HILLS
+  turns:
+  - q: PMAY-G houses completed in 2022-23 in South West Khasi Hills, Mawkyrwat block
+    pause: false
+    place: Mawkyrwat
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_pmay WHERE is_completed AND lgd_district = 'SOUTH WEST KHASI HILLS' AND year_key
+        = 2022 AND lgd_block = 'MAWKYRWAT'
+      unit: count
+    voice_q: PMAY-G houses completed in twenty twenty-two twenty-three in South West Khasi Hills, Mawkyrwat block
+- id: K13-FocusLegacy-RANIKOR
+  kind: K13
+  scheme: Focus Legacy
+  district: SOUTH WEST KHASI HILLS
+  turns:
+  - q: Focus Legacy amount disbursed in 2024-25 in South West Khasi Hills, Ranikor block
+    pause: false
+    place: Ranikor
+    figures:
+    - sql: SELECT SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE TRUE AND lgd_district = 'SOUTH WEST KHASI HILLS'
+        AND year_key = 2024 AND lgd_block = 'RANIKOR'
+      unit: rupees
+    voice_q: Focus Legacy amount disbursed for 24-25 in Ranikor block, South West Khasi Hills
+- id: K13-CMElevateLegacy-BATABARI
+  kind: K13
+  scheme: CM Elevate Legacy
+  district: WEST GARO HILLS
+  turns:
+  - q: CM Elevate Legacy total disbursed in 2024-25 in West Garo Hills, Batabari block
+    pause: false
+    place: Batabari
+    figures:
+    - sql: SELECT SUM(total_disbursement) FROM curated.v_cm_elevate_disbursement WHERE TRUE AND lgd_district = 'WEST GARO
+        HILLS' AND year_key = 2024 AND lgd_block = 'BATABARI'
+      unit: rupees
+    voice_q: CM Elevate Legacy total disbursed in twenty twenty-four twenty-five in West Garo Hills, Batabari block
+- id: K13-CMSS-DADENGGIRI
+  kind: K13
+  scheme: CMSS
+  district: WEST GARO HILLS
+  turns:
+  - q: CMSS students paid in 2025-26 in West Garo Hills, Dadenggiri block
+    pause: false
+    place: Dadenggiri
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_cmss WHERE is_disbursed AND lgd_district = 'WEST GARO HILLS' AND year_key = 2025
+        AND lgd_block = 'DADENGGIRI'
+      unit: count
+    voice_q: CMSS students paid for 25-26 in Dadenggiri block, West Garo Hills
+- id: K13-Homestay-DALU
+  kind: K13
+  scheme: Homestay
+  district: WEST GARO HILLS
+  turns:
+  - q: Homestay applications in 2025-26 in West Garo Hills, Dalu block
+    pause: false
+    place: Dalu
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_homestay_api WHERE TRUE AND lgd_district = 'WEST GARO HILLS' AND year_key = 2025
+        AND lgd_block = 'DALU'
+      unit: count
+    voice_q: Homestay applications in twenty twenty-five twenty-six in West Garo Hills, Dalu block
+- id: K13-FocusPlus-DEMDEMA
+  kind: K13
+  scheme: Focus Plus
+  district: WEST GARO HILLS
+  turns:
+  - q: Focus Plus beneficiaries in 2025-26 in West Garo Hills, Demdema block
+    pause: false
+    place: Demdema
+    figures:
+    - sql: SELECT COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE TRUE AND lgd_district = 'WEST GARO HILLS'
+        AND year_key = 2025 AND UPPER(block_name_raw) = 'DEMDEMA'
+      unit: count
+    voice_q: Focus Plus beneficiaries for 25-26 in Demdema block, West Garo Hills
+- id: K13-MGNREGA-GAMBEGRE
+  kind: K13
+  scheme: MGNREGA
+  district: WEST GARO HILLS
+  turns:
+  - q: MGNREGA person-days in 2024-25 in West Garo Hills, Gambegre block
+    pause: false
+    place: Gambegre
+    figures:
+    - sql: SELECT SUM(person_days) FROM curated.v_employment WHERE TRUE AND lgd_district = 'WEST GARO HILLS' AND year_key
+        = 2024 AND lgd_block = 'GAMBEGRE'
+      unit: count
+    voice_q: MGNREGA person-days in twenty twenty-four twenty-five in West Garo Hills, Gambegre block
+- id: K13-PMAY-G-RONGRAM
+  kind: K13
+  scheme: PMAY-G
+  district: WEST GARO HILLS
+  turns:
+  - q: PMAY-G houses completed in 2022-23 in West Garo Hills, Rongram block
+    pause: false
+    place: Rongram
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_pmay WHERE is_completed AND lgd_district = 'WEST GARO HILLS' AND year_key = 2022
+        AND lgd_block = 'RONGRAM'
+      unit: count
+    voice_q: PMAY-G houses completed for 22-23 in Rongram block, West Garo Hills
+- id: K13-FocusLegacy-SELSELLA
+  kind: K13
+  scheme: Focus Legacy
+  district: WEST GARO HILLS
+  turns:
+  - q: Focus Legacy amount disbursed in 2024-25 in West Garo Hills, Selsella block
+    pause: false
+    place: Selsella
+    figures:
+    - sql: SELECT SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE TRUE AND lgd_district = 'WEST GARO HILLS' AND year_key
+        = 2024 AND lgd_block = 'SELSELLA'
+      unit: rupees
+    voice_q: Focus Legacy amount disbursed in twenty twenty-four twenty-five in West Garo Hills, Selsella block
+- id: K13-CMElevateLegacy-TIKRIKILLA
+  kind: K13
+  scheme: CM Elevate Legacy
+  district: WEST GARO HILLS
+  turns:
+  - q: CM Elevate Legacy total disbursed in 2024-25 in West Garo Hills, Tikrikilla block
+    pause: false
+    place: Tikrikilla
+    figures:
+    - sql: SELECT SUM(total_disbursement) FROM curated.v_cm_elevate_disbursement WHERE TRUE AND lgd_district = 'WEST GARO
+        HILLS' AND year_key = 2024 AND lgd_block = 'TIKRIKILLA'
+      unit: rupees
+    voice_q: CM Elevate Legacy total disbursed for 24-25 in Tikrikilla block, West Garo Hills
+- id: K13-CMSS-AMLAREM
+  kind: K13
+  scheme: CMSS
+  district: WEST JAINTIA HILLS
+  turns:
+  - q: CMSS students paid in 2025-26 in West Jaintia Hills, Amlarem block
+    pause: false
+    place: Amlarem
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_cmss WHERE is_disbursed AND lgd_district = 'WEST JAINTIA HILLS' AND year_key = 2025
+        AND lgd_block = 'AMLAREM'
+      unit: count
+    voice_q: CMSS students paid in twenty twenty-five twenty-six in West Jaintia Hills, Amlarem block
+- id: K13-Homestay-LASKEIN
+  kind: K13
+  scheme: Homestay
+  district: WEST JAINTIA HILLS
+  turns:
+  - q: Homestay applications in 2025-26 in West Jaintia Hills, Laskein block
+    pause: false
+    place: Laskein
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_homestay_api WHERE TRUE AND lgd_district = 'WEST JAINTIA HILLS' AND year_key = 2025
+        AND lgd_block = 'LASKEIN'
+      unit: count
+    voice_q: Homestay applications for 25-26 in Laskein block, West Jaintia Hills
+- id: K13-MGNREGA-NAMDONG
+  kind: K13
+  scheme: MGNREGA
+  district: WEST JAINTIA HILLS
+  turns:
+  - q: MGNREGA person-days in 2024-25 in West Jaintia Hills, Namdong block
+    pause: false
+    place: Namdong
+    figures:
+    - sql: SELECT SUM(person_days) FROM curated.v_employment WHERE TRUE AND lgd_district = 'WEST JAINTIA HILLS' AND year_key
+        = 2024 AND lgd_block = 'NAMDONG'
+      unit: count
+    voice_q: MGNREGA person-days in twenty twenty-four twenty-five in West Jaintia Hills, Namdong block
+- id: K13-MGNREGA-THADLASKEIN
+  kind: K13
+  scheme: MGNREGA
+  district: WEST JAINTIA HILLS
+  turns:
+  - q: MGNREGA person-days in 2024-25 in West Jaintia Hills, Thadlaskein block
+    pause: false
+    place: Thadlaskein
+    figures:
+    - sql: SELECT SUM(person_days) FROM curated.v_employment WHERE TRUE AND lgd_district = 'WEST JAINTIA HILLS' AND year_key
+        = 2024 AND lgd_block = 'THADLASKEIN'
+      unit: count
+    voice_q: MGNREGA person-days for 24-25 in Thadlaskein block, West Jaintia Hills
+- id: K13-PMAY-G-MAWSHYNRUT
+  kind: K13
+  scheme: PMAY-G
+  district: WEST KHASI HILLS
+  turns:
+  - q: PMAY-G houses completed in 2022-23 in West Khasi Hills, Mawshynrut block
+    pause: false
+    place: Mawshynrut
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_pmay WHERE is_completed AND lgd_district = 'WEST KHASI HILLS' AND year_key = 2022
+        AND lgd_block = 'MAWSHYNRUT'
+      unit: count
+    voice_q: PMAY-G houses completed in twenty twenty-two twenty-three in West Khasi Hills, Mawshynrut block
+- id: K13-FocusLegacy-NONGSTOIN
+  kind: K13
+  scheme: Focus Legacy
+  district: WEST KHASI HILLS
+  turns:
+  - q: Focus Legacy amount disbursed in 2024-25 in West Khasi Hills, Nongstoin block
+    pause: false
+    place: Nongstoin
+    figures:
+    - sql: SELECT SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE TRUE AND lgd_district = 'WEST KHASI HILLS' AND year_key
+        = 2024 AND lgd_block = 'NONGSTOIN'
+      unit: rupees
+    voice_q: Focus Legacy amount disbursed for 24-25 in Nongstoin block, West Khasi Hills
+- id: K13-CMElevateLegacy-RAMBRAI
+  kind: K13
+  scheme: CM Elevate Legacy
+  district: WEST KHASI HILLS
+  turns:
+  - q: CM Elevate Legacy total disbursed in 2024-25 in West Khasi Hills, Rambrai block
+    pause: false
+    place: Rambrai
+    figures:
+    - sql: SELECT SUM(total_disbursement) FROM curated.v_cm_elevate_disbursement WHERE TRUE AND lgd_district = 'WEST KHASI
+        HILLS' AND year_key = 2024 AND lgd_block = 'RAMBRAI'
+      unit: rupees
+    voice_q: CM Elevate Legacy total disbursed in twenty twenty-four twenty-five in West Khasi Hills, Rambrai block
+- id: K13-CMSS-RIMULIANG
+  kind: K13
+  scheme: CMSS
+  district: WEST KHASI HILLS
+  turns:
+  - q: CMSS students paid in 2025-26 in West Khasi Hills, Ri Muliang block
+    pause: false
+    place: Ri Muliang
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_cmss WHERE is_disbursed AND lgd_district = 'WEST KHASI HILLS' AND year_key = 2025
+        AND lgd_block = 'RI MULIANG'
+      unit: count
+    voice_q: CMSS students paid for 25-26 in Ri Muliang block, West Khasi Hills
+- id: K13-Homestay-SHALLANG
+  kind: K13
+  scheme: Homestay
+  district: WEST KHASI HILLS
+  turns:
+  - q: Homestay applications in 2025-26 in West Khasi Hills, Shallang block
+    pause: false
+    place: Shallang
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_homestay_api WHERE TRUE AND lgd_district = 'WEST KHASI HILLS' AND year_key = 2025
+        AND lgd_block = 'SHALLANG'
+      unit: count
+    voice_q: Homestay applications in twenty twenty-five twenty-six in West Khasi Hills, Shallang block
+- id: K14-MGNREGA
+  kind: K14
+  scheme: MGNREGA
+  district: EAST KHASI HILLS
+  turns:
+  - q: MGNREGA in East Khasi Hills block-wise
+    pause: false
+    place: East Khasi Hills
+    rows:
+    - sql: SELECT lgd_block, SUM(person_days) FROM curated.v_employment WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district
+        = 'EAST KHASI HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+- id: K14-PMAY-G
+  kind: K14
+  scheme: PMAY-G
+  district: WEST GARO HILLS
+  turns:
+  - q: PMAY-G in West Garo Hills block-wise
+    pause: false
+    place: West Garo Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_pmay WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district = 'WEST GARO
+        HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+- id: K14-FocusPlus
+  kind: K14
+  scheme: Focus Plus
+  district: RI BHOI
+  turns:
+  - q: Focus Plus in Ri Bhoi block-wise
+    pause: false
+    place: Ri Bhoi
+    rows:
+    - sql: SELECT UPPER(block_name_raw), COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE TRUE AND UPPER(block_name_raw)
+        IS NOT NULL AND lgd_district = 'RI BHOI' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+- id: K14-FocusLegacy
+  kind: K14
+  scheme: Focus Legacy
+  district: NORTH GARO HILLS
+  turns:
+  - q: Focus Legacy in North Garo Hills block-wise
+    pause: false
+    place: North Garo Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district
+        = 'NORTH GARO HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+- id: K14-CMElevate
+  kind: K14
+  scheme: CM Elevate
+  district: WEST JAINTIA HILLS
+  turns:
+  - q: CM Elevate in West Jaintia Hills block-wise
+    pause: false
+    place: West Jaintia Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(DISTINCT request_id) FROM curated.v_cm_elevate WHERE data_verified = 'Valid' AND lgd_block
+        IS NOT NULL AND lgd_district = 'WEST JAINTIA HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+- id: K14-CMSS
+  kind: K14
+  scheme: CMSS
+  district: EAST GARO HILLS
+  turns:
+  - q: CMSS in East Garo Hills block-wise
+    pause: false
+    place: East Garo Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_cmss WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district = 'EAST GARO
+        HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+- id: K14-Homestay
+  kind: K14
+  scheme: Homestay
+  district: WEST KHASI HILLS
+  turns:
+  - q: Homestay in West Khasi Hills block-wise
+    pause: false
+    place: West Khasi Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_homestay_api WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district =
+        'WEST KHASI HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+- id: K15-FocusPlus
+  kind: K15
+  scheme: Focus Plus
+  district: ''
+  turns:
+  - q: Focus beneficiaries by district
+    pause: true
+  - q: Focus Plus
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE TRUE AND lgd_district IS NOT
+        NULL GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+    pick: Focus Plus
+- id: K15-FocusLegacy
+  kind: K15
+  scheme: Focus Legacy
+  district: WEST GARO HILLS
+  turns:
+  - q: Focus amount disbursed in West Garo Hills by block
+    pause: true
+  - q: Focus Legacy
+    pause: false
+    place: West Garo Hills
+    rows:
+    - sql: SELECT lgd_block, SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district
+        = 'WEST GARO HILLS' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: rupees
+      take: all
+    pick: Focus Legacy
+- id: K16-CMElevate
+  kind: K16
+  scheme: CM Elevate
+  district: RI BHOI
+  turns:
+  - q: CM Elevate applications in Ri Bhoi by block
+    pause: true
+  - q: CM Elevate
+    pause: false
+    place: Ri Bhoi
+    rows:
+    - sql: SELECT lgd_block, COUNT(DISTINCT request_id) FROM curated.v_cm_elevate WHERE data_verified = 'Valid' AND lgd_block
+        IS NOT NULL AND lgd_district = 'RI BHOI' GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+    pick: CM Elevate
+- id: K17-Mawlai
+  kind: K17
+  scheme: MGNREGA
+  district: EAST KHASI HILLS
+  turns:
+  - q: MGNREGA person-days in Mawlai
+    pause: true
+  - q: the block
+    pause: false
+    place: Mawlai
+    figures:
+    - sql: SELECT SUM(person_days) FROM curated.v_employment WHERE TRUE AND lgd_district = 'EAST KHASI HILLS' AND lgd_block
+        = 'MAWLAI'
+      unit: count
+    pick: block
+- id: K17-Nongstoin
+  kind: K17
+  scheme: MGNREGA
+  district: WEST KHASI HILLS
+  turns:
+  - q: MGNREGA person-days in Nongstoin
+    pause: true
+  - q: the block
+    pause: false
+    place: Nongstoin
+    figures:
+    - sql: SELECT SUM(person_days) FROM curated.v_employment WHERE TRUE AND lgd_district = 'WEST KHASI HILLS' AND lgd_block
+        = 'NONGSTOIN'
+      unit: count
+    pick: block
+- id: K17-Resubelpara
+  kind: K17
+  scheme: MGNREGA
+  district: NORTH GARO HILLS
+  turns:
+  - q: MGNREGA person-days in Resubelpara
+    pause: true
+  - q: the block
+    pause: false
+    place: Resubelpara
+    figures:
+    - sql: SELECT SUM(person_days) FROM curated.v_employment WHERE TRUE AND lgd_district = 'NORTH GARO HILLS' AND lgd_block
+        = 'RESUBELPARA'
+      unit: count
+    pick: block
+- id: K17-Chokpot
+  kind: K17
+  scheme: MGNREGA
+  district: SOUTH GARO HILLS
+  turns:
+  - q: MGNREGA person-days in Chokpot
+    pause: true
+  - q: the block
+    pause: false
+    place: Chokpot
+    figures:
+    - sql: SELECT SUM(person_days) FROM curated.v_employment WHERE TRUE AND lgd_district = 'SOUTH GARO HILLS' AND lgd_block
+        = 'CHOKPOT'
+      unit: count
+    pick: block
+- id: K18-MGNREGA
+  kind: K18
+  scheme: MGNREGA
+  district: RI BHOI
+  turns:
+  - q: MGNREGA person-days in 2023-24
+    pause: false
+    place: '-'
+    figures:
+    - sql: SELECT SUM(person_days) FROM curated.v_employment WHERE TRUE AND year_key = 2023
+      unit: count
+  - q: break it down by the district
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, SUM(person_days) FROM curated.v_employment WHERE TRUE AND lgd_district IS NOT NULL AND year_key
+        = 2023 GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: what about Ri Bhoi?
+    pause: false
+    place: Ri Bhoi
+    figures:
+    - sql: SELECT SUM(person_days) FROM curated.v_employment WHERE TRUE AND lgd_district = 'RI BHOI' AND year_key = 2023
+      unit: count
+  - q: go back to the dashboard
+    nav: go back to the dashboard
+- id: K18-PMAY-G
+  kind: K18
+  scheme: PMAY-G
+  district: WEST GARO HILLS
+  turns:
+  - q: PMAY-G houses completed in 2022-23
+    pause: false
+    place: '-'
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_pmay WHERE is_completed AND year_key = 2022
+      unit: count
+  - q: break it down by the district
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, COUNT(*) FROM curated.v_pmay WHERE is_completed AND lgd_district IS NOT NULL AND year_key
+        = 2022 GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: what about West Garo Hills?
+    pause: false
+    place: West Garo Hills
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_pmay WHERE is_completed AND lgd_district = 'WEST GARO HILLS' AND year_key = 2022
+      unit: count
+  - q: go back to the dashboard
+    nav: go back to the dashboard
+- id: K18-FocusLegacy
+  kind: K18
+  scheme: Focus Legacy
+  district: EAST KHASI HILLS
+  turns:
+  - q: Focus Legacy amount disbursed in 2024-25
+    pause: false
+    place: '-'
+    figures:
+    - sql: SELECT SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE TRUE AND year_key = 2024
+      unit: rupees
+  - q: break it down by the district
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE TRUE AND lgd_district IS NOT NULL
+        AND year_key = 2024 GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: rupees
+      take: all
+  - q: what about East Khasi Hills?
+    pause: false
+    place: East Khasi Hills
+    figures:
+    - sql: SELECT SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE TRUE AND lgd_district = 'EAST KHASI HILLS' AND year_key
+        = 2024
+      unit: rupees
+  - q: go back to the dashboard
+    nav: go back to the dashboard
+- id: K18y-MGNREGA-expenditure
+  kind: K18
+  scheme: MGNREGA
+  district: ''
+  turns:
+  - q: Could you please show me the MGNREGA expenditure per financial year across all districts
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT financial_year_short, ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND year_key IS NOT
+        NULL GROUP BY 1 ORDER BY 1
+      unit: lakh
+      take: all
+- id: K18e-MGNREGA-expenditure
+  kind: K18
+  scheme: MGNREGA
+  district: ''
+  turns:
+  - q: I want you to show me the MGNREGA expenditure for every financial year.
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT financial_year_short, ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND year_key IS NOT
+        NULL GROUP BY 1 ORDER BY 1
+      unit: lakh
+      take: all
+- id: K18y-MGNREGA-person-days
+  kind: K18
+  scheme: MGNREGA
+  district: ''
+  turns:
+  - q: Could you please show me the MGNREGA person-days per financial year across all districts
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT financial_year_short, SUM(person_days) FROM curated.v_employment WHERE TRUE AND year_key IS NOT NULL GROUP
+        BY 1 ORDER BY 1
+      unit: count
+      take: all
+- id: K18e-MGNREGA-person-days
+  kind: K18
+  scheme: MGNREGA
+  district: ''
+  turns:
+  - q: I want you to show me the MGNREGA person-days for every financial year.
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT financial_year_short, SUM(person_days) FROM curated.v_employment WHERE TRUE AND year_key IS NOT NULL GROUP
+        BY 1 ORDER BY 1
+      unit: count
+      take: all
+- id: K18y-PMAY-G-amount
+  kind: K18
+  scheme: PMAY-G
+  district: ''
+  turns:
+  - q: Could you please show me the PMAY-G amount released per financial year across all districts
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT financial_year_short, SUM(amount_released) FROM curated.v_pmay WHERE TRUE AND year_key IS NOT NULL GROUP
+        BY 1 ORDER BY 1
+      unit: rupees
+      take: all
+- id: K18e-PMAY-G-amount
+  kind: K18
+  scheme: PMAY-G
+  district: ''
+  turns:
+  - q: I want you to show me the PMAY-G amount released for every financial year.
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT financial_year_short, SUM(amount_released) FROM curated.v_pmay WHERE TRUE AND year_key IS NOT NULL GROUP
+        BY 1 ORDER BY 1
+      unit: rupees
+      take: all
+- id: K18y-FocusLegacy-amount
+  kind: K18
+  scheme: Focus Legacy
+  district: ''
+  turns:
+  - q: Could you please show me the Focus Legacy amount disbursed per financial year across all districts
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT financial_year_short, SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE TRUE AND year_key IS NOT NULL
+        GROUP BY 1 ORDER BY 1
+      unit: rupees
+      take: all
+- id: K18e-FocusLegacy-amount
+  kind: K18
+  scheme: Focus Legacy
+  district: ''
+  turns:
+  - q: I want you to show me the Focus Legacy amount disbursed for every financial year.
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT financial_year_short, SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE TRUE AND year_key IS NOT NULL
+        GROUP BY 1 ORDER BY 1
+      unit: rupees
+      take: all
+- id: K19-asr
+  kind: K19
+  scheme: MGNREGA
+  district: ''
+  turns:
+  - q: MGNREGA person-days by district
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, SUM(person_days) FROM curated.v_employment WHERE TRUE AND lgd_district IS NOT NULL GROUP BY
+        1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: Could you please show me the MGNREGA expenditure per financial year across all districts
+    voice_q: Could you please show me the Meghalaya expenditure per financial across all districts
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT financial_year_short, ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE TRUE AND year_key IS NOT
+        NULL GROUP BY 1 ORDER BY 1
+      unit: lakh
+      take: all

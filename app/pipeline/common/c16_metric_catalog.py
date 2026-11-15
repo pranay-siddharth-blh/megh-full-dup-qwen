@@ -245,12 +245,60 @@ def _c16_extra_words(question: str, schemes: "list[str]", entity_result: dict, t
     return extra
 
 
+_C16_EVERY = frozenset("per every each".split())
+_C16_FY = frozenset("financial fiscal".split())
+_C16_ALL_PLACES_LEADS = frozenset("across in over for throughout".split())
+_C16_AVERAGE = frozenset("average avg mean typical".split())
+
+
+def _c16_year_series(question: str) -> "set[str] | None":
+    """2026-11-16 (the user's live log): "expenditure PER FINANCIAL YEAR across all districts" was answered by district
+    (all years), "for EVERY financial year" as one total. "per / every / each financial year" (also "per financial"
+    with "year" lost by the ears) is the year grouping, and "across all districts" beside it is the whole state (all
+    districts together), not a district breakdown. Returns the groupings ({"year"}, or {"year", "district"} when a
+    district grouping is ALSO asked: "by district for every financial year"), or None when no such phrase is said."""
+    ws = _c01_tm_words(question or "")
+    if set(ws) & _C16_AVERAGE:
+        return None                                       # "average spend per financial year": one figure
+    hit = None
+    for i, w in enumerate(ws[:-1]):
+        if w in _C16_EVERY and ws[i + 1] in _C16_FY:
+            hit = i
+            break
+    if hit is None:
+        return None
+    # the words without "(across|in|over|for) all (the) (12|twelve) districts"
+    keep, i = [], 0
+    while i < len(ws):
+        j = i + 1 if ws[i] in _C16_ALL_PLACES_LEADS else i
+        if j < len(ws) and ws[j] == "all":
+            k = j + 1
+            while k < len(ws) and ws[k] in ("the", "12", "twelve"):
+                k += 1
+            if k < len(ws) and ws[k] == "districts":
+                i = k + 1
+                continue
+        keep.append(ws[i])
+        i += 1
+    rest = _c02_breakdowns(" ".join(keep), include_per=False) - {"year"}
+    return {"year"} | ({"district"} if "district" in rest else set()) | (rest - {"district"})
+
+
 def _c16_shape(question: str, filters: dict) -> "dict | None":
     """The query type the question asks for: {"qtype", "group", "order", "limit"},
     or None for a shape the catalogue query does not cover (the model answers)."""
     q = question or ""
     low = _c01_tm_words(q)
     dims = _c02_breakdowns(q, include_per=False)
+    series = _c16_year_series(q)
+    if series is not None:
+        dims = series
+    elif not dims:
+        # 2026-11-16 (log bank): "MGNREGA person-days per district" fell to the model, which once summed the state.
+        # "per / each / every <district|block>" (no average asked) is that grouping.
+        if not set(low) & _C16_AVERAGE:
+            lv = {"district": "district", "districts": "district", "block": "block", "blocks": "block"}
+            dims = {lv[b] for a, b in zip(low, low[1:]) if a in _C16_EVERY and b in lv}
     ranking = bool(_RANKING_CUE.search(q))
     lists = [k for k in ("district", "block", "village_code") if isinstance(filters.get(k), list)]
     years = filters.get("year_key") or []
@@ -342,9 +390,16 @@ def _c16_default_measure_question(question: str, scheme: str) -> "str | None":
     if not phrase:
         return None
     low = {t.low for t in _c01_tm_tokens(question)}
+    if low & _C16_FIGURE_WORDS and len(low) <= 14:
+        # 2026-11-16 (the user's log): "Give me the MGNREGA figure for Ri Bhoi?", "What's the Focus Legacy figure for
+        # Mawphlang block?": the figure of a scheme with no measure is its headline measure, as a grouping is
+        return f"{scheme} {phrase} " + question
     if not (low & _C16_GROUPING_WORDS) or not ({"by", "breakdown", "wise", "split", "each", "every", "per"} & low):
         return None
     return f"{scheme} {phrase} " + question
+
+
+_C16_FIGURE_WORDS = frozenset("figure figures numbers headline".split())
 
 
 def _metric_catalog_plan(question: str, schemes: "list[str]", entity_result: dict) -> dict:

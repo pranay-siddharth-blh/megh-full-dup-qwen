@@ -6,6 +6,27 @@ gateway outage of 2–3 Nov). **Voice layer updated 10–11 Nov 2026 (§0); `doc
 
 ## 0. Current state of the live voice (10–11 Nov 2026) — read before touching anything voice
 
+### 0c. 16 Nov 2026 (early) — permutation bank, branch `wt/perms-2026-11-16` (before the main demo)
+- New permanent bank `tests/accuracy/run_perms.py` + `perms_bank.yaml` (+ `perms_views.mjs`): 8 schemes x all 12
+  districts x follow-up chains (by district -> a district's blocks in 6 wordings -> most / top 3 / lowest -> bar / pie /
+  table / line / map; "only <block>", year swap, "and for <district>", "the <measure> instead", no-scheme "breakdown by
+  blocks of X" -> pick), one-shot scheme+measure+year+district+block for EVERY block (55) twice, vague questions that
+  must ask back (no measure, "Focus", CM Elevate dataset, a block that is also a constituency), the user's logged
+  wordings. Each chain runs TYPED (raw words; a chart switch = `viewOnlyRequest`) and VOICE (the engine's
+  `megh/shaper.py shape()` with the adapter's memory; a chart switch = `canonicalView`); truth = own SQL from the
+  catalogue definitions (D-060: PMAY-G counts include the 126 placeholders). `--build` rewrites the YAML from megh_db.
+- Pipeline fixes (general, no regex): c01 rank reader takes spoken fillers ("um which block is having the lowest");
+  c01 measure swap reads a previous measure split by helper words ("How much money WAS disbursed" -> "the producer
+  groups instead"); c18 "only <name>" after a by-block answer reads a block that is also a constituency / village at
+  the block level (no ask-back); metric_catalog `_value_sql` money below a crore exact to the rupee (2 places of a
+  crore had said Rs 6,30,000 as "Rs 6,00,000"); c16 `_c16_year_series`: "per / every / each financial year" (and
+  "per financial" with year lost) = the year grouping, "across all districts" beside it = the whole state.
+- Engine (Full Duplex `megh/shaper.py`, backups `ops/backups_original/2026-11-16/shaper_*perms*`): a district + a lower
+  level ("the blocks of X", "drill down into X", "by blockwise") = its breakdown, never "what about X block?"; a rank
+  word keeps the question as said; "per financial" -> "per financial year"; "Meghalaya <MGNREGA-only measure>" ->
+  MGNREGA; bare "map please"; "show me the show me ..." restarts collapsed; "the headline just for MGNREGA" passes as
+  said; a view command is never held; leading "Okay, now" stripped; a multi-sentence ramble with no content held.
+
 ### 0b. 15 Nov 2026 (night) — the user's live-test round, ALL MERGED on `arch/step1-2026-11-14` (read first)
 - From the user's live test (log + `app.conversation_turns` read first, standing rule): four builds merged —
   98a434f drill-down follow-ups (KI-728; D-110 (b) REVISED and **confirmed by the user**: "by block" after a ranking =
