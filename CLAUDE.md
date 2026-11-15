@@ -6,6 +6,16 @@ gateway outage of 2–3 Nov). **Voice layer updated 10–11 Nov 2026 (§0); `doc
 
 ## 0. Current state of the live voice (10–11 Nov 2026) — read before touching anything voice
 
+### 0a'''''. 15 Nov 2026 (evening) — EVERYTHING MERGED on `arch/step1-2026-11-14` (read first; the two 0a'''' notes below say "not merged yet": they are)
+- Merged in order: answer frame (D-110), streaming (D-112), dictation (D-111), orb + AI-mode panel (D-113), the
+  independent review's fixes (2d27ef9), more deterministic answers (`wt/nomodel2`, cad3ae6), Focus Legacy list units
+  (79331c9: "₹10.93 crore total disbursed", not "… total disbursed cr"), follow-up after an aside (9e9a80f: the
+  durable-frames fallback no longer assumes the newest frame is the aside's).
+- Results on the merged code: **model-on gold bank merged-3 = 401/401 (100%)**; no-model bank nomodel-19 = 360/401,
+  0 newly failing; full suite 6,876 passed, 0 failed, scripts 14/14 (cad3ae6). Worktrees at `D:\megwt\<name>`.
+- Not done: a live microphone test by a person (dictation, orb); the voice bank (needs qwen3-tts, which returns 404).
+  MEGH-LANG is still the pre-merge copy; switch it over only when the user says so.
+
 ### 0a''''. 15 Nov 2026 — Dictation (D-111, worktree branch `wt/dictate-2026-11-15`)
 - **The composer mic now DICTATES** (types the officer's words at the caret, the box stays visible); the live voice is
   opened by the voice orb (another workstream; `live.open()` is unchanged, the orb calls `micLock.stopDictation()`).
