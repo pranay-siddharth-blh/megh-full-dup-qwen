@@ -43,6 +43,7 @@ from ui_voice import JS, RESULTS, check, mint, silent_wav  # noqa: E402
 ARGS = sys.argv[1:]
 BASE = ARGS[ARGS.index("--base") + 1] if "--base" in ARGS else "http://127.0.0.1:8401"
 DUMP = "--dump" in ARGS
+REAL = "--real" in ARGS     # the real engine: the test directives are dropped and every reading is judged as paced
 SHOTS = Path(os.environ.get("TEMP", ".")) / "megh_caption_shots"
 SHOTS.mkdir(parents=True, exist_ok=True)
 
@@ -84,6 +85,8 @@ async def reading(b, said, label):
     """Ask `said`, sample every frame until the voice has finished reading it; return the measurements."""
     await b.eval("(async () => { await until(() => !window.__meghVoice.playing() && !window.__meghVoice.pending(), 60000); await sleep(1500); })()", timeout=80)
     t0 = await b.eval("performance.now()")
+    if REAL and said.startswith("!!"):
+        said = said.split(" ", 1)[1]
     await b.eval(f"window.__cap = []; window.__capOn = true; window.__meghVoice.say({json.dumps(said)})")
     await b.eval(f"""(async () => {{
         const r = await until(() => vlog().filter(e => e.type === 'reply' && e.t > {t0}).pop(), 150000);
@@ -226,7 +229,7 @@ async def main():
                                    ("MGNREGA person-days by district in 2023-24", "paced", False)):
             m = await reading(b, said, label)
             print("   ", json.dumps(m), flush=True)
-            judge(m, burst)
+            judge(m, burst and not REAL)
         # the single figure's explaining breakdown is asked in a throwaway session, deleted 4 s after it is saved:
         # the page stays open long enough for that (it would otherwise be left in the officer's history)
         await b.eval("sleep(8000)", timeout=20)

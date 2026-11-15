@@ -41,6 +41,15 @@ gateway outage of 2–3 Nov). **Voice layer updated 10–11 Nov 2026 (§0); `doc
   a 3+ series line; single cards start under the subtitle band (insight chip hidden at 761-800 px tall). Audit test:
   `tests/voice/ui_voice_audit.py` (every shape and switch at 1366 / 1536 / 1920).
 - `tests/voice/cdp.py`: `CDP_PORT_OFFSET` env so two checkouts can run the browser tests side by side.
+- **Round 2 (same night, from the live run on the real engine):** the headline of every scheme (and a place's / a
+  constituency's) draws ONE tile per scheme, the second figure on the tile's line in the answer's own words
+  (`vizPlan.extraWords`: "person-days · 14,94,437 households given work"; never a generic "beneficiaries"); per-scheme
+  cards titled in the scheme's own words; the engine's holding lines (`captionPacer.HOLDING_LINES`, a copy of
+  megh/fixed_lines.py LEAD_FIRST / LEAD_LATER + lead_phrases: keep the two in step) never enter an answer's caption,
+  wherever they come (`withoutHolding`); the chat's tallest bar label uses the padding above the plot. Tests: fake Live
+  `!!realtime3`, `ui_voice_transcript.py` case 5 and `--real`, `ui_voice_captions.py --real`, new
+  `tests/voice/ui_chat_audit.py` (the chat at 1366 / 1536 / 1920, the voice panel full / folded / rail, streaming
+  without re-mounts, layout shift).
 
 ### 0b. 15 Nov 2026 (night) — the user's live-test round, ALL MERGED on `arch/step1-2026-11-14` (read first)
 - From the user's live test (log + `app.conversation_turns` read first, standing rule): four builds merged —
