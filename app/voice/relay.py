@@ -271,7 +271,9 @@ class VoiceSession:
                 "asked": "", "fresh": True, "read": False, "probe": "", "reread": False, "probed": False,
                 # the unsourced-number block (VOICE_BLOCK_UNSOURCED): sentences checked and captioned so far, the
                 # numbers that cut the turn (empty = not cut), the sentence it was cut at, the text a read asked for
-                "checked": 0, "blocked": [], "block_at": -1, "read_text": ""}
+                "checked": 0, "blocked": [], "block_at": -1, "read_text": "",
+                # the open sentence's words already captioned (16 Nov 2026: captions word by word, numbers checked)
+                "part_i": -1, "part_txt": ""}
 
     async def close(self, why: str) -> None:
         self.closing = why
@@ -589,8 +591,54 @@ class VoiceSession:
                                self.officer.key)
                 await self.send({"type": "interrupted", "guard": "unsourced"})
                 return
-            await self.send({"type": "out", "text": (" " if tn["checked"] else "") + speech_guard.scrub(s)})
+            # the part of this sentence not captioned yet (its start may have gone out word by word, below)
+            sent = speech_guard.scrub(s)
+            before = tn["part_txt"] if tn["part_i"] == tn["checked"] else ""
+            if before and sent.startswith(before):
+                rest = sent[len(before):]
+            else:
+                rest = (" " if tn["checked"] else "") + sent
+            tn["part_i"], tn["part_txt"] = -1, ""
+            if rest:
+                await self.send({"type": "out", "text": rest})
             tn["checked"] += 1
+        if not final and len(sents) > tn["checked"]:
+            await self._guard_partial(sents[tn["checked"]])
+
+    # how many words must follow a figure before it is shown: "about 47 lakh person-days" — the unit after it is part
+    # of the figure the check reads
+    _AFTER_NUMBER = 2
+
+    async def _guard_partial(self, cur: str) -> None:
+        """Captions WORD BY WORD inside the sentence being spoken (16 Nov 2026, the user: "every word the voice says
+        should match the transcript and the picture"; a real-time engine speaks one long sentence for ~15 s and the
+        sentence-at-a-time check showed nothing until its end). Words are released up to the last complete word; a
+        figure is held until two more words have arrived (its unit), then checked like a sentence. A prefix the check
+        does not pass is simply held: the finished sentence is still checked as a whole (and cut, as before)."""
+        tn = self.turn
+        # word ends (index after each complete word: a word is complete when a space follows it)
+        ends = [k for k in range(1, len(cur)) if cur[k] == " " and cur[k - 1] != " "]
+        if not ends:
+            return
+        starts = [0] + [k + 1 for k in ends[:-1]]
+        n = len(ends)
+        for w in range(n - 1, max(-1, n - 1 - self._AFTER_NUMBER), -1):
+            if any(ch.isdigit() for ch in cur[starts[w]:ends[w]]):
+                n = w                                 # hold this figure and what follows it
+                break
+        if n <= 0:
+            return
+        prefix = cur[:ends[n - 1]].rstrip()
+        sent_idx = tn["checked"]
+        if speech_guard.deviations(prefix, self.facts):
+            return                                   # held: the whole sentence decides at its end
+        shown = speech_guard.scrub(prefix)
+        before = tn["part_txt"] if tn["part_i"] == sent_idx else ""
+        if len(shown) <= len(before) or not shown.startswith(before):
+            return
+        lead = (" " if sent_idx else "") if not before else ""
+        await self.send({"type": "out", "text": lead + shown[len(before):]})
+        tn["part_i"], tn["part_txt"] = sent_idx, shown
 
     async def on_tool_call(self, calls: list) -> None:
         tn = self.turn
