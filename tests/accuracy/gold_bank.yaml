@@ -195,9 +195,8 @@ cases:
     schemes:
     - Focus Plus
     pause: false
-    has:
-    - provisional
     year: 2022
+    note: '2026-11-15: no ''provisional'' required — that Note was removed by user decision 2026-11-03'
 - id: G-D9
   cat: focus_legacy
   shape: state-total
@@ -219,10 +218,11 @@ cases:
     - Focus Legacy
     pause: false
     has:
-    - 2023-24
+    - 2022-23
+    - 2024-25
     lacks:
     - LIMIT
-    note: 'FY 2023-24 is absent: named as a gap'
+    note: the Note lists the years the data covers (user decision 2026-11-03), so FY 2023-24 shows as a gap
 - id: G-D10
   cat: cm_elevate_legacy
   shape: state-total
@@ -738,8 +738,7 @@ cases:
     schemes:
     - Focus Plus
     pause: false
-    has:
-    - provisional
+    note: '2026-11-15: no ''provisional'' required (Note removed, user decision 2026-11-03)'
 - id: CARD-cme-apps
   cat: cm_elevate
   shape: state-count
@@ -1568,9 +1567,9 @@ cases:
     - Focus Legacy
     pause: false
     chart: line
-    has:
-    - 2023-24
-    note: 'FY 2023-24 absent: a gap, never a zero'
+    lacks:
+    - '2023-24: ₹0'
+    note: 'FY 2023-24 absent: a gap, never a zero; the Note lists covered years (user decision 2026-11-03)'
 - id: CH-04
   cat: chart
   shape: breakdown-status
@@ -1579,29 +1578,29 @@ cases:
   - q: CM Elevate applications by status as a donut chart
     rows:
     - any:
-      - sql: SELECT CASE WHEN current_file_status LIKE 'sendback%' THEN 'Sent back' ELSE current_file_status END, COUNT(DISTINCT
-          request_id) FROM curated.v_cm_elevate WHERE data_verified = 'Valid' GROUP BY 1 ORDER BY 2 DESC
+      - sql: SELECT COALESCE(file_status, '(not recorded)'), COUNT(DISTINCT request_id) FROM curated.v_cm_elevate WHERE data_verified
+          = 'Valid' GROUP BY 1 ORDER BY 2 DESC
         unit: count
         take: all
         word: valid
         value:
-        - - forward
-          - 7324
-        - - Sent back
+        - - Pending
+          - 7291
+        - - Send Back
+          - 57
+        - - Rejected
           - 48
-        - - resubmit
-          - 3
-      - sql: SELECT CASE WHEN current_file_status LIKE 'sendback%' THEN 'Sent back' ELSE current_file_status END, COUNT(DISTINCT
-          request_id) FROM curated.v_cm_elevate GROUP BY 1 ORDER BY 2 DESC
+      - sql: SELECT COALESCE(file_status, '(not recorded)'), COUNT(DISTINCT request_id) FROM curated.v_cm_elevate GROUP BY
+          1 ORDER BY 2 DESC
         unit: count
         take: all
         value:
-        - - forward
-          - 8861
-        - - Sent back
-          - 74
-        - - resubmit
-          - 3
+        - - Pending
+          - 8813
+        - - Send Back
+          - 90
+        - - Rejected
+          - 62
       why: 'D-B1-CME-01: valid-only by default, or every application'
     schemes:
     - CM Elevate
@@ -18073,7 +18072,7 @@ cases:
         label: all applications
         value: 495
       why: 'D-B1-CME-01: valid-only by default (said ''valid''), or every application when all are asked'
-    pause: null
+    pause: false
   - q: And in West Khasi Hills?
     figures:
     - any:

@@ -234,11 +234,13 @@ add(C("G-D7", "pmay", "state-total", G + " D7",
 add(C("G-D8", "focus_plus", "state-year", G + " D8",
       T("Focus Plus beneficiaries FY 2022-23 and amount paid?",
         F(fp_ben(yr(2022)), ref="93,286", ref_src=G), F(fp_amt(yr(2022)), "rupees", ref="46.64 crore", ref_src=G),
-        schemes=[FP], year=2022, has=["provisional"])))
+        schemes=[FP], year=2022,
+        note="2026-11-15: no 'provisional' required — that Note was removed by user decision 2026-11-03")))
 add(C("G-D9", "focus_legacy", "state-total", G + " D9",
       T("Focus Legacy producer groups and total, all years?",
         F(fl_pg(), ref="11,906", ref_src=G), F(fl_amt(), "rupees", ref="51.01 crore", ref_src=G),
-        schemes=[FL], has=["2023-24"], lacks=["LIMIT"], note="FY 2023-24 is absent: named as a gap")))
+        schemes=[FL], has=["2022-23", "2024-25"], lacks=["LIMIT"],
+        note="the Note lists the years the data covers (user decision 2026-11-03), so FY 2023-24 shows as a gap")))
 add(C("G-D10", "cm_elevate_legacy", "state-total", G + " D10",
       T("CM Elevate Legacy: number of records, subsidy disbursed, scheme with most records?",
         F(f"SELECT COUNT(*) FROM {CLV}", ref="2,823", ref_src=G),
@@ -339,7 +341,7 @@ add(C("CARD-fp-pay", "focus_plus", "state-count", CD + " + RAG PDF data #10 (cou
 add(C("CARD-fp-amt", "focus_plus", "state-total", CD + " + RAG PDF data #4",
       T("Total amount disbursed under Focus Plus across all years?", F(fp_amt(), "rupees", ref="119.74 crore",
                                                                       ref_src="RAG PDF #4"),
-        schemes=[FP], has=["provisional"])))
+        schemes=[FP], note="2026-11-15: no 'provisional' required (Note removed, user decision 2026-11-03)")))
 add(C("CARD-cme-apps", "cm_elevate", "state-count", CD,
       T("How many CM Elevate applications are there in total?", ce_apps(), schemes=[CE],
         note="KI-699: card 8,9xx (all) vs chat valid-only (D-B1-CME-01); either, each named for what it counts")))
@@ -499,10 +501,11 @@ add(C("CH-02", "chart", "year-series", CH + " #2",
 add(C("CH-03", "chart", "year-series", CH + " #3",
       T("Show total Focus Legacy amount remitted in each financial year as a line chart",
         rows=R(f"SELECT financial_year_short, SUM(amount_disbursed) FROM {FLV} GROUP BY 1 ORDER BY 1", "rupees"),
-        schemes=[FL], chart="line", has=["2023-24"], note="FY 2023-24 absent: a gap, never a zero")))
+        schemes=[FL], chart="line", lacks=["2023-24: ₹0"],
+        note="FY 2023-24 absent: a gap, never a zero; the Note lists covered years (user decision 2026-11-03)")))
 add(C("CH-04", "chart", "breakdown-status", CH + " #4",
       T("CM Elevate applications by status as a donut chart",
-        rows=ce_rows("CASE WHEN current_file_status LIKE 'sendback%' THEN 'Sent back' ELSE current_file_status END"),
+        rows=ce_rows("COALESCE(file_status, '(not recorded)')"),   # D-101 (team, 2026-11-13): the plain file_status column
         schemes=[CE], chart="doughnut",
         note="status = current_file_status (KI-123). Valid-only default may apply: see the result note")))
 add(C("CH-05", "chart", "grouped", CH + " #5",
@@ -1033,7 +1036,7 @@ add(C("FU-18", "chain", "chart-switch", FU + " (voice bank D5)",
         rows=R(f"SELECT lgd_district, SUM(person_days) FROM {EMP} WHERE year_key = 2023 GROUP BY 1 ORDER BY 2 DESC"),
         chart="pie")))
 add(C("FU-19", "chain", "and-for-place", FU + " (voice bank C4)",
-      T("CM Elevate applications in South Garo Hills.", ce_apps(dist("SOUTH GARO HILLS")), pause=None),
+      T("CM Elevate applications in South Garo Hills.", ce_apps(dist("SOUTH GARO HILLS")), pause=False),   # D-099 pick
       T("And in West Khasi Hills?", ce_apps(dist("WEST KHASI HILLS")), schemes=[CE], place="WEST KHASI HILLS")))
 add(C("FU-20", "chain", "year-filter", FU,
       T("PMAY-G houses sanctioned in 2023-24", F(pm_count(yr(2023)))),
