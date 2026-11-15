@@ -276,3 +276,14 @@ def test_year_rank_follow_up(msg, order):
 def test_year_rank_follow_up_needs_an_answer_by_year():
     assert p._c18_edit_rank_year("which year had the most?", _frame("district", "breakdown")) is None
     assert p._c18_edit_rank_year("which district had the most?", _frame("year", "breakdown")) is None
+
+
+def test_except_words_hold_a_display_name_noise_word(monkeypatch):
+    """SH-F023: 'disbursement' is noise in the data team's display names; read as an excluded wording it was an empty
+    phrase and excluded nothing, so 'which district received the highest total Focus Plus disbursement' was answered
+    as the payments COUNT (its truth is the amount)."""
+    state = {"verified": {t: {} for t in mc.QUERY_TYPES}}
+    state["verified"]["ranking"]["focus_plus_payments"] = {"evidence": "t", "except_words": ["disbursement"]}
+    monkeypatch.setattr(mc, "_state", state)
+    assert mc.verified("ranking", "focus_plus_payments", frozenset({("disbursement",)})) is None
+    assert mc.verified("ranking", "focus_plus_payments", frozenset({("payment", "made")})) is not None

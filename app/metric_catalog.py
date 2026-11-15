@@ -345,7 +345,9 @@ def verified(qtype: str, key: str, phrases: "frozenset[tuple[str, ...]]" = froze
     entry = _state["verified"].get(qtype, {}).get(key)
     if entry is None:
         return None
-    excluded = {_phrase(str(w)) for w in (entry.get("except_words") or [])}
+    # read like an approved wording (2026-11-15): with the display-name noise "disbursement" became an empty phrase
+    # and excluded nothing (Focus Plus payments ranking, gold bank SH-F023)
+    excluded = {_phrase(str(w), _APPROVED_NOISE) for w in (entry.get("except_words") or [])}
     if phrases and phrases <= excluded:
         return None
     return entry
