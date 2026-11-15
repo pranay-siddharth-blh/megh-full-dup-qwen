@@ -6,6 +6,20 @@ gateway outage of 2–3 Nov). **Voice layer updated 10–11 Nov 2026 (§0); `doc
 
 ## 0. Current state of the live voice (10–11 Nov 2026) — read before touching anything voice
 
+### 0b. 15 Nov 2026 (night) — the user's live-test round, ALL MERGED on `arch/step1-2026-11-14` (read first)
+- From the user's live test (log + `app.conversation_turns` read first, standing rule): four builds merged —
+  98a434f drill-down follow-ups (KI-728; D-110 (b) REVISED and **confirmed by the user**: "by block" after a ranking =
+  the blocks INSIDE those districts; "by year" = each district side by side; gold BD-01..12, bank 413), a09911e
+  natural written + spoken answers and screen commands (D-114, KI-729; the two 0a'''''' notes below), 4e93f3e voice
+  stage captions + picture timing (D-115, KI-730), e49f900 question bank (`docs/Megh_Question_Bank.pdf` +
+  `tools/make_question_bank.py`; 156 DB-verified client-style questions), 72fc810 "which district leads in each
+  scheme" (the bank's one miss: "leads" was not a rank word; a singular district ranking = one leader per scheme).
+- Results on the combined code: **model-on bank merged-4 = 413/413**, no-model nomodel-20 = 372/413 (0 newly
+  failing), pytest 7,065 passed 0 failed, scripts 14/14, frontend 232/232. Server 8401 restarted on 72fc810.
+- Owner items open: D-114 extras (share + multiple in the lead; spoken rounding from 1 lakh; explained to the user,
+  no answer yet); the guard could release captions at ':' / ';' (faster first caption, a D-108 decision); CM Elevate
+  Legacy 2,820 vs 2,823 (3 de-sanctioned records; data team).
+
 ### 0a''''''. 15 Nov 2026 (night) — Natural answers + screen commands (D-114, KI-729), worktree branch `wt/natural-2026-11-15`
 - User (live voice): answers "robotic and quantized"; "take me back to the dashboard" answered "I can't apply, book, pay…".
 - **Written:** a ranking / comparison / trend / split opens with an insight-first lead written by CODE (no model call;
