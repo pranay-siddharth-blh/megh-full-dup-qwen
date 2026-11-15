@@ -391,41 +391,21 @@ const Starters = memo(function Starters({ onAsk }) {
   );
 });
 
+// 16 Nov 2026 (the user): a two-way switch, Female | Male (maya2-native Jahnavi / Akshat on the sovereign engine), top
+// right of the stage; Female is the voice the stage opens with. The choice is remembered per browser (voices.js).
 function VoicePicker({ live }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef(null);
-  useEffect(() => {
-    if (!open) return undefined;
-    const away = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
-    const key = (e) => { if (e.key === 'Escape') { e.stopPropagation(); setOpen(false); } };
-    document.addEventListener('pointerdown', away, true);
-    window.addEventListener('keydown', key, true);
-    return () => { document.removeEventListener('pointerdown', away, true); window.removeEventListener('keydown', key, true); };
-  }, [open]);
   if (!live || !live.setVoice) return null;
   const cur = voiceOf(live.voiceKey);
   return (
-    <div className={'vs-voice' + (open ? ' open' : '')} ref={ref}>
-      <button type="button" className="vs-voice-btn" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}
-              title="Choose the voice" aria-label={`Voice: ${cur.name}, ${cur.tone}. Choose the voice`}>
-        <span className="vs-voice-wave" aria-hidden="true"><i /><i /><i /><i /></span>
-        <b>{cur.name}</b><span className="vs-voice-tone">{cur.tone}</span>
-        <span className="vs-voice-caret" aria-hidden="true">▾</span>
-      </button>
-      {open && (
-        <div className="vs-voice-menu" role="menu">
-          <div className="vs-voice-h">Voice</div>
-          {VOICES.map((v) => (
-            <button key={v.key} type="button" role="menuitemradio" aria-checked={v.key === cur.key} disabled={!v.ready}
-                    className={'vs-voice-item' + (v.key === cur.key ? ' on' : '')}
-                    onClick={() => { setOpen(false); if (v.key !== cur.key) live.setVoice(v.key); }}>
-              <span className="vs-voice-dot" aria-hidden="true" />
-              <b>{v.name}</b><span>{v.tone}</span>
-            </button>
-          ))}
-          <div className="vs-voice-note">Same answers and pictures in every voice.</div>
-        </div>
-      )}
+    <div className="vs-voice vs-voice-seg" role="radiogroup" aria-label="Voice">
+      <span className="vs-voice-wave" aria-hidden="true"><i /><i /><i /><i /></span>
+      {VOICES.map((v) => (
+        <button key={v.key} type="button" role="radio" aria-checked={v.key === cur.key} disabled={!v.ready}
+                className={'vs-voice-opt' + (v.key === cur.key ? ' on' : '')}
+                onClick={() => { if (v.key !== cur.key) live.setVoice(v.key); }}>
+          {v.name}
+        </button>
+      ))}
     </div>
   );
 }
