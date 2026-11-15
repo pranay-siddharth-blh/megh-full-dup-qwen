@@ -91,6 +91,13 @@ def _fold(s: Session, say: str, expect: dict) -> None:
             if dim in ("district", "block"):
                 setattr(s.state, dim, name)
         s.turns.append(Turn(question=say, raw_question=say, route="data", schemes=[expect["scheme"]]))
+    elif route == "knowledge":
+        # 2026-11-15: the router records a knowledge turn too, with the scheme(s) it named (build_turn); the replay
+        # dropped it, so "What is PMAY scheme?" -> "How many beneficiaries are enrolled?" (BLH8) looked standalone here
+        from app import pipeline as _p
+        named = list(_p._named_schemes(say) or [])
+        if named:
+            s.turns.append(Turn(question=say, raw_question=say, route="knowledge", schemes=named))
 
 
 @pytest.mark.parametrize("scenario", list(_scenarios()))

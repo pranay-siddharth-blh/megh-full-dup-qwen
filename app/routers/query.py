@@ -681,6 +681,14 @@ def is_cacheable(question: str, session) -> bool:
         from app import pipeline as _p
         if not _p._mentions_scheme(question):
             return False
+    # 2026-11-15 (harness BLH8, failing on the team's Main too): "What is PMAY scheme?" (a KNOWLEDGE turn, which does
+    # not set the data state's scheme) then "How many beneficiaries are enrolled?" — answered for PMAY-G from the
+    # chat, yet shared through the cache, so the same words in a Focus Plus chat could get the PMAY-G figure. The
+    # previous turn's own schemes count as the chat's scheme too.
+    if prev is not None and getattr(prev, "schemes", None):
+        from app import pipeline as _p
+        if not _p._mentions_scheme(question):
+            return False
     # An explicit topic switch ("go back to MGNREGA, what about 2023-24?") runs
     # in the restored topic's context (app/topic_memory.py), so it is this
     # conversation's alone.

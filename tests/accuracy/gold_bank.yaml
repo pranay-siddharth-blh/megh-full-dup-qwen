@@ -15263,7 +15263,10 @@ cases:
   turns:
   - q: Which districts have the highest number of pending CM ELEVATE applications?
     pause: null
-    note: 'plural ''districts'' with no N: the top-N question is by design (ranking-count-not-specified)'
+    note: 'D-099 (user decision 2026-11-03): a new chat asks which CM Elevate dataset first'
+  - q: CM Elevate
+    pause: null
+    note: the dataset pick; plural 'districts' with no N then asks how many (ranking-count-not-specified)
   - q: top 3
     rows:
     - sql: SELECT lgd_district, COUNT(DISTINCT request_id) FROM curated.v_cm_elevate WHERE data_verified = 'Valid' AND file_status

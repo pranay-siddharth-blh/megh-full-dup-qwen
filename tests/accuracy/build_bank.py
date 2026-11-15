@@ -673,7 +673,9 @@ add(C("SH-C018", "cm_elevate", "pending", S + " CM-ELEVATE-OFF-018 (D-B1-CME-01)
         schemes=[CE], note="the user's pending rule; v_cm_elevate now has a plain file_status column")))
 add(C("SH-C020", "cm_elevate", "ranking", S + " CM-ELEVATE-OFF-020",
       T("Which districts have the highest number of pending CM ELEVATE applications?", pause=None,
-        note="plural 'districts' with no N: the top-N question is by design (ranking-count-not-specified)"),
+        note="D-099 (user decision 2026-11-03): a new chat asks which CM Elevate dataset first"),
+      T("CM Elevate", pause=None,
+        note="the dataset pick; plural 'districts' with no N then asks how many (ranking-count-not-specified)"),
       T("top 3",
         rows=R(f"SELECT lgd_district, COUNT(DISTINCT request_id) FROM {CEV} WHERE data_verified = 'Valid' AND "
                f"file_status IN ('Pending', 'Send Back') AND lgd_district IS NOT NULL GROUP BY 1 ORDER BY 2 DESC",
