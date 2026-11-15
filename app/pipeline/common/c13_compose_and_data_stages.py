@@ -2191,7 +2191,7 @@ async def _data_deterministic_stage(d: dict, scope: "auth.UserScope | None" = No
         or _mgnrega_combined_facts_query(question, schemes, entity_result["resolved"]) \
         or _mgnrega_breakdown_query(question, schemes, entity_result["resolved"]) \
         or _mgnrega_wage_material_query(question, schemes, entity_result["resolved"]) \
-        or _cme_sector_query(question, schemes, entity_result["resolved"])         or _fp_status_cohort_query(question, schemes, entity_result["resolved"])         or _focus_legacy_duplicates_query(question, schemes, entity_result["resolved"])         or _focus_legacy_fy_compare_query(question, schemes, entity_result["resolved"])         or _metric_catalog_query(question, schemes, entity_result)
+        or _cme_sector_query(question, schemes, entity_result["resolved"])         or _fp_status_cohort_query(question, schemes, entity_result["resolved"])         or _focus_legacy_duplicates_query(question, schemes, entity_result["resolved"])         or _focus_legacy_fy_compare_query(question, schemes, entity_result["resolved"])         or _metric_catalog_query(question, schemes, entity_result, frame=d.get("frame_edit"))
     d.update(mg_admin=_mg_admin, mg_women=_mg_women, mg_det=_mg_det)
     if d["mg_det"] is None and not _mg_women:
         # J-10 twins through the fixed queries (KI-637..639): a 4-tuple, run once per twin

@@ -61,6 +61,8 @@ _PIPELINE_FILES = (
     # data-answer rules every scheme shares (data-accuracy brief 2026-10-29): sub-asks,
     # SQL hygiene, runners-up, money units, dataset caveats; called at run time
     "common/c17_data_answer_rules",
+    # D-110: the answer frame (what a data answer was) and follow-ups read as an edit of it; called at run time
+    "common/c18_answer_frame",
 )
 
 for _pipeline_name in _PIPELINE_FILES:

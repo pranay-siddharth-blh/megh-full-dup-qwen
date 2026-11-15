@@ -183,13 +183,11 @@ executes them in `_PIPELINE_FILES` order (shared basics c01–c03, the six schem
 `looks_like_followup`, `ClarificationNeeded`, `_empty_data_fields`.
 
 Since 2026-10-02 (D-032) the pipeline is a set of **stage functions** (`_turn_*_stage`,
-`_data_*_stage`, `_scheme_sql_rewrites`, `_execute_one_attempt`, `_repair_sql`) with two
-orchestrators:
-- `_run_pipeline`, the sequential driver (the default);
-- `app/pipeline_graph.py`, a 21-node LangGraph graph (`PIPELINE_GRAPH_ENABLED` or
-  `PIPELINE_GRAPH_CANARY_PERCENT`).
+`_data_*_stage`, `_scheme_sql_rewrites`, `_execute_one_attempt`, `_repair_sql`), run by ONE
+orchestrator since D-036: `app/pipeline_graph.py`, a 22-node LangGraph graph. The sequential driver and
+the `PIPELINE_GRAPH_ENABLED` / `PIPELINE_GRAPH_CANARY_PERCENT` flags were removed (doc drift fixed 2026-11-15).
 
-`answer_question` picks one; the router does not know which ran. Graph, state, checkpointing and
+`answer_question` runs the graph. Graph, state, checkpointing and
 pause/resume: [LANGGRAPH_ARCHITECTURE.md](LANGGRAPH_ARCHITECTURE.md),
 [LANGGRAPH_PAUSE_RESUME.md](LANGGRAPH_PAUSE_RESUME.md). The checkpointer (Postgres
 `app.checkpoint*` tables shared by both VMs; Postgres is the only store) is opened lazily on the first graph request. `app.main`

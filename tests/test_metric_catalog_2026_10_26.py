@@ -220,7 +220,8 @@ def test_it_is_the_last_fixed_query_and_runs_read_only(catalogue, monkeypatch):
     from pathlib import Path
     src = Path(p.__file__).parent.joinpath("common", "c13_compose_and_data_stages.py").read_text(encoding="utf-8")
     chain = src[src.index("_mg_det = _mg_admin or ("):src.index("d.update(mg_admin=_mg_admin")]
-    assert chain.rstrip().endswith("_metric_catalog_query(question, schemes, entity_result)")
+    # D-110: the catalogue also takes the edited answer frame of a frame-resolved follow-up
+    assert chain.rstrip().endswith('_metric_catalog_query(question, schemes, entity_result, frame=d.get("frame_edit"))')
     seen = {}
 
     async def ro(sql, params=None):

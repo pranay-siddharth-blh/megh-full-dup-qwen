@@ -758,7 +758,20 @@ def build_turn(question: str, result: dict) -> Turn:
         # see context_manager.build_rewrite_evidence (never raises).
         result_summary=context_manager.summarize_result(result),
         subsets=result.get("subsets") or context_manager.result_subsets(result),     # D-098
+        answer_frame=_answer_frame_of(question, result),                             # D-110
     )
+
+
+def _answer_frame_of(question: str, result: dict) -> dict:
+    """The answer frame the graph attached (finalize), else one read from the result now (a cached or older
+    result); {} for anything but a data answer. Never raises."""
+    frame = result.get("answer_frame")
+    if isinstance(frame, dict) and frame:
+        return dict(frame)
+    try:
+        return pipeline._c18_fill_frame(question, result) if result.get("route") == "data" else {}
+    except Exception:  # noqa: BLE001 — bookkeeping must never fail the answer
+        return {}
 
 
 def _mirror_audit(scope, session_id, question, result, started, ip, trace=None):

@@ -1267,6 +1267,50 @@ not recorded.*
   overlap (5 model-SQL attempts): 110–750 ms of the query path now runs beside the verifier. No-model gold bank,
   60 varied ids: 49/60 vs 47/60 for nomodel-14 on the same ids, 0 newly failing (the 11 failures are the same 503s).
 - **Status:** Active.
+### D-110 — Answer frame: a follow-up is an edit of what the last answer WAS, rendered as one canonical question (2026-11-15)
+
+- **Context:** the user's goal: "break that down by district", "by block", "only Ri Bhoi", "which is the lowest",
+  "top 3", "what about 2023-24", "and the households instead" and plain district / block follow-ups must ALWAYS
+  resolve — smooth, factually correct, efficient. The audit of 2026-11-15 found that no structured record of the last
+  answer existed: every follow-up rule (c01 regroup / rank / only-place / measure swap / year-only, the ctx07 loop of
+  c14) did string surgery on `prev.question`. Seven weaknesses, each now a test (`tests/test_answer_frame_2026_11_15.py`,
+  failing on 9d8f546): (1) two grouping readers disagreed ("across all districts"); (2) a rule's own output was not
+  read back ("Top 3 districts: ... by block"); (3) "Ri Bhoi only" / "what about Ri Bhoi?" after a breakdown went to the
+  model, and "only Umsning block" after "...in Ri Bhoi by block" was refused; (4) a roll-up by grouping ("by district"
+  after "...in Ri Bhoi") and unusual wordings were refused; (5) the rules ran only right after a DATA answer; (6) a
+  rehydrated worker held older turns as question-only stubs; (7) the rewrites carried no merge plan, so a stale filter
+  could be inherited. Also: ordinal / "yes" replies to a SCHEME pause returned nothing (the voice speaks its picks).
+- **Decision:**
+  1. **The frame** (`app/answer_frame.py`, plain data on `Turn.answer_frame`): schemes, metric_key, measure_text,
+     qtype, group, filters (as resolved), all_years, order, limit, chart, source, sql_shape, question. Filled
+     deterministically in `finalize` (`c18 _attach_answer_frame`): the catalogue's own query when it answered, else
+     the final SQL via `sql_ast`, else None fields — never guessed. Stored in `build_turn`, the snapshot (the last TWO
+     turns in full: `_session.turn_before`), topic memory and every context frame (`af`).
+  2. **The resolver** (`c18 _c18_frame_followup`): a follow-up read as ONE edit of the frame (rank, regroup / roll-up,
+     one place, another measure, another year), rendered by ONE renderer (`_c18_render`) in the shapes the rules read
+     back; the merge plan and the inherited filters are exactly the edited frame's (`_c18_merge_plan`,
+     `_c18_prior_from_frame`). Run FIRST in the ctx07 loop (the string rules stay as fallbacks) and in
+     `rewrite_followup`'s model-failed path; after a knowledge aside on the same scheme it edits the last data turn's
+     frame. A scheme named in the message, a bare place (pause reply / swap path), a village, a cross-scheme frame:
+     left to the existing paths.
+  3. **One grouping reader** (`context_policy.grouping_dims`, which `_c02_breakdowns` and `asked_levels` both read):
+     "across / in / for all (the) <place level>s" and "every <place level>" are that level's grouping.
+  4. **The catalogue takes the frame** (`_c18_catalogue_from_frame`) only when the previous answer was the
+     catalogue's, the measure is verified for the frame's query type, and the resolver's filters agree.
+  5. **Scheme pauses** read ordinals and a lone "yes" exactly as option pauses do (`_resume_scheme_pause`).
+- **Choices made without the user (to confirm):** (a) "Show X across all districts" is now a district breakdown in
+  every reader, so the catalogue answers it by district (it answered a statewide total; KI-363 had already called
+  that wrong for a "break it down" request). (b) "now by block" after a top-N ranking keeps the ranking ("Top 3
+  blocks"), not a full block list. (c) "by district" after a district / block figure is a roll-up (the filter at that
+  level and below is cleared, the year kept). (d) "what about <district>?" is resolved by the frame, no longer left to
+  the model rewrite while it answers (D-056's swap note): the frame keeps everything else exactly.
+- **Rejected:** a model call to read the follow-up (prose rules fail under sampling; the gateway is shared); keeping
+  the string rules first (their outputs are the shapes weakness 2 could not read back); filling the frame from the
+  question's words alone (two readers again).
+- **Consequences:** `Turn` / the snapshot / topic memory / context frames carry the frame (older records load with
+  `{}`); `result["answer_frame"]` reaches the API response; `rewrite_followup` takes `session=`. Left open: see
+  KNOWN_ISSUES KI-727 (renumbered at the merge: dictation took KI-725).
+- **Status:** Active (worktree branch `wt/frame-2026-11-15`).
 
 ### D-109 — No-model coverage: more questions answered by the catalogue and rules alone (2026-11-14)
 

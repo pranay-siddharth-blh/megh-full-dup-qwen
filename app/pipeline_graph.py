@@ -400,6 +400,9 @@ async def _data(stage, state: dict, ctx: GraphContext) -> dict:
     # D-061: standalone / follow-up / vague, as the follow-up stage decided it.
     d["turn_kind"] = (getattr(ctx.session, "turn_context", None) or {}).get("turn_kind") \
         if ctx.session is not None else None
+    # D-110: the edited answer frame of a frame-resolved follow-up (the catalogue may take it); read-only
+    d["frame_edit"] = (getattr(ctx.session, "turn_context", None) or {}).get("frame_edit") \
+        if ctx.session is not None else None
     result = await stage(d, ctx.scope)
     upd = _dehydrate_data(d)
     if result is not None:
@@ -535,6 +538,10 @@ async def node_finalize(state, ctx):
     if state.get("response_origin") == "data":
         result = pipeline._with_rewritten_question(result, state["question"], state["raw_question"])
         pipeline._attach_chart_hint(result, state["question"], state["raw_question"])
+        # D-110: what this answer was (measure, grouping, filters, order, limit), for the next follow-up
+        pipeline._attach_answer_frame(result, state["question"], mg_det=bool(state.get("mg_det")),
+                                      per_scheme=bool(state.get("per_scheme")), cross=bool(state.get("cross")),
+                                      state_sql=state.get("sql"))
     pipeline._attach_followups(result, result.get("rewritten_question") or state["raw_question"])
     pipeline._mark_context_dependent(result, ctx.session, raw_question=state.get("raw_question"),
                                      followup=state.get("is_followup_rewrite"), plan=state.get("plan"),

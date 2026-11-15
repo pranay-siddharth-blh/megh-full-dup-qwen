@@ -251,6 +251,59 @@ _RELATIVE_YEAR_MATCH = Matcher(Alt(
 _ALL_YEARS_MATCH = Matcher(Alt(
     Seq("all", Opt("the"), Opt("financial"), "years"), "every year", Seq("across", Opt("all"), "years"),
     Joined("year", "wise"), "by year", "per year", "each year", "cumulative", Joined("all", "time")))
+# ── The grouping reader (D-110, 2026-11-15): ONE for the whole app ───────────
+# A breakdown the question asks for: "in each block", "block-wise", "per district", "by financial year", "district by
+# district", "across all districts", "every block". grouping_dims() returns the dimensions (singular, lower case).
+# Until D-110 two readers disagreed: c02's (_c02_breakdowns, which the catalogue, the SQL guard and every follow-up
+# rule read) took "across all districts" as no grouping, asked_levels below took it as a district grouping; after
+# "Show PMAY-G houses completed across all districts" a regroup kept the old words ("... across all districts by
+# block") and "which is lowest" found no level. Both now read this one matcher; asked_levels adds only what is not a
+# grouping (a ranking over a level, the statewide scope words).
+GROUPING_DIM = W("district", "districts", "block", "blocks", "village", "villages", "panchayat", "panchayats",
+                 "gp", "gps", "year", "years", "fy", "scheme", "schemes", "programme", "programmes", "program",
+                 "programs", "tranche", "tranches", "batch", "batches", "month", "months", "lender", "lenders",
+                 "bank", "banks", "product", "products", "category", "categories", "gender", "status", "type",
+                 "types", "constituency", "constituencies")
+GROUPING_DIM_WORDS = frozenset(w.rstrip("s") for w in (
+    "district block village panchayat gp year fy scheme programme program tranche batch month lender "
+    "bank product category categorie gender status type constituency constituencie").split())
+# "all districts" / "every block" are groupings only for PLACE levels: "across all financial years" is the all-years
+# scope the pipeline itself writes, "all schemes" a cross-scheme question.
+_GROUPING_PLACE_PLURAL = W("districts", "blocks", "villages", "panchayats", "gps", "constituencies")
+_GROUPING_PLACE_ONE = W("district", "block", "village", "panchayat", "gp", "constituency")
+GROUPING_MATCH = Matcher(Alt(
+    Seq(W("each"), Opt(W("financial", "fiscal", "calendar", "individual", "single")), Cap(GROUPING_DIM, "dim")),
+    Seq(Cap(GROUPING_DIM, "dim"), "wise"),
+    Pred(lambda w: w.lower().endswith("wise") and w.lower()[:-4].rstrip("s") in GROUPING_DIM_WORDS),
+    Seq(W("by", "across"), Opt("the"), Opt(W("financial", "fiscal")), Cap(GROUPING_DIM, "dim")),
+    Seq(Cap(GROUPING_DIM, "dim"), "by", GROUPING_DIM),
+    Seq("all", Opt("the"), Cap(_GROUPING_PLACE_PLURAL, "dim")),
+    Seq("every", Cap(_GROUPING_PLACE_ONE, "dim")),
+))
+# "per district" / "every year" are breakdowns too, but also "average per district" (one value) and "counting every
+# financial year" (all years together), so they count only with include_per (the rephrase check, not the SQL guard).
+GROUPING_PER_MATCH = Matcher(Seq(W("per", "every"), Opt(W("financial", "fiscal", "calendar")),
+                                 Cap(GROUPING_DIM, "dim")))
+_GROUPING_CANON = {"programme": "scheme", "program": "scheme", "fy": "year", "categorie": "category",
+                   "constituencie": "constituency"}
+
+
+def grouping_dims(text: str, include_per: bool = True) -> "set[str]":
+    """The dimensions `text` breaks down by ("district", "block", "year", "scheme", ...). include_per=False leaves
+    out "per <dim>" / "every <dim>" (except "every <place>"), which may also be one value."""
+    out = set()
+    hits = list(GROUPING_MATCH.finditer(text or ""))
+    if include_per:
+        hits += list(GROUPING_PER_MATCH.finditer(text or ""))
+    for hit in hits:
+        word = (hit.group("dim") or hit.group(0)).lower()
+        if word.endswith("wise"):
+            word = word[:-4]
+        word = word.rstrip("s") or word
+        out.add(_GROUPING_CANON.get(word, word))
+    return out
+
+
 _ALL_GEO_MATCH = {
     "district": Matcher(Alt(
         Seq("all", Opt("the"), "districts"), "every district", Joined("district", "wise"),
@@ -754,8 +807,9 @@ def asked_levels(question: str) -> tuple:
     q = question or ""
     ws = [t.low for t in tokens(q)]
     out = []
+    grouped = grouping_dims(q)                    # D-110: the one grouping reader, as the catalogue / rules read it
     for dim in ("district", "block", "village"):
-        hit = _RANK_OVER_GEO_MATCH[dim].search(q) or _ALL_GEO_MATCH[dim].search(q)
+        hit = _RANK_OVER_GEO_MATCH[dim].search(q) or _ALL_GEO_MATCH[dim].search(q) or dim in grouped
         if not hit:
             hit = any(w == "which" and i + 1 < len(ws) and ws[i + 1] in (dim, dim + "s")
                       for i, w in enumerate(ws))

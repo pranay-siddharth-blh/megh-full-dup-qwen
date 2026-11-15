@@ -267,43 +267,21 @@ def _reads_like_sql(text: str) -> bool:
 # A breakdown the question asks for: "in each block", "block-wise", "per district",
 # "by financial year", "district by district". _c02_breakdowns() returns the
 # dimensions (singular, lower case) so a rewrite can be checked for dropping one.
-_C02_DIM = W("district", "districts", "block", "blocks", "village", "villages", "panchayat", "panchayats",
-             "gp", "gps", "year", "years", "fy", "scheme", "schemes", "programme", "programmes", "program",
-             "programs", "tranche", "tranches", "batch", "batches", "month", "months", "lender", "lenders",
-             "bank", "banks", "product", "products", "category", "categories", "gender", "status", "type",
-             "types", "constituency", "constituencies")
-_C02_DIM_WORDS = frozenset(w.rstrip("s") for w in (
-    "district block village panchayat gp year fy scheme programme program tranche batch month lender "
-    "bank product category categorie gender status type constituency constituencie").split())
-_C02_BREAKDOWN = Matcher(Alt(
-    Seq(W("each"), Opt(W("financial", "fiscal", "calendar", "individual", "single")), Cap(_C02_DIM, "dim")),
-    Seq(Cap(_C02_DIM, "dim"), "wise"),
-    Pred(lambda w: w.lower().endswith("wise") and w.lower()[:-4].rstrip("s") in _C02_DIM_WORDS),
-    Seq(W("by", "across"), Opt("the"), Opt(W("financial", "fiscal")), Cap(_C02_DIM, "dim")),
-    Seq(Cap(_C02_DIM, "dim"), "by", _C02_DIM),
-))
-# "per district" / "every block" are breakdowns too, but also "average per district"
-# (one value) and "counting every financial year" (all years together), so they
-# count for the rephrase check only, not for the SQL guard in c11.
-_C02_PER_DIM = Matcher(Seq(W("per", "every"), Opt(W("financial", "fiscal", "calendar")), Cap(_C02_DIM, "dim")))
+# D-110 (2026-11-15): ONE grouping reader for the whole app. The matchers moved to context_policy
+# (GROUPING_MATCH / GROUPING_PER_MATCH / grouping_dims), which context_policy.asked_levels reads too: the two readers
+# disagreed ("across all districts" was a district grouping to asked_levels and none here). The names below stay for
+# the code that cuts a grouping phrase out of a question (c01).
+_C02_DIM = context_policy.GROUPING_DIM
+_C02_DIM_WORDS = context_policy.GROUPING_DIM_WORDS
+_C02_BREAKDOWN = context_policy.GROUPING_MATCH
+_C02_PER_DIM = context_policy.GROUPING_PER_MATCH
 
 
 def _c02_breakdowns(text: str, include_per: bool = True) -> set[str]:
     """The dimensions `text` breaks down by. include_per=False leaves out "per
     <dim>" / "every <dim>", which may also be one value ("spend per year on
-    average", "counting every financial year")."""
-    out = set()
-    hits = list(_C02_BREAKDOWN.finditer(text or ""))
-    if include_per:
-        hits += list(_C02_PER_DIM.finditer(text or ""))
-    for hit in hits:
-        word = (hit.group("dim") or hit.group(0)).lower()
-        if word.endswith("wise"):
-            word = word[:-4]
-        word = word.rstrip("s") or word
-        out.add({"programme": "scheme", "program": "scheme", "fy": "year", "categorie": "category",
-                 "constituencie": "constituency"}.get(word, word))
-    return out
+    average", "counting every financial year"). D-110: context_policy.grouping_dims."""
+    return context_policy.grouping_dims(text, include_per=include_per)
 
 
 def _rephrase_violation(original: str, rephrased: str) -> "str | None":

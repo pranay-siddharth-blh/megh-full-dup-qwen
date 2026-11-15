@@ -1,6 +1,8 @@
 # LangGraph architecture (as built)
 
-**Status:** implemented 2026-10-02, **off by default** (D-032). Code: `app/pipeline_graph.py`
+**Status:** implemented 2026-10-02 (D-032); **the only orchestrator since D-036** — the sequential driver and the
+`PIPELINE_GRAPH_ENABLED` / canary flags below were removed (§1 is kept as the history of the split; doc drift noted
+2026-11-15). Code: `app/pipeline_graph.py`
 (graph, state, adapter, checkpointer), the stage functions in `app/pipeline.py`. Tests:
 `tests/test_pipeline_graph.py`. Related: `CONTEXT_AND_LANGGRAPH.md`, `LANGGRAPH_PAUSE_RESUME.md`,
 `LANGGRAPH_MIGRATION.md`, and the Phase-1 analysis `MEGHALAYA_LANGGRAPH_ARCHITECTURE.md`.
@@ -29,10 +31,10 @@ existing suite gives the same result before and after the split (1,371 passed, t
 failures). A graph node never contains business logic. A new step goes into a stage, so the two
 paths cannot drift.
 
-## 2. Graph (21 nodes)
+## 2. Graph (22 nodes)
 
 ```
-START → context → edge → followup → route ──KNOWLEDGE──► knowledge ─────────────────┐
+START → context → edge → followup → rephrase → route ──KNOWLEDGE──► knowledge ─────────────────┐
                                            └──DATA──► data_context → scope_scheme      │
    → entities → clarification_gate → deterministic → sql_generate → authorize          │
    → execute_attempt ──repairable──► repair ──► execute_attempt   (≤ MAX_SQL_REPAIRS)   │
@@ -47,6 +49,7 @@ START → context → edge → followup → route ──KNOWLEDGE──► knowl
 | `context` | `_turn_context_stage`: spelling, CM Elevate pin, turn facts, pause reply (steps 0a/0a'/0a''), continuation (0-c) | – | ✓ |
 | `edge` | `_turn_edge_stage`: harm, definitions, scheme listing / pick / recommendation, edge (0--, 0-, 0-a, 0) | ✓ | ✓ |
 | `followup` | `_turn_followup_stage`: references (0f), merge plan + rewrite (1), edge re-check (1b), hints (1f) | ✓ | ✓ |
+| `rephrase` | `_turn_rephrase_stage`: a messy new question -> one clean English question (D-037) | – | – |
 | `route` | `_turn_route_stage`: bank, admin, unsupported, village search (1c–1g), intent (2) | ✓ | ✓ |
 | `knowledge` | `_turn_knowledge_stage`: RAG (3) | ✓ | ✓ |
 | `data_context` | `_turn_data_context_stage`: inherited filters (4) | – | – |
@@ -63,7 +66,7 @@ START → context → edge → followup → route ──KNOWLEDGE──► knowl
 | `guarantees` | `_data_guarantees_stage`: per-scheme answer guarantees | – | – |
 | `assemble` | `_data_assemble` | ✓ | – |
 | `pause_gate` | `interrupt()` only | – | ✓ |
-| `finalize` | `_with_rewritten_question` (DATA) + `_attach_followups` | – | – |
+| `finalize` | `_with_rewritten_question` + chart hint + the answer frame (DATA, D-110) + `_attach_followups` | – | – |
 | `context_update` | `_update_context` (`update_state` + summary) | – | – |
 
 **Not built, and why.** The guide's `query_analyzer`, `schema_retrieve`, `findings`, `chart` and

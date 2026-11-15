@@ -20,6 +20,23 @@
 - NOT run: the gold bank with the model ON; a real-mic voice test.
 
 ## Bitbucket merge + architecture round (2026-11-14, D-107 / D-108 / D-109), branch `arch/step1-2026-11-14`
+## Latest: the answer frame (2026-11-15, D-110, KI-727), worktree branch `wt/frame-2026-11-15` (from 9d8f546)
+- Every data answer now carries a structured record of what it WAS (`app/answer_frame.py`, `Turn.answer_frame`):
+  measure, query type, grouping, filters, order, limit, chart, source, filled deterministically in finalize from the
+  catalogue's query / the final SQL (c18). A follow-up is read as ONE edit of it (rank, regroup / roll-up, one place,
+  another measure, another year) and rendered as one canonical question; the inherited filters are exactly the edited
+  frame's. Runs first in the ctx07 loop and in the model-failed rewrite path; also after a knowledge aside on the same
+  scheme and on a fresh worker (the snapshot keeps the last two turns in full). One grouping reader
+  (`context_policy.grouping_dims`). The catalogue builds a follow-up straight from the frame when the previous answer
+  was its own. Scheme pauses read "the first one" / "1" / "yes".
+- VERIFIED offline: pytest 6,518 passed + the 4 known failures; scripts 14/14; new `tests/test_answer_frame_2026_11_15.py`
+  193 (26 fail on 9d8f546). No-model gold subset (W4-RG, W5-FU, FU-, W2-CH): 80/93, the same as 9d8f546 run the same
+  day (78/93 in nomodel-14), 0 newly failing; the frame resolved ~109 follow-ups of that run. Conversation harness,
+  no model, in-process AND fresh worker: 98/159 on 9d8f546 -> 101/159, 0 newly failing (AF08, AF15,
+  META_correction_keeps_scope now pass).
+- NOT run: anything with the model ON (gateway shared with a long test). Owner choices to confirm: D-110 (a)-(d).
+
+## Latest: Bitbucket merge + architecture round (2026-11-14, D-107 / D-108 / D-109), branch `arch/step1-2026-11-14`
 - This checkout = the team's Main 5c1deb1 (13 Nov) merged with the voice / accuracy work of 11-14 Nov; the five branches
   of the day (`wt/followups`, `wt/cross`, `wt/guard`, `wt/ui` + the voice shaper in the Full Duplex project) are MERGED
   here. Pull-only: nothing pushed. Ids renumbered (`docs/ID_RENUMBER_2026-11-14.md`).

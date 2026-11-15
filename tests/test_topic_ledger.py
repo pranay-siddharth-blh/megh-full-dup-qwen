@@ -601,8 +601,13 @@ def _rehydrated_after_digression():
     ask(s, QH, scheme="PMAY-G", district="SOUTH GARO HILLS", year=2022)
     ask(s, Q2, scheme="PMAY-G", route="knowledge")
     tm.checkpoint(s)                                   # the next turn's context stage files Q2
+    snap = s.to_snapshot()
+    # D-110 (2026-11-15): a snapshot now also holds the turn before the last in full; one written before D-110 holds
+    # only the last turn. The ledger fallback below is for such a snapshot (and for a data turn further back).
+    assert (snap["_session"].get("turn_before") or {}).get("route") == "data"
+    snap["_session"].pop("turn_before", None)
     other = _session()
-    other.apply_snapshot(s.to_snapshot())              # another worker: only the last turn comes back
+    other.apply_snapshot(snap)                         # another worker: only the last turn comes back
     assert [t.route for t in other.turns][-1] == "knowledge"
     assert not any(t.route == "data" for t in other.turns)
     return other

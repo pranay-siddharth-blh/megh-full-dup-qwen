@@ -63,6 +63,54 @@ router: add_turn (not for a typed "stop") -> persist_turn -> index_turn -> sync_
 | A value no user ever supplied is not inherited | provenance (`model_inference`) | `data_context` |
 | "Which one?" with nothing to pick → ask | REQUIRE_CLARIFICATION, topic / ledger pauses | `followup`, `context` → `pause_gate` |
 | A pause reply continues the PAUSED thread | `_paused_thread_antecedent`; D-065 keeps the paused question's kind | `context` |
+| A follow-up that is ONE edit of the last data answer (regroup / roll-up, rank, one place, another measure, another year) is that answer's frame edited and rendered | `_c18_frame_followup` (D-110), first in the ctx07 loop; the string rules after it stay as fallbacks | `followup` |
+| …and inherits exactly the edited frame's places and years | `_c18_merge_plan` + `_c18_prior_from_frame` (turn_context `frame_prior`) | `followup`, `data_context` |
+| "the first one" / "1" / a lone "yes" to a which-scheme pause picks that chip | `_resume_scheme_pause` (D-110, as `_resume_option_pause`) | `context` |
+
+## 3a. The answer frame (D-110, 2026-11-15)
+
+**What it is.** A small plain-data record of what a DATA answer WAS (`app/answer_frame.py`): `schemes`,
+`metric_key` (the catalogue key, only when the catalogue answered), `measure_text` (the question's own measure words,
+scheme kept, scope and shape cut out), `qtype` (total / breakdown / ranking / compare / list / other), `group`
+(district / block / village / constituency / year / month / scheme), `filters` (place and year keys exactly as
+resolved), `all_years`, `order`, `limit`, `chart`, `source` (catalogue / fixed / model / cross), `sql_shape`, the
+`question`. **Filled deterministically after the answer** (`finalize` → `c18 _attach_answer_frame` →
+`_c18_fill_frame`): the catalogue's own query (its `/* metric:<key> <qtype> */` comment, its GROUP BY / ORDER BY /
+LIMIT) when it answered, else the final SQL read with `sql_ast` (outer GROUP BY columns mapped to a dimension, ORDER BY
+on the measure + a LIMIT under 100 = a ranking), else None. **Nothing is guessed**: `SELECT 1`, a set operation, a
+grouping by an unknown column or by two dimensions leave `qtype` None / "other", and the resolver then does nothing.
+
+**Where it lives.** `Turn.answer_frame` (a dict, so `Turn(**asdict)` in the graph state works), `build_turn` (reads
+`result["answer_frame"]`, else fills it from the result: a cached or older result), the durable snapshot (the last
+turn AND the turn before it, `_session.turn_before`, so a follow-up after a knowledge aside works on a fresh worker),
+topic memory (`_turn_dict` / `_turn_from`), and every context frame (D-100: `measure`, `group`, `order`, `limit`,
+`chart`, and the whole frame as `af`, for an older snapshot). An old snapshot loads with empty frames.
+
+**The resolver** (`_c18_frame_followup`, run FIRST in the ctx07 loop of c14 and in `rewrite_followup`'s model-failed
+path): the base is the previous turn's frame, or, after a knowledge aside on the same scheme(s), the last data turn's
+(in-process turns, then the context frames' `af`). The message is read as ONE edit (`_c18_read_edit`), in this order:
+rank ("which is the lowest", "top 3", "and the least?"), regroup with an optional place / year ("now by block", "what
+about block wise breakdown", "break it down by block for Ri Bhoi"; a grouping at or above a filter clears that filter
+and the levels below = a roll-up; after a ranking a place regroup keeps the ranking: "now by block" after "Top 3
+districts" = "Top 3 blocks"), one place with a lead word ("only Ri Bhoi", "what about Ri Bhoi?", "and Ri Bhoi?",
+"only Umsning block"; a block's district is its parent from the catalogue), another measure (c01's catalogue measure
+swap applied to `measure_text`), another year ("what about 2023-24", "the year before"; one year of a per-year list
+= that year's total). A scheme named in the message, a bare place, a village, a cross-scheme frame: None. ONE renderer
+(`_c18_render`) writes the standalone question: `<measure>[ under <scheme>][ in <place>][ by <group>][ in FY <year>]`,
+a ranking opened by "Which district has the lowest: " / "Top 3 districts: " (the shapes `_c01_ranked_stem` reads), so
+every output is a shape the next turn reads back. The merge plan (`_c18_merge_plan`: KEEP / REPLACE / CLEAR per field
+from the two frames) and the inherited filters (`_c18_prior_from_frame`: every place / year key replaced by exactly the
+frame's; tranche / CM sub-scheme kept) go to the later stages through `session.turn_context` (`plan`, `frame_prior`,
+`frame_edit`).
+
+**The catalogue takes the frame** (`_c18_catalogue_from_frame`, called first in `_metric_catalog_query` with
+`d["frame_edit"]`): only when the previous answer was the catalogue's (a `metric_key`), the measure is verified for the
+frame's query type (`data/metric_catalog_verified.yaml`), and the resolver's filters agree with the frame's; else the
+words are matched as before.
+
+**One grouping reader.** `context_policy.grouping_dims` (moved from c02 `_c02_breakdowns`, which now calls it):
+"across / in / for all (the) districts" and "every block" are a grouping of that place level, read the same way by
+`asked_levels` (which adds only rankings over a level and the statewide scope words).
 
 ## 4. Topics, expiry, stop and reset
 

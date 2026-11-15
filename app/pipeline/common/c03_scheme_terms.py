@@ -627,6 +627,17 @@ def _resume_scheme_pause(reply: str, options: "list | None") -> "str | None":
     r = reply.strip()
     if len(r.split()) > 6:
         return None
+    # D-110 (the voice agent speaks its picks): "the first one", "1", "the second", "last one" pick that chip, and a
+    # bare "yes" / "ok" the only chip offered — as _resume_option_pause reads them. Two or more chips and a bare
+    # "yes" pick nothing (never a guess).
+    chips = [o for o in options if isinstance(o, dict) and o.get("question")]
+    m = _ORDINAL_REPLY.match(r)
+    if m and chips:
+        w = m.group(1).lower()
+        i = len(chips) - 1 if w == "last" else (_ORDINAL_WORDS.get(w, int(w) - 1 if w.isdigit() else -1))
+        return chips[i]["question"] if 0 <= i < len(chips) else None
+    if _BARE_YES.match(r):
+        return chips[0]["question"] if len(chips) == 1 else None
     offered = {str(o.get("label", "")).split(" (")[0].strip(): o.get("question")
                for o in options if isinstance(o, dict)}
     named = sorted(_exact_schemes(r))
