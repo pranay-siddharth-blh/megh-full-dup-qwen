@@ -2300,6 +2300,19 @@ def _c14_data_refinement(raw_question: str, prev) -> bool:
     return True
 
 
+_C14_RESUMED_GROUPING_WORDS = frozenset("breakdown break split wise blockwise districtwise".split())
+_C14_RESUMED_LEVELS = frozenset("block blocks district districts village villages constituency constituencies".split())
+
+
+def _c14_resumed_grouping(question: str) -> bool:
+    """A breakdown / grouping is asked: "breakdown … by blocks", "block-wise", "by district"."""
+    words = [w for w in (question or "").lower().replace("-", " ").replace(",", " ").replace("?", " ").split() if w]
+    ws = set(words)
+    if ws & _C14_RESUMED_GROUPING_WORDS:
+        return True
+    return any(words[i] == "by" and words[i + 1] in _C14_RESUMED_LEVELS for i in range(len(words) - 1))
+
+
 async def _turn_route_stage(t: dict, session: "Session | None" = None,
                             scope: "auth.UserScope | None" = None) -> "dict | None":
     """Not-held checks, the village-name search and DATA / KNOWLEDGE (graph: route)."""
@@ -2459,6 +2472,12 @@ async def _turn_route_stage(t: dict, session: "Session | None" = None,
         # asked of the data that produced it; the 4B read "where … registered" as a
         # how-to and sent it to the documents in 1 of 2 live runs (2026-11-02).
         context_budget.log_decision("intent", override="figure_reference", was=intent)
+        intent = "DATA"
+    if intent != "DATA" and session is not None and (session.turn_context or {}).get("resumed_question")             and _c14_resumed_grouping(question):
+        # 2026-11-16 (Gate 2 permutation bank, flaky): "breakdown by blocks of Ri Bhoi" -> scheme pick "CMSS" resumed
+        # "a breakdown of CMSS applications by blocks of Ri Bhoi", and the classifier sent it to the documents. A
+        # question resumed from a scheme pick that asks a breakdown / grouping is the data question it was paused from.
+        context_budget.log_decision("intent", override="resumed-grouping", was=intent)
         intent = "DATA"
     if intent == "KNOWLEDGE" and is_followup_rewrite and _c14_data_refinement(raw_question, t.get("prev")):
         context_budget.log_decision("intent", override="data-followup-refinement", was="KNOWLEDGE")
