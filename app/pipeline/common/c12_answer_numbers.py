@@ -1186,6 +1186,13 @@ def _finish_data_result(result: dict) -> None:
         _c12_missing_twins_note(result, rows, display)
         _c17_attach_caveats(result)      # absent years (data-accuracy brief RC5; the provisional-money note removed 2026-11-03)
         _c17_mark_winner(result)         # the row a "which … most" answered, for follow-ups
+        if _c19_on():
+            # 2026-11-15: place names in Title Case whichever path wrote the answer, and the short spoken form the
+            # live voice says instead of the whole answer (c19_natural_answers)
+            result["answer"] = _c19_title_places(result.get("answer") or "", result.get("data") or rows)
+            spoken = _c19_spoken_for_result(result)
+            if spoken:
+                result["spoken"] = spoken
     except Exception:  # noqa: BLE001 — presentation only; the answer stands as written
         logger.warning("_finish_data_result failed (non-fatal)", exc_info=True)
 

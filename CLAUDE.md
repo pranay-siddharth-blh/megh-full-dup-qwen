@@ -6,6 +6,20 @@ gateway outage of 2–3 Nov). **Voice layer updated 10–11 Nov 2026 (§0); `doc
 
 ## 0. Current state of the live voice (10–11 Nov 2026) — read before touching anything voice
 
+### 0a''''''. 15 Nov 2026 (night) — Natural answers + screen commands (D-114, KI-728), worktree branch `wt/natural-2026-11-15`
+- User (live voice): answers "robotic and quantized"; "take me back to the dashboard" answered "I can't apply, book, pay…".
+- **Written:** a ranking / comparison / trend / split opens with an insight-first lead written by CODE (no model call;
+  `app/pipeline/common/c19_natural_answers.py`): leader + margin, share of the whole, bottom + multiple, a trend's
+  dip / peak; exact figures, places in Title Case, the same list underneath. Every lead figure checked against the
+  rows; a miss -> the E9 answer. Places in Title Case on every data answer (`_c19_title_places`).
+- **Spoken:** `result["spoken"]` (2-3 sentences, rounded figures marked "about / nearly / just over", "… on your
+  screen"), every number checked (exact, or within 3 % after a qualifier); the page reads it (`voiceSpeech.spokenForm`);
+  `speech_guard` accepts a marked rounding within 3 %, still blocks inventions.
+- **Screen commands:** `app/ui_commands.py` (closed vocabulary, no regex) + `voiceViews.canonicalNav` (same list): any
+  wording of "back to the dashboard / go home / close the chart / the chart again"; the chat answers a typed one itself
+  (`edge_type` ui_command), the guardrail model's out-of-scope verdict is overruled for app commands, the voice
+  instruction canonicalises navigation. Off switch: `ANSWER_NATURAL_ENABLED=false`.
+
 ### 0a'''''. 15 Nov 2026 (evening) — EVERYTHING MERGED on `arch/step1-2026-11-14` (read first; the two 0a'''' notes below say "not merged yet": they are)
 - Merged in order: answer frame (D-110), streaming (D-112), dictation (D-111), orb + AI-mode panel (D-113), the
   independent review's fixes (2d27ef9), more deterministic answers (`wt/nomodel2`, cad3ae6), Focus Legacy list units

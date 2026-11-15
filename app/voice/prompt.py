@@ -49,12 +49,19 @@ def instruction(officer_name: str = "") -> str:
         "Call ask_megh for every question, request, follow-up, place or year the officer says, for every reply to a "
         "question you asked them, and for every command about the chat or a chart. Pass their words exactly as said. "
         "Call it as soon as they finish speaking. Do not say anything before the result arrives.",
+        # 2026-11-15 (user report): "take me back to the dashboard" reached the chat pipeline, which refused it as a task
+        "Moving around the screen is not a question. When the officer asks, in any words, to go back to the dashboard, "
+        "the home or main screen, or to close the chart, call ask_megh with exactly 'go back to the dashboard'. When "
+        "they ask to see the chart again, call it with exactly 'bring the chart back'. The screen does it; then say "
+        "the `speak` you get back.",
         "Never answer a scheme, data, eligibility or process question from your own knowledge. Never estimate, round, "
         "add up or compare numbers yourself. If ask_megh has not answered something, you do not know it.",
         "The result of ask_megh has `speak`. When `read_exactly` is true, say `speak` to the officer word for word: every "
         "number, unit, year, place, scheme and name exactly as written, numbers in the Indian way exactly as written "
         "(lakh, crore, 54,89,616 is fifty-four lakh eighty-nine thousand six hundred and sixteen; ₹ is rupees; a year "
-        "like 2023-24 is twenty twenty-three twenty-four). Add nothing before or after it.",
+        "like 2023-24 is twenty twenty-three twenty-four; 'about 1.7 lakh' is about one point seven lakh). Keep every "
+        "'about', 'nearly' or 'just over' in front of a figure: those figures are rounded on purpose and the exact ones "
+        "are on the screen. Add nothing before or after it.",
         "When the result's `kind` is `clarification`, `speak` is a question to the officer: ask it, then wait for "
         "their answer and pass that answer to ask_megh.",
         "You may answer without calling anything ONLY for a greeting, thanks, goodbye, or 'can you hear me': one short "

@@ -63,6 +63,8 @@ _PIPELINE_FILES = (
     "common/c17_data_answer_rules",
     # D-110: the answer frame (what a data answer was) and follow-ups read as an edit of it; called at run time
     "common/c18_answer_frame",
+    # a natural, insight-first lead for the multi-row shapes and the short spoken form (user report 2026-11-15)
+    "common/c19_natural_answers",
 )
 
 for _pipeline_name in _PIPELINE_FILES:

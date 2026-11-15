@@ -550,7 +550,7 @@ async def _answer_turn(req: QueryRequest, request: Request, scope: auth.UserScop
             topic_memory.checkpoint(session)
         except Exception:  # noqa: BLE001 — bookkeeping must never fail the answer
             logger.warning("topic memory: checkpoint before a cache hit failed (non-fatal)", exc_info=True)
-    if layer.action != "stop":
+    if layer.action not in ("stop", "ui"):
         session_store.add_turn(session_id, build_turn(question, result))
     # else: a typed "stop" with nothing running is not a turn of the topic. Recorded
     # as the last turn, it became the follow-up antecedent and its topic filing

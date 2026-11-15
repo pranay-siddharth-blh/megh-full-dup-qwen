@@ -50,7 +50,7 @@ from dataclasses import dataclass
 
 import httpx
 
-from app import context_budget, llm
+from app import context_budget, llm, ui_commands
 from app.config import settings
 from app import text_match as _tm
 from app.text_match import (ANY, START, Alt, Gap, Joined, Node, NotBefore, Opt, Pred, Seq, W)
@@ -788,6 +788,7 @@ SAFE - the assistant's job:
   - follow-ups and formatting of an answer: "what about Tura?", "and 2023?", "show as a table or chart", "explain simply", "in Khasi"
   - charts, graphs and tables OF SCHEME DATA, in any wording: "give that chart", "make a bar chart of houses by district", "draw a graph of payments", "show it as a pie chart", "line graph by year" — drawing the figures is the assistant's job, never "content" or "code"
   - greetings, thanks, "who are you", "what can you do"
+  - commands about the screen or the conversation: "take me back to the dashboard", "go home", "close the chart", "show the chart again", "start a new chat", "repeat that", "scroll down", "download the table" — moving around the app is never a task done for the user
   - statistics or facts that mention harm: deaths, accidents, disasters, crime or fraud cases, how fraud is detected or reported
   - farming and livelihood tasks: killing pests or weeds, slaughtering livestock
 
@@ -1168,6 +1169,13 @@ async def check_model(text: str) -> "Verdict | None":
         return None
     category = payload.get("category")
     if verdict == "OUT_OF_SCOPE":
+        # A command to the screen or the app ("Take me back to the dashboard.", user report 2026-11-15: answered
+        # "I can't apply, book, pay or contact anyone for you") is never an out-of-scope task. Closed vocabulary
+        # (app/ui_commands.py), so a request with any data or task word is not overruled.
+        if ui_commands.is_app_command(message):
+            context_budget.log_decision("guardrail", layer="model", outcome="overruled",
+                                        model_category=str(category), reason="app-command")
+            return None
         # A request to SEE the data as a chart / graph / table is the
         # assistant's own job. The model has read "make a bar chart of houses by
         # district" or "give that chart" as content or code (reported

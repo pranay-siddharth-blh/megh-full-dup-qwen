@@ -170,6 +170,14 @@ export function spokenForm(response) {
     }
     return { speak, kind: 'clarification', read_exactly: true, on_screen: true };
   }
+  // 2026-11-15 (user: "robotic … like a report read aloud"): a data answer carries its own short spoken form, written
+  // and number-checked on the server (c19_natural_answers.py: the headline and the pattern, rounded figures marked
+  // "about", the rest on the screen). Read that instead of the whole answer when it is there.
+  const own = typeof r.spoken === 'string' ? r.spoken.trim() : '';
+  if (own) {
+    const { text: t, cut: c } = cutAtSentence(plainForSpeech(own));
+    return { speak: c ? `${t} The rest is on your screen.` : t, kind: route || 'answer', read_exactly: true, on_screen: true };
+  }
   const plain = plainForSpeech(dropRedrawNote(r.answer || ''));
   if (!plain) {
     return { speak: 'The answer is on your screen.', kind: route || 'answer', read_exactly: true, on_screen: true };

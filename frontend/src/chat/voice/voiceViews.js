@@ -60,12 +60,46 @@ export const NAV_SPEECH = {
   nochart: "There's no chart to bring back yet, sir. Ask me for one first.",
 };
 
-/** The navigation a sentence asks for when it is EXACTLY one of NAV (case, spaces and closing punctuation ignored). */
+/* Any wording of a navigation command (2026-11-15, user report: "Take me back to the dashboard." went to the chat
+   pipeline, which answered "I can't apply, book, pay or contact anyone for you"; on Gemini Live there is no shaper to
+   turn the words into one of NAV). A sentence is navigation only when EVERY word is in this closed vocabulary and it
+   names where to go, so "dashboard of MGNREGA expenditure" or "show me PMAY-G houses by district" stay questions.
+   The server reads the same vocabulary (app/ui_commands.py nav_command); keep the two in step. */
+const NAV_FILLER = new Set(('please kindly can could would will you me us i we want wanna need to just ok okay now sir madam '
+  + 'hey megh one ai let lets go take get bring put the a my our this that it show open return navigate display view see '
+  + 'head jump switch over on onto up all way right away quickly instead there').split(' '));
+const NAV_DESK = new Set(['dashboard', 'dashboards', 'desk', 'home', 'homepage', 'overview']);
+const NAV_SCREEN = new Set(['screen', 'page', 'view']);
+const NAV_MAIN = new Set(['main', 'front', 'start', 'first', 'landing']);
+const NAV_CHART = new Set(['chart', 'charts', 'graph', 'graphs', 'picture', 'visual', 'visualisation', 'visualization', 'plot']);
+const NAV_AGAIN = new Set(['back', 'again', 'previous', 'last', 'earlier']);
+const NAV_CLOSE = new Set(['close', 'hide', 'exit', 'dismiss', 'remove', 'leave']);
+const inNavVocab = (w) => NAV_FILLER.has(w) || NAV_DESK.has(w) || NAV_SCREEN.has(w) || NAV_MAIN.has(w)
+  || NAV_CHART.has(w) || NAV_AGAIN.has(w) || NAV_CLOSE.has(w);
+
+function navWords(text) {
+  const low = String(text || '').toLowerCase().split('’').join('').split("'").join('');
+  return Array.from(low).map((ch) => (ch >= 'a' && ch <= 'z' ? ch : ' ')).join('').split(' ').filter((w) => w.length > 0);
+}
+
+/** 'desk' | 'chart' when the whole sentence is a navigation command (one of NAV exactly, or any wording of one), else
+    null. */
 export function canonicalNav(question) {
-  let s = String(question || '').toLowerCase().trim();
+  const raw = String(question || '');
+  let s = raw.toLowerCase().trim();
   while (s && '.!?,;:'.includes(s[s.length - 1])) s = s.slice(0, -1).trim();
   s = s.split(' ').filter((w) => w.length > 0).join(' ');
-  return Object.prototype.hasOwnProperty.call(NAV, s) ? NAV[s] : null;
+  if (Object.prototype.hasOwnProperty.call(NAV, s)) return NAV[s];
+  if (!raw.trim() || raw.length > 120 || Array.from(raw).some((c) => c >= '0' && c <= '9')) return null;
+  const ws = navWords(raw);
+  if (!ws.length || ws.length > 14 || !ws.every(inNavVocab)) return null;
+  const has = (set) => ws.some((w) => set.has(w));
+  if (has(NAV_CLOSE)) return has(NAV_CHART) || has(NAV_DESK) ? 'desk' : null;
+  if (has(NAV_CHART)) return has(NAV_AGAIN) ? 'chart' : null;
+  if (has(NAV_DESK)) return 'desk';
+  if (has(NAV_MAIN) && has(NAV_SCREEN)) return 'desk';
+  if (ws.includes('back') && ws.every((w) => w === 'back' || NAV_FILLER.has(w)) && !has(NAV_SCREEN)) return 'desk';
+  return null;
 }
 
 const here = (kind, view) => {
