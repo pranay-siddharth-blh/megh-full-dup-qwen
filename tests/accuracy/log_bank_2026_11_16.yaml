@@ -961,11 +961,11 @@ cases:
   src: 'block list from curated.v_pmay (LGD); one breath: scheme, measure, FY, district, block'
   turns:
   - q: Focus Legacy producer groups for FY 2022-23 in South Garo Hills, Baghmara block
-    figures:
+    figures: &id126
     - sql: SELECT COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_block = 'BAGHMARA' AND year_key = 2022
       unit: count
     pause: false
-    schemes:
+    schemes: &id127
     - Focus Legacy
     place: BAGHMARA
     year: 2022
@@ -1113,11 +1113,11 @@ cases:
   src: 'block list from curated.v_pmay (LGD); one breath: scheme, measure, FY, district, block'
   turns:
   - q: Focus Legacy producer groups for FY 2025-26 in South Garo Hills, Chokpot block
-    figures:
+    figures: &id128
     - sql: SELECT COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_block = 'CHOKPOT' AND year_key = 2025
       unit: count
     pause: false
-    schemes:
+    schemes: &id129
     - Focus Legacy
     place: CHOKPOT
     year: 2025
@@ -1267,11 +1267,11 @@ cases:
   src: 'block list from curated.v_pmay (LGD); one breath: scheme, measure, FY, district, block'
   turns:
   - q: Focus Legacy producer groups for FY 2024-25 in West Garo Hills, Gambegre block
-    figures:
+    figures: &id130
     - sql: SELECT COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_block = 'GAMBEGRE' AND year_key = 2024
       unit: count
     pause: false
-    schemes:
+    schemes: &id131
     - Focus Legacy
     place: GAMBEGRE
     year: 2024
@@ -1420,11 +1420,11 @@ cases:
   src: 'block list from curated.v_pmay (LGD); one breath: scheme, measure, FY, district, block'
   turns:
   - q: Focus Legacy producer groups for FY 2022-23 in West Jaintia Hills, Laskein block
-    figures:
+    figures: &id132
     - sql: SELECT COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_block = 'LASKEIN' AND year_key = 2022
       unit: count
     pause: false
-    schemes:
+    schemes: &id133
     - Focus Legacy
     place: LASKEIN
     year: 2022
@@ -1571,11 +1571,11 @@ cases:
   src: 'block list from curated.v_pmay (LGD); one breath: scheme, measure, FY, district, block'
   turns:
   - q: Focus Legacy producer groups for FY 2025-26 in South West Khasi Hills, Mawkyrwat block
-    figures:
+    figures: &id134
     - sql: SELECT COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_block = 'MAWKYRWAT' AND year_key = 2025
       unit: count
     pause: false
-    schemes:
+    schemes: &id135
     - Focus Legacy
     place: MAWKYRWAT
     year: 2025
@@ -1726,11 +1726,11 @@ cases:
   src: 'block list from curated.v_pmay (LGD); one breath: scheme, measure, FY, district, block'
   turns:
   - q: Focus Legacy producer groups for FY 2024-25 in West Khasi Hills, Mawshynrut block
-    figures:
+    figures: &id136
     - sql: SELECT COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_block = 'MAWSHYNRUT' AND year_key = 2024
       unit: count
     pause: false
-    schemes:
+    schemes: &id137
     - Focus Legacy
     place: MAWSHYNRUT
     year: 2024
@@ -1878,11 +1878,11 @@ cases:
   src: 'block list from curated.v_pmay (LGD); one breath: scheme, measure, FY, district, block'
   turns:
   - q: Focus Legacy producer groups for FY 2022-23 in West Khasi Hills, Nongstoin block
-    figures:
+    figures: &id138
     - sql: SELECT COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_block = 'NONGSTOIN' AND year_key = 2022
       unit: count
     pause: false
-    schemes:
+    schemes: &id139
     - Focus Legacy
     place: NONGSTOIN
     year: 2022
@@ -2030,11 +2030,11 @@ cases:
   src: 'block list from curated.v_pmay (LGD); one breath: scheme, measure, FY, district, block'
   turns:
   - q: Focus Legacy producer groups for FY 2025-26 in South West Garo Hills, Rerapara block
-    figures:
+    figures: &id140
     - sql: SELECT COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_block = 'RERAPARA' AND year_key = 2025
       unit: count
     pause: false
-    schemes:
+    schemes: &id141
     - Focus Legacy
     place: RERAPARA
     year: 2025
@@ -2182,11 +2182,11 @@ cases:
   src: 'block list from curated.v_pmay (LGD); one breath: scheme, measure, FY, district, block'
   turns:
   - q: Focus Legacy producer groups for FY 2024-25 in East Jaintia Hills, Saipung block
-    figures:
+    figures: &id142
     - sql: SELECT COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_block = 'SAIPUNG' AND year_key = 2024
       unit: count
     pause: false
-    schemes:
+    schemes: &id143
     - Focus Legacy
     place: SAIPUNG
     year: 2024
@@ -2334,11 +2334,11 @@ cases:
   src: 'block list from curated.v_pmay (LGD); one breath: scheme, measure, FY, district, block'
   turns:
   - q: Focus Legacy producer groups for FY 2022-23 in South Garo Hills, Siju block
-    figures:
+    figures: &id144
     - sql: SELECT COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_block = 'SIJU' AND year_key = 2022
       unit: count
     pause: false
-    schemes:
+    schemes: &id145
     - Focus Legacy
     place: SIJU
     year: 2022
@@ -2485,11 +2485,11 @@ cases:
   src: 'block list from curated.v_pmay (LGD); one breath: scheme, measure, FY, district, block'
   turns:
   - q: Focus Legacy producer groups for FY 2025-26 in Ri Bhoi, Umling block
-    figures:
+    figures: &id146
     - sql: SELECT COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_block = 'UMLING' AND year_key = 2025
       unit: count
     pause: false
-    schemes:
+    schemes: &id147
     - Focus Legacy
     place: UMLING
     year: 2025
@@ -2717,6 +2717,31 @@ cases:
     pause: false
     place: DALU
     year: 2024
+    max_s: 25
+- id: VAG-11
+  cat: vague
+  shape: block-in-two-districts
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Focus Plus beneficiaries in Zikzak block
+    pause: either
+    figures:
+    - any:
+      - sql: SELECT COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE UPPER(block_name_raw) = 'ZIKZAK'
+        unit: count
+      - sql: SELECT COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE UPPER(block_name_raw) = 'ZIKZAK' AND lgd_district
+          = 'SOUTH WEST GARO HILLS'
+        unit: count
+    max_s: 25
+- id: VAG-12
+  cat: vague
+  shape: block-wrong-district
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Focus Plus beneficiaries in Zikzak block of West Garo Hills
+    pause: either
+    any_of:
+    - - South West Garo Hills
     max_s: 25
 - id: VAG-09
   cat: vague
@@ -3244,6 +3269,46 @@ cases:
     place: WEST GARO HILLS
     schemes:
     - PMAY-G
+    max_s: 25
+- id: VOX-10
+  cat: voice
+  shape: 'shaped: by FY across all the districts'
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Show me MGNREGA person-days by financial year across all the districts?
+    rows:
+    - sql: SELECT financial_year_short, SUM(person_days) FROM curated.v_employment GROUP BY 1 ORDER BY 1
+      unit: count
+    pause: false
+    max_s: 25
+- id: VOX-11
+  cat: voice
+  shape: 'shaped: headline no measure'
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Give me the MGNREGA figure for Ri Bhoi?
+    figures:
+    - sql: SELECT SUM(person_days) FROM curated.v_employment WHERE lgd_district = 'RI BHOI'
+      unit: count
+    pause: false
+    not_route: knowledge
+    max_s: 25
+- id: VOX-12
+  cat: voice
+  shape: 'shaped: top three blocks'
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Show me MGNREGA person-days generated by district
+    pause: false
+    max_s: 25
+  - q: Give me the top three blocks in West Garo Hills
+    rows:
+    - sql: SELECT lgd_block, SUM(person_days) FROM curated.v_employment WHERE lgd_district = 'WEST GARO HILLS' GROUP BY 1
+        ORDER BY 2 DESC
+      unit: count
+      take: 3
+    pause: false
+    place: WEST GARO HILLS
     max_s: 25
 - id: BLKV-ADOKGRE-0
   cat: block-voice-shaped
@@ -3917,3 +3982,1772 @@ cases:
     place: ZIKZAK
     year: 2025
     max_s: 25
+- id: HEAD-00
+  cat: headline-no-measure
+  shape: MGNREGA/West Garo Hills
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Give me the figure of MGNREGA for West Garo Hills?
+    figures:
+    - sql: SELECT SUM(person_days) FROM curated.v_employment WHERE lgd_district = 'WEST GARO HILLS'
+      unit: count
+    pause: false
+    not_route: knowledge
+    max_s: 25
+- id: HEAD-01
+  cat: headline-no-measure
+  shape: MGNREGA/Ri Bhoi
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: What are the MGNREGA numbers in Ri Bhoi?
+    figures:
+    - sql: SELECT SUM(person_days) FROM curated.v_employment WHERE lgd_district = 'RI BHOI'
+      unit: count
+    pause: false
+    not_route: knowledge
+    max_s: 25
+- id: HEAD-02
+  cat: headline-no-measure
+  shape: MGNREGA/East Khasi Hills
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: MGNREGA in East Khasi Hills.
+    figures:
+    - sql: SELECT SUM(person_days) FROM curated.v_employment WHERE lgd_district = 'EAST KHASI HILLS'
+      unit: count
+    pause: false
+    not_route: knowledge
+    max_s: 25
+- id: HEAD-03
+  cat: headline-no-measure
+  shape: MGNREGA/Tikrikilla block
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Show me MGNREGA for Tikrikilla block
+    figures:
+    - sql: SELECT SUM(person_days) FROM curated.v_employment WHERE lgd_block = 'TIKRIKILLA'
+      unit: count
+    pause: false
+    not_route: knowledge
+    max_s: 25
+- id: HEAD-04
+  cat: headline-no-measure
+  shape: MGNREGA/Mawphlang block
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: How is MGNREGA doing in Mawphlang block?
+    figures:
+    - sql: SELECT SUM(person_days) FROM curated.v_employment WHERE lgd_block = 'MAWPHLANG'
+      unit: count
+    pause: false
+    not_route: knowledge
+    max_s: 25
+- id: HEAD-10
+  cat: headline-no-measure
+  shape: PMAY-G/West Garo Hills
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Give me an overview of PMAY-G in West Garo Hills
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_pmay WHERE lgd_district = 'WEST GARO HILLS'
+      unit: count
+    pause: false
+    not_route: knowledge
+    max_s: 25
+- id: HEAD-11
+  cat: headline-no-measure
+  shape: PMAY-G/Ri Bhoi
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: What's the PMAY-G figure for Ri Bhoi?
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_pmay WHERE lgd_district = 'RI BHOI'
+      unit: count
+    pause: false
+    not_route: knowledge
+    max_s: 25
+- id: HEAD-12
+  cat: headline-no-measure
+  shape: PMAY-G/East Khasi Hills
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Okay, so what about PMAY-G in East Khasi Hills?
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_pmay WHERE lgd_district = 'EAST KHASI HILLS'
+      unit: count
+    pause: false
+    not_route: knowledge
+    max_s: 25
+- id: HEAD-13
+  cat: headline-no-measure
+  shape: PMAY-G/Tikrikilla block
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Give me the figure of PMAY-G for Tikrikilla block?
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_pmay WHERE lgd_block = 'TIKRIKILLA'
+      unit: count
+    pause: false
+    not_route: knowledge
+    max_s: 25
+- id: HEAD-14
+  cat: headline-no-measure
+  shape: PMAY-G/Mawphlang block
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: What are the PMAY-G numbers in Mawphlang block?
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_pmay WHERE lgd_block = 'MAWPHLANG'
+      unit: count
+    pause: false
+    not_route: knowledge
+    max_s: 25
+- id: HEAD-20
+  cat: headline-no-measure
+  shape: Focus Legacy/West Garo Hills
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Focus Legacy in West Garo Hills.
+    figures:
+    - sql: SELECT COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_district = 'WEST GARO HILLS'
+      unit: count
+    pause: false
+    not_route: knowledge
+    max_s: 25
+- id: HEAD-21
+  cat: headline-no-measure
+  shape: Focus Legacy/Ri Bhoi
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Show me Focus Legacy for Ri Bhoi
+    figures:
+    - sql: SELECT COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_district = 'RI BHOI'
+      unit: count
+    pause: false
+    not_route: knowledge
+    max_s: 25
+- id: HEAD-22
+  cat: headline-no-measure
+  shape: Focus Legacy/East Khasi Hills
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: How is Focus Legacy doing in East Khasi Hills?
+    figures:
+    - sql: SELECT COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_district = 'EAST KHASI HILLS'
+      unit: count
+    pause: false
+    not_route: knowledge
+    max_s: 25
+- id: HEAD-23
+  cat: headline-no-measure
+  shape: Focus Legacy/Tikrikilla block
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Give me an overview of Focus Legacy in Tikrikilla block
+    figures:
+    - sql: SELECT COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_block = 'TIKRIKILLA'
+      unit: count
+    pause: false
+    not_route: knowledge
+    max_s: 25
+- id: HEAD-24
+  cat: headline-no-measure
+  shape: Focus Legacy/Mawphlang block
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: What's the Focus Legacy figure for Mawphlang block?
+    figures:
+    - sql: SELECT COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_block = 'MAWPHLANG'
+      unit: count
+    pause: false
+    not_route: knowledge
+    max_s: 25
+- id: HEAD-30
+  cat: headline-no-measure
+  shape: Focus Plus/West Garo Hills
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Okay, so what about Focus Plus in West Garo Hills?
+    figures:
+    - any:
+      - sql: SELECT COUNT(*) FROM curated.v_focus_plus WHERE lgd_district = 'WEST GARO HILLS'
+        unit: count
+      - sql: SELECT COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE lgd_district = 'WEST GARO HILLS'
+        unit: count
+    pause: false
+    not_route: knowledge
+    max_s: 25
+- id: HEAD-31
+  cat: headline-no-measure
+  shape: Focus Plus/Ri Bhoi
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Give me the figure of Focus Plus for Ri Bhoi?
+    figures:
+    - any:
+      - sql: SELECT COUNT(*) FROM curated.v_focus_plus WHERE lgd_district = 'RI BHOI'
+        unit: count
+      - sql: SELECT COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE lgd_district = 'RI BHOI'
+        unit: count
+    pause: false
+    not_route: knowledge
+    max_s: 25
+- id: HEAD-32
+  cat: headline-no-measure
+  shape: Focus Plus/East Khasi Hills
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: What are the Focus Plus numbers in East Khasi Hills?
+    figures:
+    - any:
+      - sql: SELECT COUNT(*) FROM curated.v_focus_plus WHERE lgd_district = 'EAST KHASI HILLS'
+        unit: count
+      - sql: SELECT COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE lgd_district = 'EAST KHASI HILLS'
+        unit: count
+    pause: false
+    not_route: knowledge
+    max_s: 25
+- id: HEAD-33
+  cat: headline-no-measure
+  shape: Focus Plus/Tikrikilla block
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Focus Plus in Tikrikilla block.
+    figures:
+    - any:
+      - sql: SELECT COUNT(*) FROM curated.v_focus_plus WHERE UPPER(block_name_raw) = 'TIKRIKILLA'
+        unit: count
+      - sql: SELECT COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE UPPER(block_name_raw) = 'TIKRIKILLA'
+        unit: count
+    pause: false
+    not_route: knowledge
+    max_s: 25
+- id: HEAD-34
+  cat: headline-no-measure
+  shape: Focus Plus/Mawphlang block
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Show me Focus Plus for Mawphlang block
+    figures:
+    - any:
+      - sql: SELECT COUNT(*) FROM curated.v_focus_plus WHERE UPPER(block_name_raw) = 'MAWPHLANG'
+        unit: count
+      - sql: SELECT COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE UPPER(block_name_raw) = 'MAWPHLANG'
+        unit: count
+    pause: false
+    not_route: knowledge
+    max_s: 25
+- id: HEAD-40
+  cat: headline-no-measure
+  shape: CMSS/West Garo Hills
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: How is CMSS doing in West Garo Hills?
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_cmss WHERE lgd_district = 'WEST GARO HILLS'
+      unit: count
+    pause: false
+    not_route: knowledge
+    max_s: 25
+- id: HEAD-41
+  cat: headline-no-measure
+  shape: CMSS/Ri Bhoi
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Give me an overview of CMSS in Ri Bhoi
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_cmss WHERE lgd_district = 'RI BHOI'
+      unit: count
+    pause: false
+    not_route: knowledge
+    max_s: 25
+- id: HEAD-42
+  cat: headline-no-measure
+  shape: CMSS/East Khasi Hills
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: What's the CMSS figure for East Khasi Hills?
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_cmss WHERE lgd_district = 'EAST KHASI HILLS'
+      unit: count
+    pause: false
+    not_route: knowledge
+    max_s: 25
+- id: GRP-DW-0
+  cat: grouping-words
+  shape: X district wise
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Focus Legacy producer groups district wise
+    rows:
+    - sql: SELECT lgd_district, COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_district IS NOT NULL GROUP BY
+        1 ORDER BY 2 DESC
+      unit: count
+    pause: false
+    max_s: 25
+- id: GRP-DW-1
+  cat: grouping-words
+  shape: X district wise
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Focus Plus beneficiaries district wise
+    rows:
+    - sql: SELECT lgd_district, COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE lgd_district IS NOT NULL GROUP
+        BY 1 ORDER BY 2 DESC
+      unit: count
+    pause: false
+    max_s: 25
+- id: GRP-DW-2
+  cat: grouping-words
+  shape: X district wise
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: PMAY-G houses completed district wise
+    rows:
+    - sql: SELECT lgd_district, COUNT(*) FROM curated.v_pmay WHERE is_completed AND lgd_district IS NOT NULL GROUP BY 1 ORDER
+        BY 2 DESC
+      unit: count
+    pause: false
+    max_s: 25
+- id: GRP-DW-3
+  cat: grouping-words
+  shape: X district wise
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: CMSS applications district wise
+    rows:
+    - sql: SELECT lgd_district, COUNT(*) FROM curated.v_cmss WHERE lgd_district IS NOT NULL GROUP BY 1 ORDER BY 2 DESC
+      unit: count
+    pause: false
+    max_s: 25
+- id: GRP-DW-4
+  cat: grouping-words
+  shape: X district wise
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Focus Legacy amount district wise
+    rows:
+    - sql: SELECT lgd_district, SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE lgd_district IS NOT NULL GROUP BY
+        1 ORDER BY 2 DESC
+      unit: rupees
+    pause: false
+    max_s: 25
+- id: GRP-FY-00
+  cat: grouping-words
+  shape: by financial year
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Show me the MGNREGA expenditure for every financial year
+    rows:
+    - sql: SELECT financial_year_short, ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE year_key IS NOT NULL GROUP
+        BY 1 ORDER BY 1
+      unit: lakh
+    pause: false
+    max_s: 25
+- id: GRP-D-00
+  cat: grouping-words
+  shape: by district
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: MGNREGA expenditure district wise
+    rows:
+    - sql: SELECT lgd_district, ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE lgd_district IS NOT NULL GROUP BY
+        1 ORDER BY 2 DESC
+      unit: lakh
+    pause: false
+    max_s: 25
+- id: GRP-FY-01
+  cat: grouping-words
+  shape: by financial year
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: MGNREGA expenditure per financial year across all districts
+    rows:
+    - sql: SELECT financial_year_short, ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE year_key IS NOT NULL GROUP
+        BY 1 ORDER BY 1
+      unit: lakh
+    pause: false
+    max_s: 25
+- id: GRP-D-01
+  cat: grouping-words
+  shape: by district
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Show me the MGNREGA expenditure for every district
+    rows:
+    - sql: SELECT lgd_district, ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE lgd_district IS NOT NULL GROUP BY
+        1 ORDER BY 2 DESC
+      unit: lakh
+    pause: false
+    max_s: 25
+- id: GRP-FY-02
+  cat: grouping-words
+  shape: by financial year
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: MGNREGA expenditure year wise
+    rows:
+    - sql: SELECT financial_year_short, ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE year_key IS NOT NULL GROUP
+        BY 1 ORDER BY 1
+      unit: lakh
+    pause: false
+    max_s: 25
+- id: GRP-D-02
+  cat: grouping-words
+  shape: by district
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: MGNREGA expenditure per district
+    rows:
+    - sql: SELECT lgd_district, ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE lgd_district IS NOT NULL GROUP BY
+        1 ORDER BY 2 DESC
+      unit: lakh
+    pause: false
+    max_s: 25
+- id: GRP-FY-10
+  cat: grouping-words
+  shape: by financial year
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Give me the PMAY-G houses sanctioned for each year
+    rows:
+    - sql: SELECT financial_year_short, COUNT(*) FROM curated.v_pmay WHERE year_key IS NOT NULL GROUP BY 1 ORDER BY 1
+      unit: count
+    pause: false
+    max_s: 25
+- id: GRP-D-10
+  cat: grouping-words
+  shape: by district
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: What is the PMAY-G houses sanctioned in each district?
+    rows:
+    - sql: SELECT lgd_district, COUNT(*) FROM curated.v_pmay WHERE lgd_district IS NOT NULL GROUP BY 1 ORDER BY 2 DESC
+      unit: count
+    pause: false
+    max_s: 25
+- id: GRP-FY-11
+  cat: grouping-words
+  shape: by financial year
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: How did the PMAY-G houses sanctioned move year by year?
+    rows:
+    - sql: SELECT financial_year_short, COUNT(*) FROM curated.v_pmay WHERE year_key IS NOT NULL GROUP BY 1 ORDER BY 1
+      unit: count
+    pause: false
+    max_s: 25
+- id: GRP-D-11
+  cat: grouping-words
+  shape: by district
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Show me PMAY-G houses sanctioned across all the districts
+    rows:
+    - sql: SELECT lgd_district, COUNT(*) FROM curated.v_pmay WHERE lgd_district IS NOT NULL GROUP BY 1 ORDER BY 2 DESC
+      unit: count
+    pause: false
+    max_s: 25
+- id: GRP-FY-12
+  cat: grouping-words
+  shape: by financial year
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Okay, can you show me PMAY-G houses sanctioned financial year wise for the whole state
+    rows:
+    - sql: SELECT financial_year_short, COUNT(*) FROM curated.v_pmay WHERE year_key IS NOT NULL GROUP BY 1 ORDER BY 1
+      unit: count
+    pause: false
+    max_s: 25
+- id: GRP-D-12
+  cat: grouping-words
+  shape: by district
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: PMAY-G houses sanctioned district wise
+    rows:
+    - sql: SELECT lgd_district, COUNT(*) FROM curated.v_pmay WHERE lgd_district IS NOT NULL GROUP BY 1 ORDER BY 2 DESC
+      unit: count
+    pause: false
+    max_s: 25
+- id: GRP-FY-20
+  cat: grouping-words
+  shape: by financial year
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Show me the MGNREGA person-days for every financial year
+    rows:
+    - sql: SELECT financial_year_short, SUM(person_days) FROM curated.v_employment WHERE year_key IS NOT NULL GROUP BY 1 ORDER
+        BY 1
+      unit: count
+    pause: false
+    max_s: 25
+- id: GRP-D-20
+  cat: grouping-words
+  shape: by district
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Show me the MGNREGA person-days for every district
+    rows:
+    - sql: SELECT lgd_district, SUM(person_days) FROM curated.v_employment WHERE lgd_district IS NOT NULL GROUP BY 1 ORDER
+        BY 2 DESC
+      unit: count
+    pause: false
+    max_s: 25
+- id: GRP-FY-21
+  cat: grouping-words
+  shape: by financial year
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: MGNREGA person-days per financial year across all districts
+    rows:
+    - sql: SELECT financial_year_short, SUM(person_days) FROM curated.v_employment WHERE year_key IS NOT NULL GROUP BY 1 ORDER
+        BY 1
+      unit: count
+    pause: false
+    max_s: 25
+- id: GRP-D-21
+  cat: grouping-words
+  shape: by district
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: MGNREGA person-days per district
+    rows:
+    - sql: SELECT lgd_district, SUM(person_days) FROM curated.v_employment WHERE lgd_district IS NOT NULL GROUP BY 1 ORDER
+        BY 2 DESC
+      unit: count
+    pause: false
+    max_s: 25
+- id: GRP-FY-22
+  cat: grouping-words
+  shape: by financial year
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: MGNREGA person-days year wise
+    rows:
+    - sql: SELECT financial_year_short, SUM(person_days) FROM curated.v_employment WHERE year_key IS NOT NULL GROUP BY 1 ORDER
+        BY 1
+      unit: count
+    pause: false
+    max_s: 25
+- id: GRP-D-22
+  cat: grouping-words
+  shape: by district
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: What is the MGNREGA person-days in each district?
+    rows:
+    - sql: SELECT lgd_district, SUM(person_days) FROM curated.v_employment WHERE lgd_district IS NOT NULL GROUP BY 1 ORDER
+        BY 2 DESC
+      unit: count
+    pause: false
+    max_s: 25
+- id: GRP-FY-30
+  cat: grouping-words
+  shape: by financial year
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Give me the Focus Legacy amount disbursed for each year
+    rows:
+    - sql: SELECT financial_year_short, SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE year_key IS NOT NULL GROUP
+        BY 1 ORDER BY 1
+      unit: rupees
+    pause: false
+    max_s: 25
+- id: GRP-D-30
+  cat: grouping-words
+  shape: by district
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Show me Focus Legacy amount disbursed across all the districts
+    rows:
+    - sql: SELECT lgd_district, SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE lgd_district IS NOT NULL GROUP BY
+        1 ORDER BY 2 DESC
+      unit: rupees
+    pause: false
+    max_s: 25
+- id: GRP-FY-31
+  cat: grouping-words
+  shape: by financial year
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: How did the Focus Legacy amount disbursed move year by year?
+    rows:
+    - sql: SELECT financial_year_short, SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE year_key IS NOT NULL GROUP
+        BY 1 ORDER BY 1
+      unit: rupees
+    pause: false
+    max_s: 25
+- id: GRP-D-31
+  cat: grouping-words
+  shape: by district
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Focus Legacy amount disbursed district wise
+    rows:
+    - sql: SELECT lgd_district, SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE lgd_district IS NOT NULL GROUP BY
+        1 ORDER BY 2 DESC
+      unit: rupees
+    pause: false
+    max_s: 25
+- id: GRP-FY-32
+  cat: grouping-words
+  shape: by financial year
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Okay, can you show me Focus Legacy amount disbursed financial year wise for the whole state
+    rows:
+    - sql: SELECT financial_year_short, SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE year_key IS NOT NULL GROUP
+        BY 1 ORDER BY 1
+      unit: rupees
+    pause: false
+    max_s: 25
+- id: GRP-D-32
+  cat: grouping-words
+  shape: by district
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Show me the Focus Legacy amount disbursed for every district
+    rows:
+    - sql: SELECT lgd_district, SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE lgd_district IS NOT NULL GROUP BY
+        1 ORDER BY 2 DESC
+      unit: rupees
+    pause: false
+    max_s: 25
+- id: DRL-EASTERN_WEST_KHASI_HILLS
+  cat: district-drill
+  shape: 'MGNREGA person-days: EASTERN WEST KHASI HILLS'
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: MGNREGA person-days by district
+    rows:
+    - sql: SELECT lgd_district, SUM(person_days) FROM curated.v_employment WHERE lgd_district IS NOT NULL GROUP BY 1 ORDER
+        BY 2 DESC
+      unit: count
+    pause: false
+    max_s: 25
+  - q: Okay, could you break down Eastern West Khasi Hills by the blocks?
+    rows:
+    - sql: SELECT lgd_block, SUM(person_days) FROM curated.v_employment WHERE lgd_district = 'EASTERN WEST KHASI HILLS' GROUP
+        BY 1 ORDER BY 2 DESC
+      unit: count
+    pause: false
+    place: EASTERN WEST KHASI HILLS
+    max_s: 25
+  - q: top 3
+    rows:
+    - sql: SELECT lgd_block, SUM(person_days) FROM curated.v_employment WHERE lgd_district = 'EASTERN WEST KHASI HILLS' GROUP
+        BY 1 ORDER BY 2 DESC
+      unit: count
+      take: 3
+    pause: false
+    max_s: 25
+  - q: which is the lowest
+    rows:
+    - sql: SELECT lgd_block, SUM(person_days) FROM curated.v_employment WHERE lgd_district = 'EASTERN WEST KHASI HILLS' GROUP
+        BY 1 ORDER BY 2 ASC
+      unit: count
+      take: 1
+    pause: false
+    max_s: 25
+  - q: only Mairang block
+    figures:
+    - sql: SELECT SUM(person_days) FROM curated.v_employment WHERE lgd_block = 'MAIRANG'
+      unit: count
+    pause: false
+    place: MAIRANG
+    max_s: 25
+  - q: what about 2023-24?
+    figures:
+    - sql: SELECT SUM(person_days) FROM curated.v_employment WHERE lgd_block = 'MAIRANG' AND year_key = 2023
+      unit: count
+    pause: false
+    place: MAIRANG
+    year: 2023
+    max_s: 25
+- id: DRL-EAST_GARO_HILLS
+  cat: district-drill
+  shape: 'PMAY-G houses sanctioned: EAST GARO HILLS'
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: PMAY-G houses sanctioned by district
+    rows:
+    - sql: SELECT lgd_district, COUNT(*) FROM curated.v_pmay WHERE lgd_district IS NOT NULL GROUP BY 1 ORDER BY 2 DESC
+      unit: count
+    pause: false
+    max_s: 25
+  - q: Now show me East Garo Hills block wise
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_pmay WHERE lgd_district = 'EAST GARO HILLS' GROUP BY 1 ORDER BY 2 DESC
+      unit: count
+    pause: false
+    place: EAST GARO HILLS
+    max_s: 25
+  - q: top 3
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_pmay WHERE lgd_district = 'EAST GARO HILLS' GROUP BY 1 ORDER BY 2 DESC
+      unit: count
+      take: 3
+    pause: false
+    max_s: 25
+  - q: which is the lowest
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_pmay WHERE lgd_district = 'EAST GARO HILLS' GROUP BY 1 ORDER BY 2 ASC
+      unit: count
+      take: 1
+    pause: false
+    max_s: 25
+  - q: only Songsak block
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_pmay WHERE lgd_block = 'SONGSAK'
+      unit: count
+    pause: false
+    place: SONGSAK
+    max_s: 25
+  - q: what about 2022-23?
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_pmay WHERE lgd_block = 'SONGSAK' AND year_key = 2022
+      unit: count
+    pause: false
+    place: SONGSAK
+    year: 2022
+    max_s: 25
+- id: DRL-EAST_JAINTIA_HILLS
+  cat: district-drill
+  shape: 'MGNREGA expenditure: EAST JAINTIA HILLS'
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: MGNREGA expenditure by district
+    rows:
+    - sql: SELECT lgd_district, ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE lgd_district IS NOT NULL GROUP BY
+        1 ORDER BY 2 DESC
+      unit: lakh
+    pause: false
+    max_s: 25
+  - q: Can you break East Jaintia Hills down by block for the same?
+    rows:
+    - sql: SELECT lgd_block, ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE lgd_district = 'EAST JAINTIA HILLS'
+        GROUP BY 1 ORDER BY 2 DESC
+      unit: lakh
+    pause: false
+    place: EAST JAINTIA HILLS
+    max_s: 25
+  - q: top 3
+    rows:
+    - sql: SELECT lgd_block, ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE lgd_district = 'EAST JAINTIA HILLS'
+        GROUP BY 1 ORDER BY 2 DESC
+      unit: lakh
+      take: 3
+    pause: false
+    max_s: 25
+  - q: which is the lowest
+    rows:
+    - sql: SELECT lgd_block, ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE lgd_district = 'EAST JAINTIA HILLS'
+        GROUP BY 1 ORDER BY 2 ASC
+      unit: lakh
+      take: 1
+    pause: false
+    max_s: 25
+  - q: only Wapung block
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE lgd_block = 'WAPUNG'
+      unit: lakh
+    pause: false
+    place: WAPUNG
+    max_s: 25
+  - q: what about 2024-25?
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE lgd_block = 'WAPUNG' AND year_key = 2024
+      unit: lakh
+    pause: false
+    place: WAPUNG
+    year: 2024
+    max_s: 25
+- id: DRL-EAST_KHASI_HILLS
+  cat: district-drill
+  shape: 'PMAY-G houses completed: EAST KHASI HILLS'
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: PMAY-G houses completed by district
+    rows:
+    - sql: SELECT lgd_district, COUNT(*) FROM curated.v_pmay WHERE is_completed AND TRUE AND lgd_district IS NOT NULL GROUP
+        BY 1 ORDER BY 2 DESC
+      unit: count
+    pause: false
+    max_s: 25
+  - q: okay and for East Khasi Hills, by block please
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_pmay WHERE is_completed AND TRUE AND lgd_district = 'EAST KHASI HILLS'
+        GROUP BY 1 ORDER BY 2 DESC
+      unit: count
+    pause: false
+    place: EAST KHASI HILLS
+    max_s: 25
+  - q: top 3
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_pmay WHERE is_completed AND TRUE AND lgd_district = 'EAST KHASI HILLS'
+        GROUP BY 1 ORDER BY 2 DESC
+      unit: count
+      take: 3
+    pause: false
+    max_s: 25
+  - q: which is the lowest
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_pmay WHERE is_completed AND TRUE AND lgd_district = 'EAST KHASI HILLS'
+        GROUP BY 1 ORDER BY 2 ASC
+      unit: count
+      take: 1
+    pause: false
+    max_s: 25
+  - q: only Pynursla block
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_pmay WHERE is_completed AND TRUE AND lgd_block = 'PYNURSLA'
+      unit: count
+    pause: false
+    place: PYNURSLA
+    max_s: 25
+  - q: what about 2020-21?
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_pmay WHERE is_completed AND TRUE AND lgd_block = 'PYNURSLA' AND year_key = 2020
+      unit: count
+    pause: false
+    place: PYNURSLA
+    year: 2020
+    max_s: 25
+- id: DRL-NORTH_GARO_HILLS
+  cat: district-drill
+  shape: 'Focus Legacy producer groups: NORTH GARO HILLS'
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Focus Legacy producer groups by district
+    rows:
+    - sql: SELECT lgd_district, COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_district IS NOT NULL GROUP BY
+        1 ORDER BY 2 DESC
+      unit: count
+    pause: false
+    max_s: 25
+  - q: Okay, could you break down North Garo Hills by the blocks?
+    rows:
+    - sql: SELECT lgd_block, COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_district = 'NORTH GARO HILLS' GROUP
+        BY 1 ORDER BY 2 DESC
+      unit: count
+    pause: false
+    place: NORTH GARO HILLS
+    max_s: 25
+  - q: top 3
+    rows:
+    - sql: SELECT lgd_block, COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_district = 'NORTH GARO HILLS' GROUP
+        BY 1 ORDER BY 2 DESC
+      unit: count
+      take: 3
+    pause: false
+    max_s: 25
+  - q: which is the lowest
+    rows:
+    - sql: SELECT lgd_block, COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_district = 'NORTH GARO HILLS' GROUP
+        BY 1 ORDER BY 2 ASC
+      unit: count
+      take: 1
+    pause: false
+    max_s: 25
+  - q: only Resubelpara block
+    figures:
+    - sql: SELECT COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_block = 'RESUBELPARA'
+      unit: count
+    pause: false
+    place: RESUBELPARA
+    max_s: 25
+  - q: what about 2025-26?
+    figures:
+    - sql: SELECT COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_block = 'RESUBELPARA' AND year_key = 2025
+      unit: count
+    pause: false
+    place: RESUBELPARA
+    year: 2025
+    max_s: 25
+- id: DRL-RI_BHOI
+  cat: district-drill
+  shape: 'MGNREGA person-days: RI BHOI'
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: MGNREGA person-days by district
+    rows:
+    - sql: SELECT lgd_district, SUM(person_days) FROM curated.v_employment WHERE lgd_district IS NOT NULL GROUP BY 1 ORDER
+        BY 2 DESC
+      unit: count
+    pause: false
+    max_s: 25
+  - q: Now show me Ri Bhoi block wise
+    rows:
+    - sql: SELECT lgd_block, SUM(person_days) FROM curated.v_employment WHERE lgd_district = 'RI BHOI' GROUP BY 1 ORDER BY
+        2 DESC
+      unit: count
+    pause: false
+    place: RI BHOI
+    max_s: 25
+  - q: top 3
+    rows:
+    - sql: SELECT lgd_block, SUM(person_days) FROM curated.v_employment WHERE lgd_district = 'RI BHOI' GROUP BY 1 ORDER BY
+        2 DESC
+      unit: count
+      take: 3
+    pause: false
+    max_s: 25
+  - q: which is the lowest
+    rows:
+    - sql: SELECT lgd_block, SUM(person_days) FROM curated.v_employment WHERE lgd_district = 'RI BHOI' GROUP BY 1 ORDER BY
+        2 ASC
+      unit: count
+      take: 1
+    pause: false
+    max_s: 25
+  - q: only Umling block
+    figures:
+    - sql: SELECT SUM(person_days) FROM curated.v_employment WHERE lgd_block = 'UMLING'
+      unit: count
+    pause: false
+    place: UMLING
+    max_s: 25
+  - q: what about 2023-24?
+    figures:
+    - sql: SELECT SUM(person_days) FROM curated.v_employment WHERE lgd_block = 'UMLING' AND year_key = 2023
+      unit: count
+    pause: false
+    place: UMLING
+    year: 2023
+    max_s: 25
+- id: DRL-SOUTH_GARO_HILLS
+  cat: district-drill
+  shape: 'PMAY-G houses sanctioned: SOUTH GARO HILLS'
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: PMAY-G houses sanctioned by district
+    rows:
+    - sql: SELECT lgd_district, COUNT(*) FROM curated.v_pmay WHERE lgd_district IS NOT NULL GROUP BY 1 ORDER BY 2 DESC
+      unit: count
+    pause: false
+    max_s: 25
+  - q: Can you break South Garo Hills down by block for the same?
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_pmay WHERE lgd_district = 'SOUTH GARO HILLS' GROUP BY 1 ORDER BY 2 DESC
+      unit: count
+    pause: false
+    place: SOUTH GARO HILLS
+    max_s: 25
+  - q: top 3
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_pmay WHERE lgd_district = 'SOUTH GARO HILLS' GROUP BY 1 ORDER BY 2 DESC
+      unit: count
+      take: 3
+    pause: false
+    max_s: 25
+  - q: which is the lowest
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_pmay WHERE lgd_district = 'SOUTH GARO HILLS' GROUP BY 1 ORDER BY 2 ASC
+      unit: count
+      take: 1
+    pause: false
+    max_s: 25
+  - q: only Gasuapara block
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_pmay WHERE lgd_block = 'GASUAPARA'
+      unit: count
+    pause: false
+    place: GASUAPARA
+    max_s: 25
+  - q: what about 2022-23?
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_pmay WHERE lgd_block = 'GASUAPARA' AND year_key = 2022
+      unit: count
+    pause: false
+    place: GASUAPARA
+    year: 2022
+    max_s: 25
+- id: DRL-SOUTH_WEST_GARO_HILLS
+  cat: district-drill
+  shape: 'MGNREGA expenditure: SOUTH WEST GARO HILLS'
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: MGNREGA expenditure by district
+    rows:
+    - sql: SELECT lgd_district, ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE lgd_district IS NOT NULL GROUP BY
+        1 ORDER BY 2 DESC
+      unit: lakh
+    pause: false
+    max_s: 25
+  - q: okay and for South West Garo Hills, by block please
+    rows:
+    - sql: SELECT lgd_block, ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE lgd_district = 'SOUTH WEST GARO HILLS'
+        GROUP BY 1 ORDER BY 2 DESC
+      unit: lakh
+    pause: false
+    place: SOUTH WEST GARO HILLS
+    max_s: 25
+  - q: top 3
+    rows:
+    - sql: SELECT lgd_block, ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE lgd_district = 'SOUTH WEST GARO HILLS'
+        GROUP BY 1 ORDER BY 2 DESC
+      unit: lakh
+      take: 3
+    pause: false
+    max_s: 25
+  - q: which is the lowest
+    rows:
+    - sql: SELECT lgd_block, ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE lgd_district = 'SOUTH WEST GARO HILLS'
+        GROUP BY 1 ORDER BY 2 ASC
+      unit: lakh
+      take: 1
+    pause: false
+    max_s: 25
+  - q: only Zikzak block
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE lgd_block = 'ZIKZAK'
+      unit: lakh
+    pause: false
+    place: ZIKZAK
+    max_s: 25
+  - q: what about 2024-25?
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE lgd_block = 'ZIKZAK' AND year_key = 2024
+      unit: lakh
+    pause: false
+    place: ZIKZAK
+    year: 2024
+    max_s: 25
+- id: DRL-SOUTH_WEST_KHASI_HILLS
+  cat: district-drill
+  shape: 'PMAY-G houses completed: SOUTH WEST KHASI HILLS'
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: PMAY-G houses completed by district
+    rows:
+    - sql: SELECT lgd_district, COUNT(*) FROM curated.v_pmay WHERE is_completed AND TRUE AND lgd_district IS NOT NULL GROUP
+        BY 1 ORDER BY 2 DESC
+      unit: count
+    pause: false
+    max_s: 25
+  - q: Okay, could you break down South West Khasi Hills by the blocks?
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_pmay WHERE is_completed AND TRUE AND lgd_district = 'SOUTH WEST KHASI
+        HILLS' GROUP BY 1 ORDER BY 2 DESC
+      unit: count
+    pause: false
+    place: SOUTH WEST KHASI HILLS
+    max_s: 25
+  - q: top 3
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_pmay WHERE is_completed AND TRUE AND lgd_district = 'SOUTH WEST KHASI
+        HILLS' GROUP BY 1 ORDER BY 2 DESC
+      unit: count
+      take: 3
+    pause: false
+    max_s: 25
+  - q: which is the lowest
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_pmay WHERE is_completed AND TRUE AND lgd_district = 'SOUTH WEST KHASI
+        HILLS' GROUP BY 1 ORDER BY 2 ASC
+      unit: count
+      take: 1
+    pause: false
+    max_s: 25
+  - q: only Mawkyrwat block
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_pmay WHERE is_completed AND TRUE AND lgd_block = 'MAWKYRWAT'
+      unit: count
+    pause: false
+    place: MAWKYRWAT
+    max_s: 25
+  - q: what about 2020-21?
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_pmay WHERE is_completed AND TRUE AND lgd_block = 'MAWKYRWAT' AND year_key = 2020
+      unit: count
+    pause: false
+    place: MAWKYRWAT
+    year: 2020
+    max_s: 25
+- id: DRL-WEST_GARO_HILLS
+  cat: district-drill
+  shape: 'Focus Legacy producer groups: WEST GARO HILLS'
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Focus Legacy producer groups by district
+    rows:
+    - sql: SELECT lgd_district, COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_district IS NOT NULL GROUP BY
+        1 ORDER BY 2 DESC
+      unit: count
+    pause: false
+    max_s: 25
+  - q: Now show me West Garo Hills block wise
+    rows:
+    - sql: SELECT lgd_block, COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_district = 'WEST GARO HILLS' GROUP
+        BY 1 ORDER BY 2 DESC
+      unit: count
+    pause: false
+    place: WEST GARO HILLS
+    max_s: 25
+  - q: top 3
+    rows:
+    - sql: SELECT lgd_block, COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_district = 'WEST GARO HILLS' GROUP
+        BY 1 ORDER BY 2 DESC
+      unit: count
+      take: 3
+    pause: false
+    max_s: 25
+  - q: which is the lowest
+    rows:
+    - sql: SELECT lgd_block, COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_district = 'WEST GARO HILLS' GROUP
+        BY 1 ORDER BY 2 ASC
+      unit: count
+      take: 1
+    pause: false
+    max_s: 25
+  - q: only Demdema block
+    figures:
+    - sql: SELECT COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_block = 'DEMDEMA'
+      unit: count
+    pause: false
+    place: DEMDEMA
+    max_s: 25
+  - q: what about 2025-26?
+    figures:
+    - sql: SELECT COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_block = 'DEMDEMA' AND year_key = 2025
+      unit: count
+    pause: false
+    place: DEMDEMA
+    year: 2025
+    max_s: 25
+- id: DRL-WEST_JAINTIA_HILLS
+  cat: district-drill
+  shape: 'MGNREGA person-days: WEST JAINTIA HILLS'
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: MGNREGA person-days by district
+    rows:
+    - sql: SELECT lgd_district, SUM(person_days) FROM curated.v_employment WHERE lgd_district IS NOT NULL GROUP BY 1 ORDER
+        BY 2 DESC
+      unit: count
+    pause: false
+    max_s: 25
+  - q: Can you break West Jaintia Hills down by block for the same?
+    rows:
+    - sql: SELECT lgd_block, SUM(person_days) FROM curated.v_employment WHERE lgd_district = 'WEST JAINTIA HILLS' GROUP BY
+        1 ORDER BY 2 DESC
+      unit: count
+    pause: false
+    place: WEST JAINTIA HILLS
+    max_s: 25
+  - q: top 3
+    rows:
+    - sql: SELECT lgd_block, SUM(person_days) FROM curated.v_employment WHERE lgd_district = 'WEST JAINTIA HILLS' GROUP BY
+        1 ORDER BY 2 DESC
+      unit: count
+      take: 3
+    pause: false
+    max_s: 25
+  - q: which is the lowest
+    rows:
+    - sql: SELECT lgd_block, SUM(person_days) FROM curated.v_employment WHERE lgd_district = 'WEST JAINTIA HILLS' GROUP BY
+        1 ORDER BY 2 ASC
+      unit: count
+      take: 1
+    pause: false
+    max_s: 25
+  - q: only Laskein block
+    figures:
+    - sql: SELECT SUM(person_days) FROM curated.v_employment WHERE lgd_block = 'LASKEIN'
+      unit: count
+    pause: false
+    place: LASKEIN
+    max_s: 25
+  - q: what about 2023-24?
+    figures:
+    - sql: SELECT SUM(person_days) FROM curated.v_employment WHERE lgd_block = 'LASKEIN' AND year_key = 2023
+      unit: count
+    pause: false
+    place: LASKEIN
+    year: 2023
+    max_s: 25
+- id: DRL-WEST_KHASI_HILLS
+  cat: district-drill
+  shape: 'PMAY-G houses sanctioned: WEST KHASI HILLS'
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: PMAY-G houses sanctioned by district
+    rows:
+    - sql: SELECT lgd_district, COUNT(*) FROM curated.v_pmay WHERE lgd_district IS NOT NULL GROUP BY 1 ORDER BY 2 DESC
+      unit: count
+    pause: false
+    max_s: 25
+  - q: okay and for West Khasi Hills, by block please
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_pmay WHERE lgd_district = 'WEST KHASI HILLS' GROUP BY 1 ORDER BY 2 DESC
+      unit: count
+    pause: false
+    place: WEST KHASI HILLS
+    max_s: 25
+  - q: top 3
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_pmay WHERE lgd_district = 'WEST KHASI HILLS' GROUP BY 1 ORDER BY 2 DESC
+      unit: count
+      take: 3
+    pause: false
+    max_s: 25
+  - q: which is the lowest
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_pmay WHERE lgd_district = 'WEST KHASI HILLS' GROUP BY 1 ORDER BY 2 ASC
+      unit: count
+      take: 1
+    pause: false
+    max_s: 25
+  - q: only Nongstoin block
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_pmay WHERE lgd_block = 'NONGSTOIN'
+      unit: count
+    pause: false
+    place: NONGSTOIN
+    max_s: 25
+  - q: what about 2022-23?
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_pmay WHERE lgd_block = 'NONGSTOIN' AND year_key = 2022
+      unit: count
+    pause: false
+    place: NONGSTOIN
+    year: 2022
+    max_s: 25
+- id: CMB-00
+  cat: one-breath-combos
+  shape: combo
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Compare MGNREGA person-days in Tikrikilla and Rongram blocks in FY 2023-24
+    pause: false
+    max_s: 25
+    rows:
+    - sql: SELECT lgd_block, SUM(person_days) FROM curated.v_employment WHERE lgd_block IN ('TIKRIKILLA', 'RONGRAM') AND year_key
+        = 2023 GROUP BY 1 ORDER BY 2 DESC
+      unit: count
+- id: CMB-01
+  cat: one-breath-combos
+  shape: combo
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Compare PMAY-G houses sanctioned in Mawphlang and Mylliem blocks
+    pause: false
+    max_s: 25
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_pmay WHERE lgd_block IN ('MAWPHLANG', 'MYLLIEM') GROUP BY 1 ORDER BY
+        2 DESC
+      unit: count
+- id: CMB-02
+  cat: one-breath-combos
+  shape: combo
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Compare MGNREGA expenditure in Ri Bhoi and West Jaintia Hills for 2024-25
+    pause: false
+    max_s: 25
+    rows:
+    - sql: SELECT lgd_district, ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE lgd_district IN ('RI BHOI', 'WEST
+        JAINTIA HILLS') AND year_key = 2024 GROUP BY 1 ORDER BY 2 DESC
+      unit: lakh
+- id: CMB-03
+  cat: one-breath-combos
+  shape: combo
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: MGNREGA person-days in Resubelpara block in 2022-23 and 2023-24
+    pause: false
+    max_s: 25
+    rows: &id148
+    - sql: SELECT financial_year_short, SUM(person_days) FROM curated.v_employment WHERE lgd_block = 'RESUBELPARA' AND year_key
+        IN (2022, 2023) GROUP BY 1 ORDER BY 1
+      unit: count
+- id: CMB-04
+  cat: one-breath-combos
+  shape: combo
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Show me MGNREGA expenditure by block in West Khasi Hills for FY 2025-26 as a bar chart
+    pause: false
+    max_s: 25
+    rows:
+    - sql: SELECT lgd_block, ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE lgd_district = 'WEST KHASI HILLS' AND
+        year_key = 2025 GROUP BY 1 ORDER BY 2 DESC
+      unit: lakh
+    chart: bar
+- id: CMB-05
+  cat: one-breath-combos
+  shape: combo
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: PMAY-G houses completed by block in Ri Bhoi as a pie chart
+    pause: false
+    max_s: 25
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_pmay WHERE is_completed AND lgd_district = 'RI BHOI' GROUP BY 1 ORDER
+        BY 2 DESC
+      unit: count
+    chart: pie
+- id: CMB-06
+  cat: one-breath-combos
+  shape: combo
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Top 5 blocks in Meghalaya by MGNREGA person-days in FY 2024-25
+    pause: false
+    max_s: 25
+    rows:
+    - sql: SELECT lgd_block, SUM(person_days) FROM curated.v_employment WHERE year_key = 2024 GROUP BY 1 ORDER BY 2 DESC
+      unit: count
+      take: 5
+- id: CMB-07
+  cat: one-breath-combos
+  shape: combo
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Which block had the lowest PMAY-G houses sanctioned in East Khasi Hills in FY 2023-24?
+    pause: false
+    max_s: 25
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_pmay WHERE lgd_district = 'EAST KHASI HILLS' AND year_key = 2023 GROUP
+        BY 1 ORDER BY 2 ASC
+      unit: count
+      take: 1
+- id: CMB-08
+  cat: one-breath-combos
+  shape: combo
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Top 3 villages in Mawkyrwat block by PMAY-G houses completed
+    pause: false
+    max_s: 25
+    rows:
+    - sql: SELECT lgd_village_name, COUNT(*) FROM curated.v_pmay WHERE is_completed AND lgd_block = 'MAWKYRWAT' GROUP BY 1
+        ORDER BY 2 DESC
+      unit: count
+      take: 3
+- id: CMB-09
+  cat: one-breath-combos
+  shape: combo
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: MGNREGA person-days trend in Songsak block by financial year as a line chart
+    pause: false
+    max_s: 25
+    rows:
+    - sql: SELECT financial_year_short, SUM(person_days) FROM curated.v_employment WHERE lgd_block = 'SONGSAK' GROUP BY 1
+        ORDER BY 1
+      unit: count
+    chart: line
+- id: CMB-10
+  cat: one-breath-combos
+  shape: combo
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: How many PMAY-G houses were sanctioned and completed in Dadenggiri block in FY 2020-21?
+    pause: false
+    max_s: 25
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_pmay WHERE lgd_block = 'DADENGGIRI' AND year_key = 2020
+      unit: count
+    - sql: SELECT COUNT(*) FROM curated.v_pmay WHERE is_completed AND lgd_block = 'DADENGGIRI' AND year_key = 2020
+      unit: count
+- id: CMB-11
+  cat: one-breath-combos
+  shape: combo
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Focus Legacy producer groups by block in South West Khasi Hills for FY 2025-26
+    pause: false
+    max_s: 25
+    rows:
+    - sql: SELECT lgd_block, COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_district = 'SOUTH WEST KHASI HILLS'
+        AND year_key = 2025 GROUP BY 1 ORDER BY 2 DESC
+      unit: count
+- id: POL-ADOKGRE-0
+  cat: polite-can-you
+  shape: MGNREGA/person-days generated
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Can you show me MGNREGA person-days generated for FY 2022-23 in North Garo Hills, Adokgre block?
+    figures: *id014
+    pause: false
+    schemes: *id015
+    place: ADOKGRE
+    year: 2022
+    max_s: 25
+- id: POL-BAGHMARA-1
+  cat: polite-can-you
+  shape: Focus Legacy/producer groups
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Could you please give me focus Legacy producer groups for FY 2022-23 in South Garo Hills, Baghmara block?
+    figures: *id126
+    pause: false
+    schemes: *id127
+    place: BAGHMARA
+    year: 2022
+    max_s: 25
+- id: POL-BETASING-0
+  cat: polite-can-you
+  shape: MGNREGA/person-days generated
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Okay, can you tell me MGNREGA person-days generated for FY 2023-24 in South West Garo Hills, Betasing block?
+    figures: *id024
+    pause: false
+    schemes: *id025
+    place: BETASING
+    year: 2023
+    max_s: 25
+- id: POL-CHOKPOT-1
+  cat: polite-can-you
+  shape: Focus Legacy/producer groups
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Can you show me focus Legacy producer groups for FY 2025-26 in South Garo Hills, Chokpot block?
+    figures: *id128
+    pause: false
+    schemes: *id129
+    place: CHOKPOT
+    year: 2025
+    max_s: 25
+- id: POL-DAMBO_RONGJENG-0
+  cat: polite-can-you
+  shape: MGNREGA/person-days generated
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Could you please give me MGNREGA person-days generated for FY 2024-25 in East Garo Hills, Dambo Rongjeng block?
+    figures: *id034
+    pause: false
+    schemes: *id035
+    place: DAMBO RONGJENG
+    year: 2024
+    max_s: 25
+- id: POL-GAMBEGRE-1
+  cat: polite-can-you
+  shape: Focus Legacy/producer groups
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Okay, can you tell me focus Legacy producer groups for FY 2024-25 in West Garo Hills, Gambegre block?
+    figures: *id130
+    pause: false
+    schemes: *id131
+    place: GAMBEGRE
+    year: 2024
+    max_s: 25
+- id: POL-KHARKUTTA-0
+  cat: polite-can-you
+  shape: MGNREGA/person-days generated
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Can you show me MGNREGA person-days generated for FY 2025-26 in North Garo Hills, Kharkutta block?
+    figures: *id044
+    pause: false
+    schemes: *id045
+    place: KHARKUTTA
+    year: 2025
+    max_s: 25
+- id: POL-LASKEIN-1
+  cat: polite-can-you
+  shape: Focus Legacy/producer groups
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Could you please give me focus Legacy producer groups for FY 2022-23 in West Jaintia Hills, Laskein block?
+    figures: *id132
+    pause: false
+    schemes: *id133
+    place: LASKEIN
+    year: 2022
+    max_s: 25
+- id: POL-MAWHATI-0
+  cat: polite-can-you
+  shape: MGNREGA/person-days generated
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Okay, can you tell me MGNREGA person-days generated for FY 2022-23 in Ri Bhoi, Mawhati block?
+    figures: *id054
+    pause: false
+    schemes: *id055
+    place: MAWHATI
+    year: 2022
+    max_s: 25
+- id: POL-MAWKYRWAT-1
+  cat: polite-can-you
+  shape: Focus Legacy/producer groups
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Can you show me focus Legacy producer groups for FY 2025-26 in South West Khasi Hills, Mawkyrwat block?
+    figures: *id134
+    pause: false
+    schemes: *id135
+    place: MAWKYRWAT
+    year: 2025
+    max_s: 25
+- id: POL-MAWPHLANG-0
+  cat: polite-can-you
+  shape: MGNREGA/person-days generated
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Could you please give me MGNREGA person-days generated for FY 2023-24 in East Khasi Hills, Mawphlang block?
+    figures: *id064
+    pause: false
+    schemes: *id065
+    place: MAWPHLANG
+    year: 2023
+    max_s: 25
+- id: POL-MAWSHYNRUT-1
+  cat: polite-can-you
+  shape: Focus Legacy/producer groups
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Okay, can you tell me focus Legacy producer groups for FY 2024-25 in West Khasi Hills, Mawshynrut block?
+    figures: *id136
+    pause: false
+    schemes: *id137
+    place: MAWSHYNRUT
+    year: 2024
+    max_s: 25
+- id: POL-MYLLIEM-0
+  cat: polite-can-you
+  shape: MGNREGA/person-days generated
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Can you show me MGNREGA person-days generated for FY 2024-25 in East Khasi Hills, Mylliem block?
+    figures: *id074
+    pause: false
+    schemes: *id075
+    place: MYLLIEM
+    year: 2024
+    max_s: 25
+- id: POL-NONGSTOIN-1
+  cat: polite-can-you
+  shape: Focus Legacy/producer groups
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Could you please give me focus Legacy producer groups for FY 2022-23 in West Khasi Hills, Nongstoin block?
+    figures: *id138
+    pause: false
+    schemes: *id139
+    place: NONGSTOIN
+    year: 2022
+    max_s: 25
+- id: POL-RAMBRAI-0
+  cat: polite-can-you
+  shape: MGNREGA/person-days generated
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Okay, can you tell me MGNREGA person-days generated for FY 2025-26 in West Khasi Hills, Rambrai block?
+    figures: *id084
+    pause: false
+    schemes: *id085
+    place: RAMBRAI
+    year: 2025
+    max_s: 25
+- id: POL-RERAPARA-1
+  cat: polite-can-you
+  shape: Focus Legacy/producer groups
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Can you show me focus Legacy producer groups for FY 2025-26 in South West Garo Hills, Rerapara block?
+    figures: *id140
+    pause: false
+    schemes: *id141
+    place: RERAPARA
+    year: 2025
+    max_s: 25
+- id: POL-RONGARA-0
+  cat: polite-can-you
+  shape: MGNREGA/person-days generated
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Could you please give me MGNREGA person-days generated for FY 2022-23 in South Garo Hills, Rongara block?
+    figures: *id094
+    pause: false
+    schemes: *id095
+    place: RONGARA
+    year: 2022
+    max_s: 25
+- id: POL-SAIPUNG-1
+  cat: polite-can-you
+  shape: Focus Legacy/producer groups
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Okay, can you tell me focus Legacy producer groups for FY 2024-25 in East Jaintia Hills, Saipung block?
+    figures: *id142
+    pause: false
+    schemes: *id143
+    place: SAIPUNG
+    year: 2024
+    max_s: 25
+- id: POL-SHALLANG-0
+  cat: polite-can-you
+  shape: MGNREGA/person-days generated
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Can you show me MGNREGA person-days generated for FY 2023-24 in West Khasi Hills, Shallang block?
+    figures: *id104
+    pause: false
+    schemes: *id105
+    place: SHALLANG
+    year: 2023
+    max_s: 25
+- id: POL-SIJU-1
+  cat: polite-can-you
+  shape: Focus Legacy/producer groups
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Could you please give me focus Legacy producer groups for FY 2022-23 in South Garo Hills, Siju block?
+    figures: *id144
+    pause: false
+    schemes: *id145
+    place: SIJU
+    year: 2022
+    max_s: 25
+- id: POL-THADLASKEIN-0
+  cat: polite-can-you
+  shape: MGNREGA/person-days generated
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Okay, can you tell me MGNREGA person-days generated for FY 2024-25 in West Jaintia Hills, Thadlaskein block?
+    figures: *id114
+    pause: false
+    schemes: *id115
+    place: THADLASKEIN
+    year: 2024
+    max_s: 25
+- id: POL-UMLING-1
+  cat: polite-can-you
+  shape: Focus Legacy/producer groups
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Can you show me focus Legacy producer groups for FY 2025-26 in Ri Bhoi, Umling block?
+    figures: *id146
+    pause: false
+    schemes: *id147
+    place: UMLING
+    year: 2025
+    max_s: 25
+- id: POL-ZIKZAK-0
+  cat: polite-can-you
+  shape: MGNREGA/person-days generated
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Could you please give me MGNREGA person-days generated for FY 2025-26 in South West Garo Hills, Zikzak block?
+    figures: *id124
+    pause: false
+    schemes: *id125
+    place: ZIKZAK
+    year: 2025
+    max_s: 25
+- id: POLC-03
+  cat: polite-can-you
+  shape: combo
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Okay, can you tell me MGNREGA person-days in Resubelpara block in 2022-23 and 2023-24?
+    pause: false
+    max_s: 25
+    rows: *id148
+- id: IMP-0
+  cat: measure-implies-scheme
+  shape: no scheme said
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: person-days in East Khasi Hills in 2023-24
+    figures:
+    - sql: SELECT SUM(person_days) FROM curated.v_employment WHERE lgd_district = 'EAST KHASI HILLS' AND year_key = 2023
+      unit: count
+    pause: false
+    max_s: 25
+- id: IMP-1
+  cat: measure-implies-scheme
+  shape: no scheme said
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: how many job cards were issued in Ri Bhoi in 2023-24
+    figures:
+    - sql: SELECT SUM(job_cards_issued_total) FROM curated.v_employment WHERE lgd_district = 'RI BHOI' AND year_key = 2023
+      unit: count
+    pause: false
+    max_s: 25
+- id: IMP-2
+  cat: measure-implies-scheme
+  shape: no scheme said
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: houses sanctioned in Mawphlang block
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_pmay WHERE lgd_block = 'MAWPHLANG'
+      unit: count
+    pause: false
+    max_s: 25
+- id: IMP-3
+  cat: measure-implies-scheme
+  shape: no scheme said
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: How many houses were completed in Tikrikilla block in 2023-24?
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_pmay WHERE is_completed AND lgd_block = 'TIKRIKILLA' AND year_key = 2023
+      unit: count
+    pause: false
+    max_s: 25
+- id: IMP-4
+  cat: measure-implies-scheme
+  shape: no scheme said
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: producer groups in South West Khasi Hills
+    figures:
+    - sql: SELECT COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_district = 'SOUTH WEST KHASI HILLS'
+      unit: count
+    pause: false
+    max_s: 25
+- id: IMP-5
+  cat: measure-implies-scheme
+  shape: no scheme said
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: How many scholarship applications are there in Ri Bhoi?
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_cmss WHERE lgd_district = 'RI BHOI'
+      unit: count
+    pause: false
+    max_s: 25
+- id: IMP-6
+  cat: measure-implies-scheme
+  shape: no scheme said
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: wage expenditure in West Garo Hills in 2024-25
+    figures:
+    - any:
+      - sql: SELECT ROUND(SUM(unskilled_wage_exp + semi_skilled_wage_exp), 2) FROM curated.v_expenditure WHERE lgd_district
+          = 'WEST GARO HILLS' AND year_key = 2024
+        unit: lakh
+      - sql: SELECT ROUND(SUM(unskilled_wage_exp), 2) FROM curated.v_expenditure WHERE lgd_district = 'WEST GARO HILLS' AND
+          year_key = 2024
+        unit: lakh
+    pause: false
+    max_s: 25
+- id: IMP-7
+  cat: measure-implies-scheme
+  shape: no scheme said
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: households that completed 100 days in East Garo Hills in 2022-23
+    figures:
+    - sql: SELECT SUM(households_completed_100_days) FROM curated.v_employment WHERE lgd_district = 'EAST GARO HILLS' AND
+        year_key = 2022
+      unit: count
+    pause: false
+    max_s: 25
+- id: IMP-8
+  cat: measure-implies-scheme
+  shape: ambiguous measure -> ask
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: How many beneficiaries are there in East Garo Hills in 2025-26?
+    pause: true
+    max_s: 20

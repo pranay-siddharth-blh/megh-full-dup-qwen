@@ -97,6 +97,18 @@ LOG_CASES = [
     ([PD_D], None, "Okay, now can you show me the same thing for PMAY-G", ["PMAY-G"], []),
     ([PD_D], None, "Okay, now show me the same in a pie chart", ["pie"], []),
     ([PD_D], None, "can you show it as a table", ["table"], []),
+    # 16 Nov 01:45: headline with no measure, spoken (KIND 2) and grouping words (KIND 9)
+    ([], None, "Okay, can you give me the MGNREGA figure for Ri Bhoi?", ["MGNREGA", "Ri Bhoi"], ["by district"]),
+    ([], None, "Uh, what are the PMAY-G numbers in Mawphlang block?", ["PMAY-G", "Mawphlang"], ["by district"]),
+    ([], None, "So how is Focus Plus doing in East Khasi Hills?", ["Focus Plus", "East Khasi Hills"], ["by district"]),
+    ([], None, "Okay, I want you to show me the MGNREGA expenditure for every financial year.",
+     ["MGNREGA", "expenditure", "financial year"], []),
+    ([], None, "Can you show me MGNREGA person-days per financial year across all the districts?",
+     ["MGNREGA", "person-days", "financial year"], []),
+    ([], None, "Okay give me Focus Legacy amount disbursed district wise", ["Focus Legacy", "district"], []),
+    ([PD_D], None, "Okay, could you break down North Garo Hills by the blocks?", ["North Garo Hills", "block"], []),
+    ([PD_D], None, "and which block is the lowest in North Garo Hills", ["North Garo Hills", "lowest"], []),
+    ([PD_D], None, "can you give me the top three blocks in West Garo Hills", ["West Garo Hills", "top"], []),
 ]
 
 
@@ -161,10 +173,39 @@ async def main() -> int:
                 probs.append(f"a full question turned into a follow-up ({r['how']})")
             results.append({"part": "block" + ("+screen" if on_screen else ""), "id": c["id"], "said": said,
                             "how": r["how"], "sent": out, "ok": not probs, "probs": probs, "ms": ms})
+    # part C: every district drilled as the user speaks it (the DRL chains of the typed bank, spoken forms)
+    spoken = {"top 3": ["Okay so top three.", ["top"]], "which is the lowest": ["um which one is having the lowest for me",
+                                                                                ["lowest"]]}
+    for c in [c for c in bank if c["cat"] == "district-drill"]:
+        m = shaper.Memory()
+        for t in c["turns"]:
+            q = t["q"]
+            said, must = q, []
+            if q in spoken:
+                said, must = spoken[q]
+            elif q.startswith("only "):
+                said, must = f"just {q[5:]} only please", [q[5:].replace(" block", "")]
+            elif q.startswith("what about FY") or q.startswith("what about 20"):
+                fy = q.split()[-1].rstrip("?")
+                y = int(fy[:4])
+                said, must = f"and how was it in {SAY_YEAR.get(y, fy)}", [fy]
+            elif "by the blocks" in q or "block" in q:
+                d = next((x for x in shaper.districts_in(q)), "")
+                must = [d, "block"]
+            else:
+                must = [w for w in q.split() if w[0].isupper()][:1]
+            r = await shaper.shape(said, m)
+            out = r.get("question") or ""
+            probs = [] if r["action"] == "send" else [f"held ({r['how']})"]
+            probs += judge(out, must, []) if r["action"] == "send" else []
+            results.append({"part": "drill", "id": c["id"], "said": said, "how": r["how"], "sent": out,
+                            "ok": not probs, "probs": probs, "ms": 0})
+            m.asked(out or said, said)
+            m.answered("(answer)", "data", [])
     ok = sum(r["ok"] for r in results)
     print(f"SHAPER LOG BANK: {ok}/{len(results)} pass in {round(time.perf_counter() - t_all)} s; model rewrites: "
           f"{shaper.STATS.get('rewrites', '?')}, model errors {shaper.STATS.get('llm_errors', 0)}")
-    for part in ("log", "block", "block+screen"):
+    for part in ("log", "block", "block+screen", "drill"):
         rs = [r for r in results if r["part"] == part]
         print(f"  {part}: {sum(r['ok'] for r in rs)}/{len(rs)}")
     for r in results:
