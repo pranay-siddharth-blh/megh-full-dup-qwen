@@ -749,6 +749,8 @@ def _c19_spoken_shape(shape, rows: list, question: str, schemes, entities) -> "s
         times = _c19_times(r) if r and r >= 2.95 else None
         s2 = f" {lab(lr)} has the {_c19_more_word(m, low=True)}, {sl}" + \
              (f", so {lab(hr)} has {times} {many}." if times else ".")
+        if lv == 0:
+            s2 = f" None are recorded for {lab(lr)} in the source data."
         nouns = _c12s_dim_noun(shape)
         tail = f" All {n} {nouns} are on your screen." if len(shape.labels) == 1 else " The full list is on your screen."
         return _c19_fit([s1, s2 if n > 2 else "", tail])

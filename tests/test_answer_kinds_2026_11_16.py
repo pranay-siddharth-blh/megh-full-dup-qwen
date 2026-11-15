@@ -404,3 +404,12 @@ def test_zero_place_in_a_breakdown_is_none_recorded(natural_on):
     text = p._c19_written(shape, rows, q, ["MGNREGA"], {})
     assert "No MGNREGA person-days of employment are recorded for Demdema in the source data" in text
     assert "Demdema has the fewest" not in text
+
+
+def test_zero_place_in_the_spoken_breakdown(natural_on):
+    rows = [{"lgd_block": "TIKRIKILLA", "person_days": 4689766}, {"lgd_block": "RONGRAM", "person_days": 3009245},
+            {"lgd_block": "DALU", "person_days": 2646057}, {"lgd_block": "DEMDEMA", "person_days": 0}]
+    sql = "SELECT lgd_block, SUM(person_days) AS person_days FROM curated.v_employment GROUP BY lgd_block"
+    q = "MGNREGA person-days in West Garo Hills by block"
+    spoken = p._c19_spoken_shape(p._answer_shape(q, sql, rows), rows, q, ["MGNREGA"], {})
+    assert spoken is None or "Demdema has the fewest" not in spoken
