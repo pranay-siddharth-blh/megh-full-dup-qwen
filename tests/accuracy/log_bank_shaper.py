@@ -97,6 +97,18 @@ LOG_CASES = [
     ([PD_D], None, "Okay, now can you show me the same thing for PMAY-G", ["PMAY-G"], []),
     ([PD_D], None, "Okay, now show me the same in a pie chart", ["pie"], []),
     ([PD_D], None, "can you show it as a table", ["table"], []),
+    # 16 Nov 01:45: headline with no measure, spoken (KIND 2) and grouping words (KIND 9)
+    ([], None, "Okay, can you give me the MGNREGA figure for Ri Bhoi?", ["MGNREGA", "Ri Bhoi"], ["by district"]),
+    ([], None, "Uh, what are the PMAY-G numbers in Mawphlang block?", ["PMAY-G", "Mawphlang"], ["by district"]),
+    ([], None, "So how is Focus Plus doing in East Khasi Hills?", ["Focus Plus", "East Khasi Hills"], ["by district"]),
+    ([], None, "Okay, I want you to show me the MGNREGA expenditure for every financial year.",
+     ["MGNREGA", "expenditure", "financial year"], []),
+    ([], None, "Can you show me MGNREGA person-days per financial year across all the districts?",
+     ["MGNREGA", "person-days", "financial year"], []),
+    ([], None, "Okay give me Focus Legacy amount disbursed district wise", ["Focus Legacy", "district"], []),
+    ([PD_D], None, "Okay, could you break down North Garo Hills by the blocks?", ["North Garo Hills", "block"], []),
+    ([PD_D], None, "and which block is the lowest in North Garo Hills", ["North Garo Hills", "lowest"], []),
+    ([PD_D], None, "can you give me the top three blocks in West Garo Hills", ["West Garo Hills", "top"], []),
 ]
 
 
