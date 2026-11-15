@@ -32,7 +32,7 @@ _COMPOSE_SCALES = _SCALE_AFTER_DIGITS + (("hundred", 100),)
 _GAP_OK = {"and", "s"}          # "2 crore and 55 lakh"; the "s" left over from "thousands"
 
 
-def _digit_values(text: str) -> list[tuple]:
+def _digit_values(text: str, keep_parts: bool = False) -> list[tuple]:
     """Numbers written with digits, each as its possible readings: 54,89,616 -> (5489616,);
     37.49 crore -> (37.49, 374900000); 2023-24 -> (2023,), (24,).
     A descending run of number + scale groups is ONE figure, the way the live voice transcribes an Indian number:
@@ -62,6 +62,12 @@ def _digit_values(text: str) -> list[tuple]:
             break
         if j > i + 1:                                    # a composed run: one figure
             out.append((round(total, 2),))
+            if keep_parts:
+                # 2026-11-16: in an ANSWER, "₹14.55 crore and 5,00,656 person-days" are two figures as well as the run
+                # a voice would say as one; both readings are facts (a spoken "about 5 lakh" was cut otherwise)
+                for k in range(i, j):
+                    _s, _e, pv, pw, pm = raw[k]
+                    out.append((pv, round(pv * pm, 2)) if pm is not None and pw != "hundred" else (pv,))
             i = j
             continue
         if word == "hundred":
@@ -186,7 +192,7 @@ def facts_from(text: str, acc: set | None = None) -> set:
     plus how many items it lists."""
     acc = acc if acc is not None else set()
     acc |= _item_counts(text)
-    for alts in spoken_values(text):
+    for alts in _digit_values(text, keep_parts=True) + _word_values(text):
         for v in alts:
             for x in (v, round(v), round(v, 1), round(v, 2), round(v / 1e5, 1), round(v / 1e5, 2),
                       round(v / 1e7, 1), round(v / 1e7, 2), round(v / 1e3), round(v / 1e6, 1), round(v / 1e6, 2)):

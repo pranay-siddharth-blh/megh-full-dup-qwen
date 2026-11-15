@@ -62,7 +62,13 @@ def _spoken_forms(v: float) -> list[str]:
         out += [f"{round(v / 1e3)} thousand"]
     if v >= 100 and float(v).is_integer():
         out += [str(int(v))]
-    return out
+    # 2026-11-16: only HONEST roundings (within the guard's 3 %): 1,14,990 is "1.15 lakh", never "1.1 lakh" (4.3 % off,
+    # which the guard rightly refuses); new result files tonight brought such figures into REAL
+    def _val(form: str) -> float:
+        num, _, unit = form.partition(" ")
+        x = float(num.replace(",", ""))
+        return x * {"crore": 1e7, "lakh": 1e5, "thousand": 1e3}.get(unit, 1)
+    return [f for f in out if v == 0 or abs(_val(f) - v) / v <= 0.03]
 
 
 def test_real_figures_said_the_ways_a_voice_says_them_pass():
