@@ -1,0 +1,3266 @@
+{
+ "label": "perms-k20",
+ "seconds": 135,
+ "nomodel": false,
+ "matrix": "kind  MGNREGA      | PMAY-G       | Focus Plus   | Focus Legacy | CM Elevate   | CM Elevate L | CMSS         | Homestay    \nK20   Vok Tok      | VX TX        | Vok Tok      | Vok Tok      | Vok Tok      | Vok Tok      | Vok Tok      | VX TX       \nK21   Vok Tok      | Vok Tok      | -            | -            | -            | -            | -            | -           \nK22   Vok Tok      | Vok Tok      | Vok Tok      | Vok Tok      | -            | Vok Tok      | -            | Vok Tok     \nvoice: 14/16 chains\ntyped: 14/16 chains",
+ "results": [
+  {
+   "id": "K20-MGNREGA",
+   "kind": "K20",
+   "scheme": "MGNREGA",
+   "path": "voice",
+   "ok": true,
+   "turns": [
+    {
+     "q": "Compare MGNREGA person-days in East Khasi Hills and West Garo Hills",
+     "sent": "Compare MGNREGA person-days in East Khasi Hills and West Garo Hills",
+     "how": "rules",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "West Garo Hills is clearly higher than East Khasi Hills on MGNREGA person-days of employment in East Khasi Hills and West Garo Hills district across all financial years: 1,75,39,710 against 1,10,54,100, a difference of 64,85,610 (58.7% more).",
+     "chips": [
+      "What was the total MGNREGA wage expenditure in Meghalaya, by district?",
+      "Break that down by block within West Garo Hills.",
+      "How many MGNREGA person-days were generated in Meghalaya, by district?"
+     ],
+     "rewritten": null,
+     "sql": "/* metric:mgnrega_employment_generated compare */ SELECT lgd_district AS district, SUM(person_days) AS employment_generated\nFROM curated.v_employment\nWHERE UPPER(lgd_district) IN ('EAST KHASI HILLS', 'WEST GARO HILLS') AND lgd_district IS NOT NULL\nGROUP BY lgd_district ORDER BY lgd_district",
+     "truth": [
+      [
+       [
+        "WEST GARO HILLS",
+        17539710
+       ],
+       [
+        "EAST KHASI HILLS",
+        11054100
+       ]
+      ]
+     ]
+    },
+    {
+     "q": "break it down by block",
+     "sent": "break that down by block",
+     "how": "regroup",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Person-days of employment by block in 2 districts (MGNREGA, across all financial years):\n- **East Khasi Hills** — Pynursla 18,91,117; Mawphlang 15,63,980; Sohiong 14,88,603; Mawsynram 11,62,677; Mylliem 11,54,186; Mawryngkneng 9,15,921; Mawkynrew 8,64,696; Shella Bholaganj 8,06,697; Khatarshnong Laitkroh 7,68,267; Mawlai 2,52,963; Mawpat 1,84,993\n- **West Garo Hills** — Tikrikilla 46,89,766; Rongram 30,09,245; Dalu 26,46,057; Selsella 25,81,259; Dadenggiri 20,81,190; Gambegre 17,39,815; Batabari 7,92,378; Demdema 0",
+     "chips": [
+      "What was the total MGNREGA wage expenditure in Meghalaya, by block?",
+      "How have MGNREGA person-days changed over the last three years in Meghalaya?",
+      "Break that down by village within Tikrikilla block."
+     ],
+     "rewritten": "MGNREGA person-days in East Khasi Hills and West Garo Hills by block",
+     "sql": "/* metric:mgnrega_employment_generated breakdown */ SELECT lgd_district AS district, lgd_block AS block, SUM(person_days) AS employment_generated\nFROM curated.v_employment\nWHERE UPPER(lgd_district) IN ('EAST KHASI HILLS', 'WEST GARO HILLS') AND lgd_block IS NOT NULL\nGROUP BY lgd_district, lgd_block ORDER BY array_position(ARRAY['EAST KHASI HILLS', 'WEST GARO HILLS']::text[], UPPER(lgd_district)), employment_generated DESC NULLS LAST",
+     "truth": [
+      [
+       [
+        "PYNURSLA",
+        "EAST KHASI HILLS",
+        1891117
+       ],
+       [
+        "MAWPHLANG",
+        "EAST KHASI HILLS",
+        1563980
+       ],
+       [
+        "SOHIONG",
+        "EAST KHASI HILLS",
+        1488603
+       ],
+       [
+        "MAWSYNRAM",
+        "EAST KHASI HILLS",
+        1162677
+       ],
+       [
+        "MYLLIEM",
+        "EAST KHASI HILLS",
+        1154186
+       ],
+       [
+        "MAWRYNGKNENG",
+        "EAST KHASI HILLS",
+        915921
+       ]
+      ]
+     ]
+    },
+    {
+     "q": "which block has the most",
+     "sent": "which block has the most",
+     "how": "rules",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Tikrikilla has the most MGNREGA person-days of employment in East Khasi Hills and West Garo Hills district across all financial years: 46,89,766, well ahead of Rongram (30,09,245). Dalu comes next, with 26,46,057.",
+     "chips": [
+      "What was the total MGNREGA wage expenditure in Meghalaya, by block?",
+      "How have MGNREGA person-days changed over the last three years in Meghalaya?",
+      "Break that down by village within Tikrikilla block."
+     ],
+     "rewritten": "Which block has the highest: MGNREGA person-days in East Khasi Hills and West Garo Hills",
+     "sql": "/* metric:mgnrega_employment_generated ranking */ SELECT lgd_block AS block, SUM(person_days) AS employment_generated\nFROM curated.v_employment\nWHERE UPPER(lgd_district) IN ('EAST KHASI HILLS', 'WEST GARO HILLS') AND lgd_block IS NOT NULL\nGROUP BY lgd_block ORDER BY employment_generated DESC NULLS LAST LIMIT 3",
+     "truth": [
+      [
+       [
+        "TIKRIKILLA",
+        4689766
+       ],
+       [
+        "RONGRAM",
+        3009245
+       ],
+       [
+        "DALU",
+        2646057
+       ],
+       [
+        "SELSELLA",
+        2581259
+       ],
+       [
+        "DADENGGIRI",
+        2081190
+       ],
+       [
+        "PYNURSLA",
+        1891117
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K20-MGNREGA",
+   "kind": "K20",
+   "scheme": "MGNREGA",
+   "path": "typed",
+   "ok": true,
+   "turns": [
+    {
+     "q": "Compare MGNREGA person-days in East Khasi Hills and West Garo Hills",
+     "sent": "Compare MGNREGA person-days in East Khasi Hills and West Garo Hills",
+     "how": "typed",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "West Garo Hills is clearly higher than East Khasi Hills on MGNREGA person-days of employment in East Khasi Hills and West Garo Hills district across all financial years: 1,75,39,710 against 1,10,54,100, a difference of 64,85,610 (58.7% more).",
+     "chips": [
+      "What was the total MGNREGA wage expenditure in Meghalaya, by district?",
+      "Break that down by block within West Garo Hills.",
+      "How many MGNREGA person-days were generated in Meghalaya, by district?"
+     ],
+     "rewritten": null,
+     "sql": "/* metric:mgnrega_employment_generated compare */ SELECT lgd_district AS district, SUM(person_days) AS employment_generated\nFROM curated.v_employment\nWHERE UPPER(lgd_district) IN ('EAST KHASI HILLS', 'WEST GARO HILLS') AND lgd_district IS NOT NULL\nGROUP BY lgd_district ORDER BY lgd_district",
+     "truth": [
+      [
+       [
+        "WEST GARO HILLS",
+        17539710
+       ],
+       [
+        "EAST KHASI HILLS",
+        11054100
+       ]
+      ]
+     ]
+    },
+    {
+     "q": "break it down by block",
+     "sent": "break it down by block",
+     "how": "typed",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Person-days of employment by block in 2 districts (MGNREGA, across all financial years):\n- **East Khasi Hills** — Pynursla 18,91,117; Mawphlang 15,63,980; Sohiong 14,88,603; Mawsynram 11,62,677; Mylliem 11,54,186; Mawryngkneng 9,15,921; Mawkynrew 8,64,696; Shella Bholaganj 8,06,697; Khatarshnong Laitkroh 7,68,267; Mawlai 2,52,963; Mawpat 1,84,993\n- **West Garo Hills** — Tikrikilla 46,89,766; Rongram 30,09,245; Dalu 26,46,057; Selsella 25,81,259; Dadenggiri 20,81,190; Gambegre 17,39,815; Batabari 7,92,378; Demdema 0",
+     "chips": [
+      "What was the total MGNREGA wage expenditure in Meghalaya, by block?",
+      "How have MGNREGA person-days changed over the last three years in Meghalaya?",
+      "Break that down by village within Tikrikilla block."
+     ],
+     "rewritten": "MGNREGA person-days in East Khasi Hills and West Garo Hills by block",
+     "sql": "/* metric:mgnrega_employment_generated breakdown */ SELECT lgd_district AS district, lgd_block AS block, SUM(person_days) AS employment_generated\nFROM curated.v_employment\nWHERE UPPER(lgd_district) IN ('EAST KHASI HILLS', 'WEST GARO HILLS') AND lgd_block IS NOT NULL\nGROUP BY lgd_district, lgd_block ORDER BY array_position(ARRAY['EAST KHASI HILLS', 'WEST GARO HILLS']::text[], UPPER(lgd_district)), employment_generated DESC NULLS LAST",
+     "truth": [
+      [
+       [
+        "PYNURSLA",
+        "EAST KHASI HILLS",
+        1891117
+       ],
+       [
+        "MAWPHLANG",
+        "EAST KHASI HILLS",
+        1563980
+       ],
+       [
+        "SOHIONG",
+        "EAST KHASI HILLS",
+        1488603
+       ],
+       [
+        "MAWSYNRAM",
+        "EAST KHASI HILLS",
+        1162677
+       ],
+       [
+        "MYLLIEM",
+        "EAST KHASI HILLS",
+        1154186
+       ],
+       [
+        "MAWRYNGKNENG",
+        "EAST KHASI HILLS",
+        915921
+       ]
+      ]
+     ]
+    },
+    {
+     "q": "which block has the most",
+     "sent": "which block has the most",
+     "how": "typed",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Tikrikilla has the most MGNREGA person-days of employment in East Khasi Hills and West Garo Hills district across all financial years: 46,89,766, well ahead of Rongram (30,09,245). Dalu comes next, with 26,46,057.",
+     "chips": [
+      "What was the total MGNREGA wage expenditure in Meghalaya, by block?",
+      "How have MGNREGA person-days changed over the last three years in Meghalaya?",
+      "Break that down by village within Tikrikilla block."
+     ],
+     "rewritten": "Which block has the highest: MGNREGA person-days in East Khasi Hills and West Garo Hills",
+     "sql": "/* metric:mgnrega_employment_generated ranking */ SELECT lgd_block AS block, SUM(person_days) AS employment_generated\nFROM curated.v_employment\nWHERE UPPER(lgd_district) IN ('EAST KHASI HILLS', 'WEST GARO HILLS') AND lgd_block IS NOT NULL\nGROUP BY lgd_block ORDER BY employment_generated DESC NULLS LAST LIMIT 3",
+     "truth": [
+      [
+       [
+        "TIKRIKILLA",
+        4689766
+       ],
+       [
+        "RONGRAM",
+        3009245
+       ],
+       [
+        "DALU",
+        2646057
+       ],
+       [
+        "SELSELLA",
+        2581259
+       ],
+       [
+        "DADENGGIRI",
+        2081190
+       ],
+       [
+        "PYNURSLA",
+        1891117
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K21-MGNREGA",
+   "kind": "K21",
+   "scheme": "MGNREGA",
+   "path": "voice",
+   "ok": true,
+   "turns": [
+    {
+     "q": "MGNREGA person-days in Ri Bhoi in 2023-24",
+     "sent": "MGNREGA person-days in Ri Bhoi in 2023-24",
+     "how": "rules",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "14,81,572 person-days were generated in Ri Bhoi for the MGNREGA scheme during FY 2023-24.",
+     "chips": [
+      "What was the total MGNREGA wage expenditure in Ri Bhoi?",
+      "How have MGNREGA person-days changed over the last three years in Ri Bhoi?",
+      "Break that down by block within Ri Bhoi."
+     ],
+     "rewritten": "How many MGNREGA person-days were generated in Ri Bhoi in FY 2023-24?",
+     "sql": "/* metric:mgnrega_employment_generated total */ SELECT SUM(person_days) AS employment_generated\nFROM curated.v_employment\nWHERE UPPER(lgd_district) = 'RI BHOI' AND year_key = 2023",
+     "truth": [
+      1481572
+     ]
+    },
+    {
+     "q": "and the year before?",
+     "sent": "what about the year before?",
+     "how": "followup-year-step",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "12,12,513 person-days were generated in Ri Bhoi for the MGNREGA scheme during FY 2022-23. By FY 2023-24 it was 1,481,572, about 22.2% higher.",
+     "chips": [
+      "What was the total MGNREGA wage expenditure in Ri Bhoi?",
+      "How have MGNREGA person-days changed over the last three years in Ri Bhoi?",
+      "Break that down by block within Ri Bhoi."
+     ],
+     "rewritten": "How many MGNREGA person-days were generated in Ri Bhoi in FY 2022-23",
+     "sql": "/* metric:mgnrega_employment_generated total */ SELECT SUM(person_days) AS employment_generated\nFROM curated.v_employment\nWHERE UPPER(lgd_district) = 'RI BHOI' AND year_key = 2022",
+     "truth": [
+      1212513
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K21-MGNREGA",
+   "kind": "K21",
+   "scheme": "MGNREGA",
+   "path": "typed",
+   "ok": true,
+   "turns": [
+    {
+     "q": "MGNREGA person-days in Ri Bhoi in 2023-24",
+     "sent": "MGNREGA person-days in Ri Bhoi in 2023-24",
+     "how": "typed",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "14,81,572 person-days were generated in Ri Bhoi for the MGNREGA scheme during FY 2023-24.",
+     "chips": [
+      "What was the total MGNREGA wage expenditure in Ri Bhoi?",
+      "How have MGNREGA person-days changed over the last three years in Ri Bhoi?",
+      "Break that down by block within Ri Bhoi."
+     ],
+     "rewritten": "How many MGNREGA person-days were generated in Ri Bhoi in FY 2023-24?",
+     "sql": "/* metric:mgnrega_employment_generated total */ SELECT SUM(person_days) AS employment_generated\nFROM curated.v_employment\nWHERE UPPER(lgd_district) = 'RI BHOI' AND year_key = 2023",
+     "truth": [
+      1481572
+     ]
+    },
+    {
+     "q": "and the year before?",
+     "sent": "and the year before?",
+     "how": "typed",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "12,12,513 person-days were generated in Ri Bhoi for the MGNREGA scheme during FY 2022-23. By FY 2023-24 it was 1,481,572, about 22.2% higher.",
+     "chips": [
+      "What was the total MGNREGA wage expenditure in Ri Bhoi?",
+      "How have MGNREGA person-days changed over the last three years in Ri Bhoi?",
+      "Break that down by block within Ri Bhoi."
+     ],
+     "rewritten": "How many MGNREGA person-days were generated in Ri Bhoi in FY 2022-23",
+     "sql": "/* metric:mgnrega_employment_generated total */ SELECT SUM(person_days) AS employment_generated\nFROM curated.v_employment\nWHERE UPPER(lgd_district) = 'RI BHOI' AND year_key = 2022",
+     "truth": [
+      1212513
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K22-MGNREGA",
+   "kind": "K22",
+   "scheme": "MGNREGA",
+   "path": "voice",
+   "ok": true,
+   "turns": [
+    {
+     "q": "MGNREGA person-days by district in 2023-24",
+     "sent": "MGNREGA person-days by district in 2023-24",
+     "how": "rules",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "West Garo Hills has the most MGNREGA person-days of employment in FY 2023-24: 54,89,616, well ahead of South West Garo Hills (32,82,990). That is about a fifth (20.1%) of the 2,72,64,054 across Meghalaya's twelve districts. Eastern West Khasi Hills has the fewest, at 6,77,731 — West Garo Hills has about eight times as many.\n- **West Garo Hills** — 54,89,616\n- **South West Garo Hills** — 32,82,990\n- **North Garo Hills** — 30,66,633\n- **East Khasi Hills** — 30,61,525\n- **South Garo Hills** — 28,23,825\n- **East Garo Hills** — 27,65,439\n- **West Jaintia Hills** — 15,10,239\n- **Ri Bhoi** — 14,81,57",
+     "chips": [
+      "What was the total MGNREGA wage expenditure in Meghalaya, by district?",
+      "How have MGNREGA person-days changed over the last three years in Meghalaya?",
+      "Break that down by block within West Garo Hills."
+     ],
+     "rewritten": "How many MGNREGA person-days were generated by district in FY 2023-24?",
+     "sql": "/* metric:mgnrega_employment_generated breakdown */ SELECT lgd_district AS district, SUM(person_days) AS employment_generated\nFROM curated.v_employment\nWHERE year_key = 2023 AND lgd_district IS NOT NULL\nGROUP BY lgd_district ORDER BY lgd_district",
+     "truth": [
+      [
+       [
+        "WEST GARO HILLS",
+        5489616
+       ],
+       [
+        "SOUTH WEST GARO HILLS",
+        3282990
+       ],
+       [
+        "NORTH GARO HILLS",
+        3066633
+       ],
+       [
+        "EAST KHASI HILLS",
+        3061525
+       ],
+       [
+        "SOUTH GARO HILLS",
+        2823825
+       ],
+       [
+        "EAST GARO HILLS",
+        2765439
+       ]
+      ]
+     ]
+    },
+    {
+     "q": "top 3",
+     "sent": "top 3",
+     "how": "rules",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "West Garo Hills leads with 54,89,616 MGNREGA person-days of employment in FY 2023-24 — well ahead of South West Garo Hills (32,82,990). North Garo Hills is third, with 30,66,633.\n1. **West Garo Hills** — 54,89,616\n2. **South West Garo Hills** — 32,82,990\n3. **North Garo Hills** — 30,66,633",
+     "chips": [
+      "What was the total MGNREGA wage expenditure in Meghalaya, by district?",
+      "How have MGNREGA person-days changed over the last three years in Meghalaya?",
+      "Break that down by block within West Garo Hills."
+     ],
+     "rewritten": "Top 3 districts: How many MGNREGA person-days were generated in FY 2023-24",
+     "sql": "/* metric:mgnrega_employment_generated ranking */ SELECT lgd_district AS district, SUM(person_days) AS employment_generated\nFROM curated.v_employment\nWHERE year_key = 2023 AND lgd_district IS NOT NULL\nGROUP BY lgd_district ORDER BY employment_generated DESC NULLS LAST LIMIT 3",
+     "truth": [
+      [
+       [
+        "WEST GARO HILLS",
+        5489616
+       ],
+       [
+        "SOUTH WEST GARO HILLS",
+        3282990
+       ],
+       [
+        "NORTH GARO HILLS",
+        3066633
+       ],
+       [
+        "EAST KHASI HILLS",
+        3061525
+       ],
+       [
+        "SOUTH GARO HILLS",
+        2823825
+       ],
+       [
+        "EAST GARO HILLS",
+        2765439
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K22-MGNREGA",
+   "kind": "K22",
+   "scheme": "MGNREGA",
+   "path": "typed",
+   "ok": true,
+   "turns": [
+    {
+     "q": "MGNREGA person-days by district in 2023-24",
+     "sent": "MGNREGA person-days by district in 2023-24",
+     "how": "typed",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "West Garo Hills has the most MGNREGA person-days of employment in FY 2023-24: 54,89,616, well ahead of South West Garo Hills (32,82,990). That is about a fifth (20.1%) of the 2,72,64,054 across Meghalaya's twelve districts. Eastern West Khasi Hills has the fewest, at 6,77,731 — West Garo Hills has about eight times as many.\n- **West Garo Hills** — 54,89,616\n- **South West Garo Hills** — 32,82,990\n- **North Garo Hills** — 30,66,633\n- **East Khasi Hills** — 30,61,525\n- **South Garo Hills** — 28,23,825\n- **East Garo Hills** — 27,65,439\n- **West Jaintia Hills** — 15,10,239\n- **Ri Bhoi** — 14,81,57",
+     "chips": [
+      "What was the total MGNREGA wage expenditure in Meghalaya, by district?",
+      "How have MGNREGA person-days changed over the last three years in Meghalaya?",
+      "Break that down by block within West Garo Hills."
+     ],
+     "rewritten": "How many MGNREGA person-days were generated by district in FY 2023-24?",
+     "sql": "/* metric:mgnrega_employment_generated breakdown */ SELECT lgd_district AS district, SUM(person_days) AS employment_generated\nFROM curated.v_employment\nWHERE year_key = 2023 AND lgd_district IS NOT NULL\nGROUP BY lgd_district ORDER BY lgd_district",
+     "truth": [
+      [
+       [
+        "WEST GARO HILLS",
+        5489616
+       ],
+       [
+        "SOUTH WEST GARO HILLS",
+        3282990
+       ],
+       [
+        "NORTH GARO HILLS",
+        3066633
+       ],
+       [
+        "EAST KHASI HILLS",
+        3061525
+       ],
+       [
+        "SOUTH GARO HILLS",
+        2823825
+       ],
+       [
+        "EAST GARO HILLS",
+        2765439
+       ]
+      ]
+     ]
+    },
+    {
+     "q": "top 3",
+     "sent": "top 3",
+     "how": "typed",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "West Garo Hills leads with 54,89,616 MGNREGA person-days of employment in FY 2023-24 — well ahead of South West Garo Hills (32,82,990). North Garo Hills is third, with 30,66,633.\n1. **West Garo Hills** — 54,89,616\n2. **South West Garo Hills** — 32,82,990\n3. **North Garo Hills** — 30,66,633",
+     "chips": [
+      "What was the total MGNREGA wage expenditure in Meghalaya, by district?",
+      "How have MGNREGA person-days changed over the last three years in Meghalaya?",
+      "Break that down by block within West Garo Hills."
+     ],
+     "rewritten": "Top 3 districts: How many MGNREGA person-days were generated in FY 2023-24",
+     "sql": "/* metric:mgnrega_employment_generated ranking */ SELECT lgd_district AS district, SUM(person_days) AS employment_generated\nFROM curated.v_employment\nWHERE year_key = 2023 AND lgd_district IS NOT NULL\nGROUP BY lgd_district ORDER BY employment_generated DESC NULLS LAST LIMIT 3",
+     "truth": [
+      [
+       [
+        "WEST GARO HILLS",
+        5489616
+       ],
+       [
+        "SOUTH WEST GARO HILLS",
+        3282990
+       ],
+       [
+        "NORTH GARO HILLS",
+        3066633
+       ],
+       [
+        "EAST KHASI HILLS",
+        3061525
+       ],
+       [
+        "SOUTH GARO HILLS",
+        2823825
+       ],
+       [
+        "EAST GARO HILLS",
+        2765439
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K20-PMAY-G",
+   "kind": "K20",
+   "scheme": "PMAY-G",
+   "path": "voice",
+   "ok": false,
+   "turns": [
+    {
+     "q": "Compare PMAY-G houses completed in West Garo Hills and Ri Bhoi",
+     "sent": "Compare PMAY-G houses completed in West Garo Hills and Ri Bhoi",
+     "how": "rules",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "PMAY-G comparison, across all financial years (FY 2017-18 to FY 2023-24):\nWest Garo Hills:\n- Completed houses: 26,822\nRi Bhoi:\n- Completed houses: 12,056\nDifference:\n- Completed houses: West Garo Hills is higher by 14,766.",
+     "chips": [
+      "How many PMAY-G houses have been sanctioned in Meghalaya, by district?",
+      "Break that down by block within West Garo Hills.",
+      "How many PMAY-G houses have been completed in Meghalaya, by district?"
+     ],
+     "rewritten": null,
+     "sql": "SELECT\n  UPPER(lgd_district) AS entity_key,\n  MAX(lgd_district) AS name,\n  COUNT(*) AS houses,\n  COALESCE(SUM(sanctioned_amount), 0) AS sanctioned,\n  COALESCE(SUM(COALESCE(amount_released, 0)), 0) AS released,\n  COALESCE(SUM(COALESCE(amount_released, 0)) FILTER(WHERE\n    sanctioned_amount > 0), 0) AS released_on_sanctioned,\n  COALESCE(SUM(sanctioned_amount) FILTER(WHERE\n    sanctioned_amount > 0), 0) AS sanctioned_positive,\n  COUNT(*) FILTER(WHERE\n    is_completed) AS completed,\n  COUNT(*) FILTER(WHERE\n    NOT COALESCE(is_completed, FALSE)) AS incomplete,\n  COUNT(*) FILTER(WHERE\n    status_nam",
+     "truth": [
+      [
+       [
+        "WEST GARO HILLS",
+        26822
+       ],
+       [
+        "RI BHOI",
+        12056
+       ]
+      ]
+     ]
+    },
+    {
+     "q": "break it down by block",
+     "sent": "break that down by block",
+     "how": "regroup",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Houses completed by block in 2 districts (PMAY-G, across all financial years):\n- **West Garo Hills** — Demdema 5,274; Tikrikilla 4,514; Selsella 4,457; Rongram 3,627; Batabari 2,907; Dalu 2,479; Dadenggiri 2,114; Gambegre 1,450\n- **Ri Bhoi** — Umling 4,781; Bhoirymbong 3,828; Jirang 2,240; Umsning 1,098; Mawhati 109",
+     "chips": [
+      "How many PMAY-G houses have been sanctioned in Meghalaya, by block?",
+      "Break that down by village within Demdema block."
+     ],
+     "rewritten": "PMAY-G houses completed in West Garo Hills and Ri Bhoi by block",
+     "sql": "/* metric:pmay_houses_completed breakdown */ SELECT lgd_district AS district, lgd_block AS block, COUNT(*) FILTER (WHERE is_completed) AS houses_completed\nFROM curated.v_pmay\nWHERE UPPER(lgd_district) IN ('WEST GARO HILLS', 'RI BHOI') AND lgd_block IS NOT NULL\nGROUP BY lgd_district, lgd_block ORDER BY array_position(ARRAY['WEST GARO HILLS', 'RI BHOI']::text[], UPPER(lgd_district)), houses_completed DESC NULLS LAST",
+     "truth": [
+      [
+       [
+        "UMLING",
+        "RI BHOI",
+        4781
+       ],
+       [
+        "BHOIRYMBONG",
+        "RI BHOI",
+        3828
+       ],
+       [
+        "JIRANG",
+        "RI BHOI",
+        2240
+       ],
+       [
+        "UMSNING",
+        "RI BHOI",
+        1098
+       ],
+       [
+        "MAWHATI",
+        "RI BHOI",
+        109
+       ],
+       [
+        "DEMDEMA",
+        "WEST GARO HILLS",
+        5274
+       ]
+      ]
+     ]
+    },
+    {
+     "q": "which block has the most",
+     "sent": "which block has the most",
+     "how": "rules",
+     "ok": false,
+     "fails": [
+      "[follow-up-context] row DEMDEMA = 5274 missing"
+     ],
+     "route": "data",
+     "answer": "PMAY-G comparison, across all financial years (FY 2017-18 to FY 2023-24):\nWest Garo Hills:\n- Completed houses: 26,822\nRi Bhoi:\n- Completed houses: 12,056\nDifference:\n- Completed houses: West Garo Hills is higher by 14,766.",
+     "chips": [
+      "How many PMAY-G houses have been sanctioned in Meghalaya, by district?",
+      "Break that down by block within West Garo Hills.",
+      "How many PMAY-G houses have been completed in Meghalaya, by district?"
+     ],
+     "rewritten": "Which block has the highest: PMAY-G houses completed in West Garo Hills and Ri Bhoi",
+     "sql": "SELECT\n  UPPER(lgd_district) AS entity_key,\n  MAX(lgd_district) AS name,\n  COUNT(*) AS houses,\n  COALESCE(SUM(sanctioned_amount), 0) AS sanctioned,\n  COALESCE(SUM(COALESCE(amount_released, 0)), 0) AS released,\n  COALESCE(SUM(COALESCE(amount_released, 0)) FILTER(WHERE\n    sanctioned_amount > 0), 0) AS released_on_sanctioned,\n  COALESCE(SUM(sanctioned_amount) FILTER(WHERE\n    sanctioned_amount > 0), 0) AS sanctioned_positive,\n  COUNT(*) FILTER(WHERE\n    is_completed) AS completed,\n  COUNT(*) FILTER(WHERE\n    NOT COALESCE(is_completed, FALSE)) AS incomplete,\n  COUNT(*) FILTER(WHERE\n    status_nam",
+     "truth": [
+      [
+       [
+        "DEMDEMA",
+        5274
+       ],
+       [
+        "UMLING",
+        4781
+       ],
+       [
+        "TIKRIKILLA",
+        4514
+       ],
+       [
+        "SELSELLA",
+        4457
+       ],
+       [
+        "BHOIRYMBONG",
+        3828
+       ],
+       [
+        "RONGRAM",
+        3627
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K20-PMAY-G",
+   "kind": "K20",
+   "scheme": "PMAY-G",
+   "path": "typed",
+   "ok": false,
+   "turns": [
+    {
+     "q": "Compare PMAY-G houses completed in West Garo Hills and Ri Bhoi",
+     "sent": "Compare PMAY-G houses completed in West Garo Hills and Ri Bhoi",
+     "how": "typed",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "PMAY-G comparison, across all financial years (FY 2017-18 to FY 2023-24):\nWest Garo Hills:\n- Completed houses: 26,822\nRi Bhoi:\n- Completed houses: 12,056\nDifference:\n- Completed houses: West Garo Hills is higher by 14,766.",
+     "chips": [
+      "How many PMAY-G houses have been sanctioned in Meghalaya, by district?",
+      "Break that down by block within West Garo Hills.",
+      "How many PMAY-G houses have been completed in Meghalaya, by district?"
+     ],
+     "rewritten": null,
+     "sql": "SELECT\n  UPPER(lgd_district) AS entity_key,\n  MAX(lgd_district) AS name,\n  COUNT(*) AS houses,\n  COALESCE(SUM(sanctioned_amount), 0) AS sanctioned,\n  COALESCE(SUM(COALESCE(amount_released, 0)), 0) AS released,\n  COALESCE(SUM(COALESCE(amount_released, 0)) FILTER(WHERE\n    sanctioned_amount > 0), 0) AS released_on_sanctioned,\n  COALESCE(SUM(sanctioned_amount) FILTER(WHERE\n    sanctioned_amount > 0), 0) AS sanctioned_positive,\n  COUNT(*) FILTER(WHERE\n    is_completed) AS completed,\n  COUNT(*) FILTER(WHERE\n    NOT COALESCE(is_completed, FALSE)) AS incomplete,\n  COUNT(*) FILTER(WHERE\n    status_nam",
+     "truth": [
+      [
+       [
+        "WEST GARO HILLS",
+        26822
+       ],
+       [
+        "RI BHOI",
+        12056
+       ]
+      ]
+     ]
+    },
+    {
+     "q": "break it down by block",
+     "sent": "break it down by block",
+     "how": "typed",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Houses completed by block in 2 districts (PMAY-G, across all financial years):\n- **West Garo Hills** — Demdema 5,274; Tikrikilla 4,514; Selsella 4,457; Rongram 3,627; Batabari 2,907; Dalu 2,479; Dadenggiri 2,114; Gambegre 1,450\n- **Ri Bhoi** — Umling 4,781; Bhoirymbong 3,828; Jirang 2,240; Umsning 1,098; Mawhati 109",
+     "chips": [
+      "How many PMAY-G houses have been sanctioned in Meghalaya, by block?",
+      "Break that down by village within Demdema block."
+     ],
+     "rewritten": "PMAY-G houses completed in West Garo Hills and Ri Bhoi by block",
+     "sql": "/* metric:pmay_houses_completed breakdown */ SELECT lgd_district AS district, lgd_block AS block, COUNT(*) FILTER (WHERE is_completed) AS houses_completed\nFROM curated.v_pmay\nWHERE UPPER(lgd_district) IN ('WEST GARO HILLS', 'RI BHOI') AND lgd_block IS NOT NULL\nGROUP BY lgd_district, lgd_block ORDER BY array_position(ARRAY['WEST GARO HILLS', 'RI BHOI']::text[], UPPER(lgd_district)), houses_completed DESC NULLS LAST",
+     "truth": [
+      [
+       [
+        "UMLING",
+        "RI BHOI",
+        4781
+       ],
+       [
+        "BHOIRYMBONG",
+        "RI BHOI",
+        3828
+       ],
+       [
+        "JIRANG",
+        "RI BHOI",
+        2240
+       ],
+       [
+        "UMSNING",
+        "RI BHOI",
+        1098
+       ],
+       [
+        "MAWHATI",
+        "RI BHOI",
+        109
+       ],
+       [
+        "DEMDEMA",
+        "WEST GARO HILLS",
+        5274
+       ]
+      ]
+     ]
+    },
+    {
+     "q": "which block has the most",
+     "sent": "which block has the most",
+     "how": "typed",
+     "ok": false,
+     "fails": [
+      "[follow-up-context] row DEMDEMA = 5274 missing"
+     ],
+     "route": "data",
+     "answer": "PMAY-G comparison, across all financial years (FY 2017-18 to FY 2023-24):\nWest Garo Hills:\n- Completed houses: 26,822\nRi Bhoi:\n- Completed houses: 12,056\nDifference:\n- Completed houses: West Garo Hills is higher by 14,766.",
+     "chips": [
+      "How many PMAY-G houses have been sanctioned in Meghalaya, by district?",
+      "Break that down by block within West Garo Hills.",
+      "How many PMAY-G houses have been completed in Meghalaya, by district?"
+     ],
+     "rewritten": "Which block has the highest: PMAY-G houses completed in West Garo Hills and Ri Bhoi",
+     "sql": "SELECT\n  UPPER(lgd_district) AS entity_key,\n  MAX(lgd_district) AS name,\n  COUNT(*) AS houses,\n  COALESCE(SUM(sanctioned_amount), 0) AS sanctioned,\n  COALESCE(SUM(COALESCE(amount_released, 0)), 0) AS released,\n  COALESCE(SUM(COALESCE(amount_released, 0)) FILTER(WHERE\n    sanctioned_amount > 0), 0) AS released_on_sanctioned,\n  COALESCE(SUM(sanctioned_amount) FILTER(WHERE\n    sanctioned_amount > 0), 0) AS sanctioned_positive,\n  COUNT(*) FILTER(WHERE\n    is_completed) AS completed,\n  COUNT(*) FILTER(WHERE\n    NOT COALESCE(is_completed, FALSE)) AS incomplete,\n  COUNT(*) FILTER(WHERE\n    status_nam",
+     "truth": [
+      [
+       [
+        "DEMDEMA",
+        5274
+       ],
+       [
+        "UMLING",
+        4781
+       ],
+       [
+        "TIKRIKILLA",
+        4514
+       ],
+       [
+        "SELSELLA",
+        4457
+       ],
+       [
+        "BHOIRYMBONG",
+        3828
+       ],
+       [
+        "RONGRAM",
+        3627
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K21-PMAY-G",
+   "kind": "K21",
+   "scheme": "PMAY-G",
+   "path": "voice",
+   "ok": true,
+   "turns": [
+    {
+     "q": "PMAY-G houses completed in North Garo Hills in 2022-23",
+     "sent": "PMAY-G houses completed in North Garo Hills in 2022-23",
+     "how": "rules",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Completed houses in North Garo Hills, of the houses sanctioned in FY 2022-23: 542. This is the PMAY-G figure.",
+     "chips": [
+      "How many PMAY-G houses have been sanctioned in North Garo Hills?",
+      "Break that down by block within North Garo Hills."
+     ],
+     "rewritten": "How many PMAY-G houses were completed in North Garo Hills in FY 2022-23?",
+     "sql": "SELECT\n  UPPER(lgd_district) AS entity_key,\n  MAX(lgd_district) AS name,\n  COUNT(*) AS houses,\n  COALESCE(SUM(sanctioned_amount), 0) AS sanctioned,\n  COALESCE(SUM(COALESCE(amount_released, 0)), 0) AS released,\n  COALESCE(SUM(COALESCE(amount_released, 0)) FILTER(WHERE\n    sanctioned_amount > 0), 0) AS released_on_sanctioned,\n  COALESCE(SUM(sanctioned_amount) FILTER(WHERE\n    sanctioned_amount > 0), 0) AS sanctioned_positive,\n  COUNT(*) FILTER(WHERE\n    is_completed) AS completed,\n  COUNT(*) FILTER(WHERE\n    NOT COALESCE(is_completed, FALSE)) AS incomplete,\n  COUNT(*) FILTER(WHERE\n    status_nam",
+     "truth": [
+      542
+     ]
+    },
+    {
+     "q": "and the year before?",
+     "sent": "what about the year before?",
+     "how": "followup-year-step",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Completed houses in North Garo Hills, of the houses sanctioned in FY 2021-22: 654. This is the PMAY-G figure. By FY 2022-23 it was 542, about 17.1% lower.",
+     "chips": [
+      "How many PMAY-G houses have been sanctioned in North Garo Hills?",
+      "Break that down by block within North Garo Hills."
+     ],
+     "rewritten": "How many PMAY-G houses were completed in North Garo Hills in FY 2021-22",
+     "sql": "SELECT\n  UPPER(lgd_district) AS entity_key,\n  MAX(lgd_district) AS name,\n  COUNT(*) AS houses,\n  COALESCE(SUM(sanctioned_amount), 0) AS sanctioned,\n  COALESCE(SUM(COALESCE(amount_released, 0)), 0) AS released,\n  COALESCE(SUM(COALESCE(amount_released, 0)) FILTER(WHERE\n    sanctioned_amount > 0), 0) AS released_on_sanctioned,\n  COALESCE(SUM(sanctioned_amount) FILTER(WHERE\n    sanctioned_amount > 0), 0) AS sanctioned_positive,\n  COUNT(*) FILTER(WHERE\n    is_completed) AS completed,\n  COUNT(*) FILTER(WHERE\n    NOT COALESCE(is_completed, FALSE)) AS incomplete,\n  COUNT(*) FILTER(WHERE\n    status_nam",
+     "truth": [
+      654
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K21-PMAY-G",
+   "kind": "K21",
+   "scheme": "PMAY-G",
+   "path": "typed",
+   "ok": true,
+   "turns": [
+    {
+     "q": "PMAY-G houses completed in North Garo Hills in 2022-23",
+     "sent": "PMAY-G houses completed in North Garo Hills in 2022-23",
+     "how": "typed",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Completed houses in North Garo Hills, of the houses sanctioned in FY 2022-23: 542. This is the PMAY-G figure.",
+     "chips": [
+      "How many PMAY-G houses have been sanctioned in North Garo Hills?",
+      "Break that down by block within North Garo Hills."
+     ],
+     "rewritten": "How many PMAY-G houses were completed in North Garo Hills in FY 2022-23?",
+     "sql": "SELECT\n  UPPER(lgd_district) AS entity_key,\n  MAX(lgd_district) AS name,\n  COUNT(*) AS houses,\n  COALESCE(SUM(sanctioned_amount), 0) AS sanctioned,\n  COALESCE(SUM(COALESCE(amount_released, 0)), 0) AS released,\n  COALESCE(SUM(COALESCE(amount_released, 0)) FILTER(WHERE\n    sanctioned_amount > 0), 0) AS released_on_sanctioned,\n  COALESCE(SUM(sanctioned_amount) FILTER(WHERE\n    sanctioned_amount > 0), 0) AS sanctioned_positive,\n  COUNT(*) FILTER(WHERE\n    is_completed) AS completed,\n  COUNT(*) FILTER(WHERE\n    NOT COALESCE(is_completed, FALSE)) AS incomplete,\n  COUNT(*) FILTER(WHERE\n    status_nam",
+     "truth": [
+      542
+     ]
+    },
+    {
+     "q": "and the year before?",
+     "sent": "and the year before?",
+     "how": "typed",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Completed houses in North Garo Hills, of the houses sanctioned in FY 2021-22: 654. This is the PMAY-G figure. By FY 2022-23 it was 542, about 17.1% lower.",
+     "chips": [
+      "How many PMAY-G houses have been sanctioned in North Garo Hills?",
+      "Break that down by block within North Garo Hills."
+     ],
+     "rewritten": "How many PMAY-G houses were completed in North Garo Hills in FY 2021-22",
+     "sql": "SELECT\n  UPPER(lgd_district) AS entity_key,\n  MAX(lgd_district) AS name,\n  COUNT(*) AS houses,\n  COALESCE(SUM(sanctioned_amount), 0) AS sanctioned,\n  COALESCE(SUM(COALESCE(amount_released, 0)), 0) AS released,\n  COALESCE(SUM(COALESCE(amount_released, 0)) FILTER(WHERE\n    sanctioned_amount > 0), 0) AS released_on_sanctioned,\n  COALESCE(SUM(sanctioned_amount) FILTER(WHERE\n    sanctioned_amount > 0), 0) AS sanctioned_positive,\n  COUNT(*) FILTER(WHERE\n    is_completed) AS completed,\n  COUNT(*) FILTER(WHERE\n    NOT COALESCE(is_completed, FALSE)) AS incomplete,\n  COUNT(*) FILTER(WHERE\n    status_nam",
+     "truth": [
+      654
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K22-PMAY-G",
+   "kind": "K22",
+   "scheme": "PMAY-G",
+   "path": "voice",
+   "ok": true,
+   "turns": [
+    {
+     "q": "PMAY-G houses completed by district in 2022-23",
+     "sent": "PMAY-G houses completed by district in 2022-23",
+     "how": "rules",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "East Khasi Hills has the most PMAY-G houses completed in FY 2022-23: 1,354, ahead of South West Garo Hills (1,201). That is 21.7% of the 6,248 across Meghalaya's twelve districts. East Jaintia Hills has the fewest, at 170 — East Khasi Hills has about eight times as many.\n- **East Khasi Hills** — 1,354\n- **South West Garo Hills** — 1,201\n- **East Garo Hills** — 545\n- **North Garo Hills** — 542\n- **West Garo Hills** — 454\n- **South Garo Hills** — 432\n- **South West Khasi Hills** — 421\n- **Ri Bhoi** — 375\n- **West Jaintia Hills** — 364\n- **West Khasi Hills** — 204\n- **Eastern West Khasi Hills** —",
+     "chips": [
+      "How many PMAY-G houses have been sanctioned in Meghalaya, by district?",
+      "Break that down by block within East Khasi Hills."
+     ],
+     "rewritten": "How many PMAY-G houses were completed by district in FY 2022-23?",
+     "sql": "/* metric:pmay_houses_completed breakdown */ SELECT lgd_district AS district, COUNT(*) FILTER (WHERE is_completed) AS houses_completed\nFROM curated.v_pmay\nWHERE year_key = 2022 AND lgd_district IS NOT NULL\nGROUP BY lgd_district ORDER BY lgd_district",
+     "truth": [
+      [
+       [
+        "EAST KHASI HILLS",
+        1354
+       ],
+       [
+        "SOUTH WEST GARO HILLS",
+        1201
+       ],
+       [
+        "EAST GARO HILLS",
+        545
+       ],
+       [
+        "NORTH GARO HILLS",
+        542
+       ],
+       [
+        "WEST GARO HILLS",
+        454
+       ],
+       [
+        "SOUTH GARO HILLS",
+        432
+       ]
+      ]
+     ]
+    },
+    {
+     "q": "top 3",
+     "sent": "top 3",
+     "how": "rules",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "East Khasi Hills comes out on top with 1,354 PMAY-G houses completed in FY 2022-23, ahead of South West Garo Hills (1,201). East Garo Hills is third, with 545.\n1. **East Khasi Hills** — 1,354\n2. **South West Garo Hills** — 1,201\n3. **East Garo Hills** — 545",
+     "chips": [
+      "How many PMAY-G houses have been sanctioned in Meghalaya, by district?",
+      "Break that down by block within East Khasi Hills.",
+      "How many PMAY-G houses have been completed in Meghalaya, by district?"
+     ],
+     "rewritten": "Top 3 districts: How many PMAY-G houses were completed in FY 2022-23",
+     "sql": "/* metric:pmay_houses_completed ranking */ SELECT lgd_district AS district, COUNT(*) FILTER (WHERE is_completed) AS houses_completed\nFROM curated.v_pmay\nWHERE year_key = 2022 AND lgd_district IS NOT NULL\nGROUP BY lgd_district ORDER BY houses_completed DESC NULLS LAST LIMIT 3",
+     "truth": [
+      [
+       [
+        "EAST KHASI HILLS",
+        1354
+       ],
+       [
+        "SOUTH WEST GARO HILLS",
+        1201
+       ],
+       [
+        "EAST GARO HILLS",
+        545
+       ],
+       [
+        "NORTH GARO HILLS",
+        542
+       ],
+       [
+        "WEST GARO HILLS",
+        454
+       ],
+       [
+        "SOUTH GARO HILLS",
+        432
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K22-PMAY-G",
+   "kind": "K22",
+   "scheme": "PMAY-G",
+   "path": "typed",
+   "ok": true,
+   "turns": [
+    {
+     "q": "PMAY-G houses completed by district in 2022-23",
+     "sent": "PMAY-G houses completed by district in 2022-23",
+     "how": "typed",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "East Khasi Hills has the most PMAY-G houses completed in FY 2022-23: 1,354, ahead of South West Garo Hills (1,201). That is 21.7% of the 6,248 across Meghalaya's twelve districts. East Jaintia Hills has the fewest, at 170 — East Khasi Hills has about eight times as many.\n- **East Khasi Hills** — 1,354\n- **South West Garo Hills** — 1,201\n- **East Garo Hills** — 545\n- **North Garo Hills** — 542\n- **West Garo Hills** — 454\n- **South Garo Hills** — 432\n- **South West Khasi Hills** — 421\n- **Ri Bhoi** — 375\n- **West Jaintia Hills** — 364\n- **West Khasi Hills** — 204\n- **Eastern West Khasi Hills** —",
+     "chips": [
+      "How many PMAY-G houses have been sanctioned in Meghalaya, by district?",
+      "Break that down by block within East Khasi Hills."
+     ],
+     "rewritten": "How many PMAY-G houses were completed by district in FY 2022-23?",
+     "sql": "/* metric:pmay_houses_completed breakdown */ SELECT lgd_district AS district, COUNT(*) FILTER (WHERE is_completed) AS houses_completed\nFROM curated.v_pmay\nWHERE year_key = 2022 AND lgd_district IS NOT NULL\nGROUP BY lgd_district ORDER BY lgd_district",
+     "truth": [
+      [
+       [
+        "EAST KHASI HILLS",
+        1354
+       ],
+       [
+        "SOUTH WEST GARO HILLS",
+        1201
+       ],
+       [
+        "EAST GARO HILLS",
+        545
+       ],
+       [
+        "NORTH GARO HILLS",
+        542
+       ],
+       [
+        "WEST GARO HILLS",
+        454
+       ],
+       [
+        "SOUTH GARO HILLS",
+        432
+       ]
+      ]
+     ]
+    },
+    {
+     "q": "top 3",
+     "sent": "top 3",
+     "how": "typed",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "East Khasi Hills comes out on top with 1,354 PMAY-G houses completed in FY 2022-23, ahead of South West Garo Hills (1,201). East Garo Hills is third, with 545.\n1. **East Khasi Hills** — 1,354\n2. **South West Garo Hills** — 1,201\n3. **East Garo Hills** — 545",
+     "chips": [
+      "How many PMAY-G houses have been sanctioned in Meghalaya, by district?",
+      "Break that down by block within East Khasi Hills.",
+      "How many PMAY-G houses have been completed in Meghalaya, by district?"
+     ],
+     "rewritten": "Top 3 districts: How many PMAY-G houses were completed in FY 2022-23",
+     "sql": "/* metric:pmay_houses_completed ranking */ SELECT lgd_district AS district, COUNT(*) FILTER (WHERE is_completed) AS houses_completed\nFROM curated.v_pmay\nWHERE year_key = 2022 AND lgd_district IS NOT NULL\nGROUP BY lgd_district ORDER BY houses_completed DESC NULLS LAST LIMIT 3",
+     "truth": [
+      [
+       [
+        "EAST KHASI HILLS",
+        1354
+       ],
+       [
+        "SOUTH WEST GARO HILLS",
+        1201
+       ],
+       [
+        "EAST GARO HILLS",
+        545
+       ],
+       [
+        "NORTH GARO HILLS",
+        542
+       ],
+       [
+        "WEST GARO HILLS",
+        454
+       ],
+       [
+        "SOUTH GARO HILLS",
+        432
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K20-FocusPlus",
+   "kind": "K20",
+   "scheme": "Focus Plus",
+   "path": "voice",
+   "ok": true,
+   "turns": [
+    {
+     "q": "Compare Focus Plus beneficiaries in Ri Bhoi and North Garo Hills",
+     "sent": "Compare Focus Plus beneficiaries in Ri Bhoi and North Garo Hills",
+     "how": "rules",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "North Garo Hills is clearly higher than Ri Bhoi on Focus Plus beneficiaries in Ri Bhoi and North Garo Hills district across all financial years: 11,007 against 419, a difference of 10,588 (2527.0% more).\n\nNote: Focus Plus data covers FY 2022-23 and FY 2025-26.",
+     "chips": [
+      "How many Focus Plus payments were made in each batch in Meghalaya?",
+      "Break that down by block within North Garo Hills.",
+      "How much has been disbursed under Focus Plus in Meghalaya, by district?"
+     ],
+     "rewritten": null,
+     "sql": "/* metric:focus_plus_beneficiaries compare */ SELECT lgd_district AS district, COUNT(DISTINCT beneficiary_key) AS beneficiaries\nFROM curated.v_focus_plus\nWHERE UPPER(lgd_district) IN ('RI BHOI', 'NORTH GARO HILLS') AND lgd_district IS NOT NULL\nGROUP BY lgd_district ORDER BY lgd_district",
+     "truth": [
+      [
+       [
+        "NORTH GARO HILLS",
+        11007
+       ],
+       [
+        "RI BHOI",
+        419
+       ]
+      ]
+     ]
+    },
+    {
+     "q": "break it down by block",
+     "sent": "break that down by block",
+     "how": "regroup",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Beneficiaries by block in 2 districts (Focus Plus, across all financial years):\n- **Ri Bhoi** — Jirang 415; Umsning 2; Umling 2\n- **North Garo Hills** — Kharkutta 4,928; Resubelpara 3,167; Bajengdoba 2,614; Resubelpara-Municipal Board 298\n\nNote: Focus Plus data covers FY 2022-23 and FY 2025-26.",
+     "chips": [
+      "How many Focus Plus payments were made in each batch in Meghalaya?",
+      "Break that down by village within Kharkutta block.",
+      "How much has been disbursed under Focus Plus in Meghalaya, by block?"
+     ],
+     "rewritten": "Focus Plus beneficiaries in Ri Bhoi and North Garo Hills by block",
+     "sql": "/* metric:focus_plus_beneficiaries breakdown */ SELECT lgd_district AS district, UPPER(block_name_raw) AS block, COUNT(DISTINCT beneficiary_key) AS beneficiaries\nFROM curated.v_focus_plus\nWHERE UPPER(lgd_district) IN ('RI BHOI', 'NORTH GARO HILLS') AND UPPER(block_name_raw) IS NOT NULL\nGROUP BY lgd_district, UPPER(block_name_raw) ORDER BY array_position(ARRAY['RI BHOI', 'NORTH GARO HILLS']::text[], UPPER(lgd_district)), beneficiaries DESC NULLS LAST",
+     "truth": [
+      [
+       [
+        "KHARKUTTA",
+        "NORTH GARO HILLS",
+        4928
+       ],
+       [
+        "RESUBELPARA",
+        "NORTH GARO HILLS",
+        3167
+       ],
+       [
+        "BAJENGDOBA",
+        "NORTH GARO HILLS",
+        2614
+       ],
+       [
+        "RESUBELPARA-MUNICIPAL BOARD",
+        "NORTH GARO HILLS",
+        298
+       ],
+       [
+        "JIRANG",
+        "RI BHOI",
+        415
+       ],
+       [
+        "UMLING",
+        "RI BHOI",
+        2
+       ]
+      ]
+     ]
+    },
+    {
+     "q": "which block has the most",
+     "sent": "which block has the most",
+     "how": "rules",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Kharkutta has the most Focus Plus beneficiaries in Ri Bhoi and North Garo Hills district across all financial years: 4,928, well ahead of Resubelpara (3,167). Bajengdoba comes next, with 2,614.\n\nNote: Focus Plus data covers FY 2022-23 and FY 2025-26.",
+     "chips": [
+      "How many Focus Plus payments were made in each batch in Meghalaya?",
+      "Break that down by village within Kharkutta block.",
+      "How much has been disbursed under Focus Plus in Meghalaya, by block?"
+     ],
+     "rewritten": "Which block has the highest: Focus Plus beneficiaries in Ri Bhoi and North Garo Hills",
+     "sql": "/* metric:focus_plus_beneficiaries ranking */ SELECT UPPER(block_name_raw) AS block, COUNT(DISTINCT beneficiary_key) AS beneficiaries\nFROM curated.v_focus_plus\nWHERE UPPER(lgd_district) IN ('RI BHOI', 'NORTH GARO HILLS') AND UPPER(block_name_raw) IS NOT NULL\nGROUP BY UPPER(block_name_raw) ORDER BY beneficiaries DESC NULLS LAST LIMIT 3",
+     "truth": [
+      [
+       [
+        "KHARKUTTA",
+        4928
+       ],
+       [
+        "RESUBELPARA",
+        3167
+       ],
+       [
+        "BAJENGDOBA",
+        2614
+       ],
+       [
+        "JIRANG",
+        415
+       ],
+       [
+        "RESUBELPARA-MUNICIPAL BOARD",
+        298
+       ],
+       [
+        "UMLING",
+        2
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K20-FocusPlus",
+   "kind": "K20",
+   "scheme": "Focus Plus",
+   "path": "typed",
+   "ok": true,
+   "turns": [
+    {
+     "q": "Compare Focus Plus beneficiaries in Ri Bhoi and North Garo Hills",
+     "sent": "Compare Focus Plus beneficiaries in Ri Bhoi and North Garo Hills",
+     "how": "typed",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "North Garo Hills is clearly higher than Ri Bhoi on Focus Plus beneficiaries in Ri Bhoi and North Garo Hills district across all financial years: 11,007 against 419, a difference of 10,588 (2527.0% more).\n\nNote: Focus Plus data covers FY 2022-23 and FY 2025-26.",
+     "chips": [
+      "How many Focus Plus payments were made in each batch in Meghalaya?",
+      "Break that down by block within North Garo Hills.",
+      "How much has been disbursed under Focus Plus in Meghalaya, by district?"
+     ],
+     "rewritten": null,
+     "sql": "/* metric:focus_plus_beneficiaries compare */ SELECT lgd_district AS district, COUNT(DISTINCT beneficiary_key) AS beneficiaries\nFROM curated.v_focus_plus\nWHERE UPPER(lgd_district) IN ('RI BHOI', 'NORTH GARO HILLS') AND lgd_district IS NOT NULL\nGROUP BY lgd_district ORDER BY lgd_district",
+     "truth": [
+      [
+       [
+        "NORTH GARO HILLS",
+        11007
+       ],
+       [
+        "RI BHOI",
+        419
+       ]
+      ]
+     ]
+    },
+    {
+     "q": "break it down by block",
+     "sent": "break it down by block",
+     "how": "typed",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Beneficiaries by block in 2 districts (Focus Plus, across all financial years):\n- **Ri Bhoi** — Jirang 415; Umsning 2; Umling 2\n- **North Garo Hills** — Kharkutta 4,928; Resubelpara 3,167; Bajengdoba 2,614; Resubelpara-Municipal Board 298\n\nNote: Focus Plus data covers FY 2022-23 and FY 2025-26.",
+     "chips": [
+      "How many Focus Plus payments were made in each batch in Meghalaya?",
+      "Break that down by village within Kharkutta block.",
+      "How much has been disbursed under Focus Plus in Meghalaya, by block?"
+     ],
+     "rewritten": "Focus Plus beneficiaries in Ri Bhoi and North Garo Hills by block",
+     "sql": "/* metric:focus_plus_beneficiaries breakdown */ SELECT lgd_district AS district, UPPER(block_name_raw) AS block, COUNT(DISTINCT beneficiary_key) AS beneficiaries\nFROM curated.v_focus_plus\nWHERE UPPER(lgd_district) IN ('RI BHOI', 'NORTH GARO HILLS') AND UPPER(block_name_raw) IS NOT NULL\nGROUP BY lgd_district, UPPER(block_name_raw) ORDER BY array_position(ARRAY['RI BHOI', 'NORTH GARO HILLS']::text[], UPPER(lgd_district)), beneficiaries DESC NULLS LAST",
+     "truth": [
+      [
+       [
+        "KHARKUTTA",
+        "NORTH GARO HILLS",
+        4928
+       ],
+       [
+        "RESUBELPARA",
+        "NORTH GARO HILLS",
+        3167
+       ],
+       [
+        "BAJENGDOBA",
+        "NORTH GARO HILLS",
+        2614
+       ],
+       [
+        "RESUBELPARA-MUNICIPAL BOARD",
+        "NORTH GARO HILLS",
+        298
+       ],
+       [
+        "JIRANG",
+        "RI BHOI",
+        415
+       ],
+       [
+        "UMLING",
+        "RI BHOI",
+        2
+       ]
+      ]
+     ]
+    },
+    {
+     "q": "which block has the most",
+     "sent": "which block has the most",
+     "how": "typed",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Kharkutta has the most Focus Plus beneficiaries in Ri Bhoi and North Garo Hills district across all financial years: 4,928, well ahead of Resubelpara (3,167). Bajengdoba comes next, with 2,614.\n\nNote: Focus Plus data covers FY 2022-23 and FY 2025-26.",
+     "chips": [
+      "How many Focus Plus payments were made in each batch in Meghalaya?",
+      "Break that down by village within Kharkutta block.",
+      "How much has been disbursed under Focus Plus in Meghalaya, by block?"
+     ],
+     "rewritten": "Which block has the highest: Focus Plus beneficiaries in Ri Bhoi and North Garo Hills",
+     "sql": "/* metric:focus_plus_beneficiaries ranking */ SELECT UPPER(block_name_raw) AS block, COUNT(DISTINCT beneficiary_key) AS beneficiaries\nFROM curated.v_focus_plus\nWHERE UPPER(lgd_district) IN ('RI BHOI', 'NORTH GARO HILLS') AND UPPER(block_name_raw) IS NOT NULL\nGROUP BY UPPER(block_name_raw) ORDER BY beneficiaries DESC NULLS LAST LIMIT 3",
+     "truth": [
+      [
+       [
+        "KHARKUTTA",
+        4928
+       ],
+       [
+        "RESUBELPARA",
+        3167
+       ],
+       [
+        "BAJENGDOBA",
+        2614
+       ],
+       [
+        "JIRANG",
+        415
+       ],
+       [
+        "RESUBELPARA-MUNICIPAL BOARD",
+        298
+       ],
+       [
+        "UMLING",
+        2
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K22-FocusPlus",
+   "kind": "K22",
+   "scheme": "Focus Plus",
+   "path": "voice",
+   "ok": true,
+   "turns": [
+    {
+     "q": "Focus Plus beneficiaries by district in 2025-26",
+     "sent": "Focus Plus beneficiaries by district in 2025-26",
+     "how": "rules",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "West Garo Hills stands out with 35,039 Focus Plus beneficiaries in FY 2025-26, more than twice the figure for South West Garo Hills (15,294). That is about a third (33.1%) of the 1,05,812 across Meghalaya's twelve districts. West Jaintia Hills has the fewest, at 283 — West Garo Hills has more than ten times as many.\n- **West Garo Hills** — 35,039\n- **South West Garo Hills** — 15,294\n- **East Khasi Hills** — 13,608\n- **East Garo Hills** — 11,379\n- **North Garo Hills** — 11,007\n- **South Garo Hills** — 8,612\n- **West Khasi Hills** — 6,754\n- **South West Khasi Hills** — 1,792\n- **Eastern West Kha",
+     "chips": [
+      "How many Focus Plus payments were made in each batch in Meghalaya?",
+      "Break that down by block within West Garo Hills.",
+      "How much has been disbursed under Focus Plus in Meghalaya, by district?"
+     ],
+     "rewritten": "How many Focus Plus beneficiaries are there by district in FY 2025-26?",
+     "sql": "/* metric:focus_plus_beneficiaries breakdown */ SELECT lgd_district AS district, COUNT(DISTINCT beneficiary_key) AS beneficiaries\nFROM curated.v_focus_plus\nWHERE year_key = 2025 AND lgd_district IS NOT NULL\nGROUP BY lgd_district ORDER BY lgd_district",
+     "truth": [
+      [
+       [
+        "WEST GARO HILLS",
+        35039
+       ],
+       [
+        "SOUTH WEST GARO HILLS",
+        15294
+       ],
+       [
+        "EAST KHASI HILLS",
+        13608
+       ],
+       [
+        "EAST GARO HILLS",
+        11379
+       ],
+       [
+        "NORTH GARO HILLS",
+        11007
+       ],
+       [
+        "SOUTH GARO HILLS",
+        8612
+       ]
+      ]
+     ]
+    },
+    {
+     "q": "top 3",
+     "sent": "top 3",
+     "how": "rules",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "West Garo Hills comes out on top with 35,039 Focus Plus beneficiaries in FY 2025-26, more than twice the figure for South West Garo Hills (15,294). East Khasi Hills is third, with 13,608.\n1. **West Garo Hills** — 35,039\n2. **South West Garo Hills** — 15,294\n3. **East Khasi Hills** — 13,608",
+     "chips": [
+      "How many Focus Plus payments were made in each batch in Meghalaya?",
+      "Break that down by block within West Garo Hills.",
+      "How much has been disbursed under Focus Plus in Meghalaya, by district?"
+     ],
+     "rewritten": "Top 3 districts: How many Focus Plus beneficiaries are there in FY 2025-26",
+     "sql": "/* metric:focus_plus_beneficiaries ranking */ SELECT lgd_district AS district, COUNT(DISTINCT beneficiary_key) AS beneficiaries\nFROM curated.v_focus_plus\nWHERE year_key = 2025 AND lgd_district IS NOT NULL\nGROUP BY lgd_district ORDER BY beneficiaries DESC NULLS LAST LIMIT 3",
+     "truth": [
+      [
+       [
+        "WEST GARO HILLS",
+        35039
+       ],
+       [
+        "SOUTH WEST GARO HILLS",
+        15294
+       ],
+       [
+        "EAST KHASI HILLS",
+        13608
+       ],
+       [
+        "EAST GARO HILLS",
+        11379
+       ],
+       [
+        "NORTH GARO HILLS",
+        11007
+       ],
+       [
+        "SOUTH GARO HILLS",
+        8612
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K22-FocusPlus",
+   "kind": "K22",
+   "scheme": "Focus Plus",
+   "path": "typed",
+   "ok": true,
+   "turns": [
+    {
+     "q": "Focus Plus beneficiaries by district in 2025-26",
+     "sent": "Focus Plus beneficiaries by district in 2025-26",
+     "how": "typed",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "West Garo Hills stands out with 35,039 Focus Plus beneficiaries in FY 2025-26, more than twice the figure for South West Garo Hills (15,294). That is about a third (33.1%) of the 1,05,812 across Meghalaya's twelve districts. West Jaintia Hills has the fewest, at 283 — West Garo Hills has more than ten times as many.\n- **West Garo Hills** — 35,039\n- **South West Garo Hills** — 15,294\n- **East Khasi Hills** — 13,608\n- **East Garo Hills** — 11,379\n- **North Garo Hills** — 11,007\n- **South Garo Hills** — 8,612\n- **West Khasi Hills** — 6,754\n- **South West Khasi Hills** — 1,792\n- **Eastern West Kha",
+     "chips": [
+      "How many Focus Plus payments were made in each batch in Meghalaya?",
+      "Break that down by block within West Garo Hills.",
+      "How much has been disbursed under Focus Plus in Meghalaya, by district?"
+     ],
+     "rewritten": "How many Focus Plus beneficiaries are there by district in FY 2025-26?",
+     "sql": "/* metric:focus_plus_beneficiaries breakdown */ SELECT lgd_district AS district, COUNT(DISTINCT beneficiary_key) AS beneficiaries\nFROM curated.v_focus_plus\nWHERE year_key = 2025 AND lgd_district IS NOT NULL\nGROUP BY lgd_district ORDER BY lgd_district",
+     "truth": [
+      [
+       [
+        "WEST GARO HILLS",
+        35039
+       ],
+       [
+        "SOUTH WEST GARO HILLS",
+        15294
+       ],
+       [
+        "EAST KHASI HILLS",
+        13608
+       ],
+       [
+        "EAST GARO HILLS",
+        11379
+       ],
+       [
+        "NORTH GARO HILLS",
+        11007
+       ],
+       [
+        "SOUTH GARO HILLS",
+        8612
+       ]
+      ]
+     ]
+    },
+    {
+     "q": "top 3",
+     "sent": "top 3",
+     "how": "typed",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "West Garo Hills comes out on top with 35,039 Focus Plus beneficiaries in FY 2025-26, more than twice the figure for South West Garo Hills (15,294). East Khasi Hills is third, with 13,608.\n1. **West Garo Hills** — 35,039\n2. **South West Garo Hills** — 15,294\n3. **East Khasi Hills** — 13,608",
+     "chips": [
+      "How many Focus Plus payments were made in each batch in Meghalaya?",
+      "Break that down by block within West Garo Hills.",
+      "How much has been disbursed under Focus Plus in Meghalaya, by district?"
+     ],
+     "rewritten": "Top 3 districts: How many Focus Plus beneficiaries are there in FY 2025-26",
+     "sql": "/* metric:focus_plus_beneficiaries ranking */ SELECT lgd_district AS district, COUNT(DISTINCT beneficiary_key) AS beneficiaries\nFROM curated.v_focus_plus\nWHERE year_key = 2025 AND lgd_district IS NOT NULL\nGROUP BY lgd_district ORDER BY beneficiaries DESC NULLS LAST LIMIT 3",
+     "truth": [
+      [
+       [
+        "WEST GARO HILLS",
+        35039
+       ],
+       [
+        "SOUTH WEST GARO HILLS",
+        15294
+       ],
+       [
+        "EAST KHASI HILLS",
+        13608
+       ],
+       [
+        "EAST GARO HILLS",
+        11379
+       ],
+       [
+        "NORTH GARO HILLS",
+        11007
+       ],
+       [
+        "SOUTH GARO HILLS",
+        8612
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K20-FocusLegacy",
+   "kind": "K20",
+   "scheme": "Focus Legacy",
+   "path": "voice",
+   "ok": true,
+   "turns": [
+    {
+     "q": "Compare Focus Legacy amount disbursed in North Garo Hills and West Jaintia Hills",
+     "sent": "Compare Focus Legacy amount disbursed in North Garo Hills and West Jaintia Hills",
+     "how": "rules",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Focus Legacy total disbursed by district in North Garo Hills and West Jaintia Hills — 2 districts:\n\n- North Garo Hills: ₹5.17 crore total disbursed\n- West Jaintia Hills: ₹4.17 crore total disbursed\n\nTogether, the 2 districts above account for ₹9.34 crore total disbursed.\n\nNote: Focus Legacy data covers FY 2021-22, FY 2022-23, FY 2024-25 and FY 2025-26.",
+     "chips": [
+      "How many producer groups were paid in Meghalaya, by district?",
+      "Show Focus Legacy payments by financial year in Meghalaya.",
+      "Which products do Focus Legacy groups work on in Meghalaya?"
+     ],
+     "rewritten": null,
+     "sql": "/* metric:focus_legacy_total_disbursed compare */ SELECT lgd_district AS district, CASE WHEN ABS((SUM(amount_disbursed))::numeric) >= 10000000 THEN ROUND((SUM(amount_disbursed))::numeric / 10000000, 2) ELSE TRIM_SCALE(ROUND((SUM(amount_disbursed))::numeric / 10000000, 7)) END AS total_disbursed_cr\nFROM curated.v_focus_legacy\nWHERE UPPER(lgd_district) IN ('NORTH GARO HILLS', 'WEST JAINTIA HILLS') AND lgd_district IS NOT NULL\nGROUP BY lgd_district ORDER BY lgd_district",
+     "truth": [
+      [
+       [
+        "NORTH GARO HILLS",
+        51735000
+       ],
+       [
+        "WEST JAINTIA HILLS",
+        41715000
+       ]
+      ]
+     ]
+    },
+    {
+     "q": "break it down by block",
+     "sent": "break that down by block",
+     "how": "regroup",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Focus Legacy total disbursed by block in North Garo Hills and West Jaintia Hills — 8 blocks:\n\n- Resubelpara (North Garo Hills): ₹2.16 crore total disbursed\n- Bajengdoba (North Garo Hills): ₹1.82 crore total disbursed\n- Kharkutta (North Garo Hills): ₹0.97 crore total disbursed\n- Adokgre (North Garo Hills): ₹0.23 crore total disbursed\n- Laskein (West Jaintia Hills): ₹2.15 crore total disbursed\n- Thadlaskein (West Jaintia Hills): ₹1.15 crore total disbursed\n- Amlarem (West Jaintia Hills): ₹0.54 crore total disbursed\n- Namdong (West Jaintia Hills): ₹0.32 crore total disbursed\n\nTogether, the 8 bloc",
+     "chips": [
+      "How many producer groups were paid in Meghalaya, by block?",
+      "Show Focus Legacy payments by financial year in Meghalaya.",
+      "Which products do Focus Legacy groups work on in Meghalaya?"
+     ],
+     "rewritten": "Focus Legacy amount disbursed in North Garo Hills and West Jaintia Hills by block",
+     "sql": "/* metric:focus_legacy_total_disbursed breakdown */ SELECT lgd_district AS district, lgd_block AS block, CASE WHEN ABS((SUM(amount_disbursed))::numeric) >= 10000000 THEN ROUND((SUM(amount_disbursed))::numeric / 10000000, 2) ELSE TRIM_SCALE(ROUND((SUM(amount_disbursed))::numeric / 10000000, 7)) END AS total_disbursed_cr\nFROM curated.v_focus_legacy\nWHERE UPPER(lgd_district) IN ('NORTH GARO HILLS', 'WEST JAINTIA HILLS') AND lgd_block IS NOT NULL\nGROUP BY lgd_district, lgd_block ORDER BY array_position(ARRAY['NORTH GARO HILLS', 'WEST JAINTIA HILLS']::text[], UPPER(lgd_district)), (SUM(amount_disbu",
+     "truth": [
+      [
+       [
+        "RESUBELPARA",
+        "NORTH GARO HILLS",
+        21585000
+       ],
+       [
+        "BAJENGDOBA",
+        "NORTH GARO HILLS",
+        18150000
+       ],
+       [
+        "KHARKUTTA",
+        "NORTH GARO HILLS",
+        9735000
+       ],
+       [
+        "ADOKGRE",
+        "NORTH GARO HILLS",
+        2265000
+       ],
+       [
+        "LASKEIN",
+        "WEST JAINTIA HILLS",
+        21450000
+       ],
+       [
+        "THADLASKEIN",
+        "WEST JAINTIA HILLS",
+        11505000
+       ]
+      ]
+     ]
+    },
+    {
+     "q": "which block has the most",
+     "sent": "which block has the most",
+     "how": "rules",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "8 results match in total; the top 3 are shown below.\n\nTop 3 blocks in North Garo Hills and West Jaintia Hills by total disbursed:\n\n- Resubelpara: ₹2.16 crore total disbursed\n- Laskein: ₹2.15 crore total disbursed\n- Bajengdoba: ₹1.82 crore total disbursed\n\nIn addition, 0.02 total disbursed cr have no block recorded in the source data, so they are not counted under any block above.\n\nNote: Focus Legacy data covers FY 2021-22, FY 2022-23, FY 2024-25 and FY 2025-26.",
+     "chips": [
+      "How many producer groups were paid in Meghalaya, by block?",
+      "Show Focus Legacy payments by financial year in Meghalaya.",
+      "Which products do Focus Legacy groups work on in Meghalaya?"
+     ],
+     "rewritten": "Which block has the highest: Focus Legacy amount disbursed in North Garo Hills and West Jaintia Hills",
+     "sql": "/* metric:focus_legacy_total_disbursed ranking */ SELECT lgd_block AS block, CASE WHEN ABS((SUM(amount_disbursed))::numeric) >= 10000000 THEN ROUND((SUM(amount_disbursed))::numeric / 10000000, 2) ELSE TRIM_SCALE(ROUND((SUM(amount_disbursed))::numeric / 10000000, 7)) END AS total_disbursed_cr\nFROM curated.v_focus_legacy\nWHERE UPPER(lgd_district) IN ('NORTH GARO HILLS', 'WEST JAINTIA HILLS') AND lgd_block IS NOT NULL\nGROUP BY lgd_block ORDER BY (SUM(amount_disbursed)) DESC NULLS LAST LIMIT 3",
+     "truth": [
+      [
+       [
+        "RESUBELPARA",
+        21585000
+       ],
+       [
+        "LASKEIN",
+        21450000
+       ],
+       [
+        "BAJENGDOBA",
+        18150000
+       ],
+       [
+        "THADLASKEIN",
+        11505000
+       ],
+       [
+        "KHARKUTTA",
+        9735000
+       ],
+       [
+        "AMLAREM",
+        5445000
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K20-FocusLegacy",
+   "kind": "K20",
+   "scheme": "Focus Legacy",
+   "path": "typed",
+   "ok": true,
+   "turns": [
+    {
+     "q": "Compare Focus Legacy amount disbursed in North Garo Hills and West Jaintia Hills",
+     "sent": "Compare Focus Legacy amount disbursed in North Garo Hills and West Jaintia Hills",
+     "how": "typed",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Focus Legacy total disbursed by district in North Garo Hills and West Jaintia Hills — 2 districts:\n\n- North Garo Hills: ₹5.17 crore total disbursed\n- West Jaintia Hills: ₹4.17 crore total disbursed\n\nTogether, the 2 districts above account for ₹9.34 crore total disbursed.\n\nNote: Focus Legacy data covers FY 2021-22, FY 2022-23, FY 2024-25 and FY 2025-26.",
+     "chips": [
+      "How many producer groups were paid in Meghalaya, by district?",
+      "Show Focus Legacy payments by financial year in Meghalaya.",
+      "Which products do Focus Legacy groups work on in Meghalaya?"
+     ],
+     "rewritten": null,
+     "sql": "/* metric:focus_legacy_total_disbursed compare */ SELECT lgd_district AS district, CASE WHEN ABS((SUM(amount_disbursed))::numeric) >= 10000000 THEN ROUND((SUM(amount_disbursed))::numeric / 10000000, 2) ELSE TRIM_SCALE(ROUND((SUM(amount_disbursed))::numeric / 10000000, 7)) END AS total_disbursed_cr\nFROM curated.v_focus_legacy\nWHERE UPPER(lgd_district) IN ('NORTH GARO HILLS', 'WEST JAINTIA HILLS') AND lgd_district IS NOT NULL\nGROUP BY lgd_district ORDER BY lgd_district",
+     "truth": [
+      [
+       [
+        "NORTH GARO HILLS",
+        51735000
+       ],
+       [
+        "WEST JAINTIA HILLS",
+        41715000
+       ]
+      ]
+     ]
+    },
+    {
+     "q": "break it down by block",
+     "sent": "break it down by block",
+     "how": "typed",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Focus Legacy total disbursed by block in North Garo Hills and West Jaintia Hills — 8 blocks:\n\n- Resubelpara (North Garo Hills): ₹2.16 crore total disbursed\n- Bajengdoba (North Garo Hills): ₹1.82 crore total disbursed\n- Kharkutta (North Garo Hills): ₹0.97 crore total disbursed\n- Adokgre (North Garo Hills): ₹0.23 crore total disbursed\n- Laskein (West Jaintia Hills): ₹2.15 crore total disbursed\n- Thadlaskein (West Jaintia Hills): ₹1.15 crore total disbursed\n- Amlarem (West Jaintia Hills): ₹0.54 crore total disbursed\n- Namdong (West Jaintia Hills): ₹0.32 crore total disbursed\n\nTogether, the 8 bloc",
+     "chips": [
+      "How many producer groups were paid in Meghalaya, by block?",
+      "Show Focus Legacy payments by financial year in Meghalaya.",
+      "Which products do Focus Legacy groups work on in Meghalaya?"
+     ],
+     "rewritten": "Focus Legacy amount disbursed in North Garo Hills and West Jaintia Hills by block",
+     "sql": "/* metric:focus_legacy_total_disbursed breakdown */ SELECT lgd_district AS district, lgd_block AS block, CASE WHEN ABS((SUM(amount_disbursed))::numeric) >= 10000000 THEN ROUND((SUM(amount_disbursed))::numeric / 10000000, 2) ELSE TRIM_SCALE(ROUND((SUM(amount_disbursed))::numeric / 10000000, 7)) END AS total_disbursed_cr\nFROM curated.v_focus_legacy\nWHERE UPPER(lgd_district) IN ('NORTH GARO HILLS', 'WEST JAINTIA HILLS') AND lgd_block IS NOT NULL\nGROUP BY lgd_district, lgd_block ORDER BY array_position(ARRAY['NORTH GARO HILLS', 'WEST JAINTIA HILLS']::text[], UPPER(lgd_district)), (SUM(amount_disbu",
+     "truth": [
+      [
+       [
+        "RESUBELPARA",
+        "NORTH GARO HILLS",
+        21585000
+       ],
+       [
+        "BAJENGDOBA",
+        "NORTH GARO HILLS",
+        18150000
+       ],
+       [
+        "KHARKUTTA",
+        "NORTH GARO HILLS",
+        9735000
+       ],
+       [
+        "ADOKGRE",
+        "NORTH GARO HILLS",
+        2265000
+       ],
+       [
+        "LASKEIN",
+        "WEST JAINTIA HILLS",
+        21450000
+       ],
+       [
+        "THADLASKEIN",
+        "WEST JAINTIA HILLS",
+        11505000
+       ]
+      ]
+     ]
+    },
+    {
+     "q": "which block has the most",
+     "sent": "which block has the most",
+     "how": "typed",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "8 results match in total; the top 3 are shown below.\n\nTop 3 blocks in North Garo Hills and West Jaintia Hills by total disbursed:\n\n- Resubelpara: ₹2.16 crore total disbursed\n- Laskein: ₹2.15 crore total disbursed\n- Bajengdoba: ₹1.82 crore total disbursed\n\nIn addition, 0.02 total disbursed cr have no block recorded in the source data, so they are not counted under any block above.\n\nNote: Focus Legacy data covers FY 2021-22, FY 2022-23, FY 2024-25 and FY 2025-26.",
+     "chips": [
+      "How many producer groups were paid in Meghalaya, by block?",
+      "Show Focus Legacy payments by financial year in Meghalaya.",
+      "Which products do Focus Legacy groups work on in Meghalaya?"
+     ],
+     "rewritten": "Which block has the highest: Focus Legacy amount disbursed in North Garo Hills and West Jaintia Hills",
+     "sql": "/* metric:focus_legacy_total_disbursed ranking */ SELECT lgd_block AS block, CASE WHEN ABS((SUM(amount_disbursed))::numeric) >= 10000000 THEN ROUND((SUM(amount_disbursed))::numeric / 10000000, 2) ELSE TRIM_SCALE(ROUND((SUM(amount_disbursed))::numeric / 10000000, 7)) END AS total_disbursed_cr\nFROM curated.v_focus_legacy\nWHERE UPPER(lgd_district) IN ('NORTH GARO HILLS', 'WEST JAINTIA HILLS') AND lgd_block IS NOT NULL\nGROUP BY lgd_block ORDER BY (SUM(amount_disbursed)) DESC NULLS LAST LIMIT 3",
+     "truth": [
+      [
+       [
+        "RESUBELPARA",
+        21585000
+       ],
+       [
+        "LASKEIN",
+        21450000
+       ],
+       [
+        "BAJENGDOBA",
+        18150000
+       ],
+       [
+        "THADLASKEIN",
+        11505000
+       ],
+       [
+        "KHARKUTTA",
+        9735000
+       ],
+       [
+        "AMLAREM",
+        5445000
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K22-FocusLegacy",
+   "kind": "K22",
+   "scheme": "Focus Legacy",
+   "path": "voice",
+   "ok": true,
+   "turns": [
+    {
+     "q": "Focus Legacy amount disbursed by district in 2024-25",
+     "sent": "Focus Legacy amount disbursed by district in 2024-25",
+     "how": "rules",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Focus Legacy total disbursed by district, FY 2024-25 — 12 districts:\n\n- Eastern West Khasi Hills: ₹1.01 crore total disbursed\n- East Garo Hills: ₹0.65 crore total disbursed\n- East Jaintia Hills: ₹0.12 crore total disbursed\n- East Khasi Hills: ₹0.54 crore total disbursed\n- North Garo Hills: ₹2.77 crore total disbursed\n- Ri Bhoi: ₹0.45 crore total disbursed\n- South Garo Hills: ₹0.58 crore total disbursed\n- South West Garo Hills: ₹0.91 crore total disbursed\n- South West Khasi Hills: ₹0.29 crore total disbursed\n- West Garo Hills: ₹3.30 crore total disbursed\n- West Jaintia Hills: ₹0.18 crore total ",
+     "chips": [
+      "How many producer groups were paid in Meghalaya, by district?",
+      "Show Focus Legacy payments by financial year in Meghalaya.",
+      "Which products do Focus Legacy groups work on in Meghalaya?"
+     ],
+     "rewritten": "How much money was disbursed under Focus Legacy by district in FY 2024-25?",
+     "sql": "/* metric:focus_legacy_total_disbursed breakdown */ SELECT lgd_district AS district, CASE WHEN ABS((SUM(amount_disbursed))::numeric) >= 10000000 THEN ROUND((SUM(amount_disbursed))::numeric / 10000000, 2) ELSE TRIM_SCALE(ROUND((SUM(amount_disbursed))::numeric / 10000000, 7)) END AS total_disbursed_cr\nFROM curated.v_focus_legacy\nWHERE year_key = 2024 AND lgd_district IS NOT NULL\nGROUP BY lgd_district ORDER BY lgd_district",
+     "truth": [
+      [
+       [
+        "WEST GARO HILLS",
+        32990000
+       ],
+       [
+        "NORTH GARO HILLS",
+        27730000
+       ],
+       [
+        "EASTERN WEST KHASI HILLS",
+        10050000
+       ],
+       [
+        "SOUTH WEST GARO HILLS",
+        9085000
+       ],
+       [
+        "WEST KHASI HILLS",
+        7020000
+       ],
+       [
+        "EAST GARO HILLS",
+        6470000
+       ]
+      ]
+     ]
+    },
+    {
+     "q": "top 3",
+     "sent": "top 3",
+     "how": "rules",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "12 results match in total; the top 3 are shown below.\n\nTop 3 districts, FY 2024-25 by total disbursed:\n\n- West Garo Hills: ₹3.30 crore total disbursed\n- North Garo Hills: ₹2.77 crore total disbursed\n- Eastern West Khasi Hills: ₹1.01 crore total disbursed",
+     "chips": [
+      "How many producer groups were paid in Meghalaya, by district?",
+      "Show Focus Legacy payments by financial year in Meghalaya.",
+      "Which products do Focus Legacy groups work on in Meghalaya?"
+     ],
+     "rewritten": "Top 3 districts: How much money was disbursed under Focus Legacy in FY 2024-25",
+     "sql": "/* metric:focus_legacy_total_disbursed ranking */ SELECT lgd_district AS district, CASE WHEN ABS((SUM(amount_disbursed))::numeric) >= 10000000 THEN ROUND((SUM(amount_disbursed))::numeric / 10000000, 2) ELSE TRIM_SCALE(ROUND((SUM(amount_disbursed))::numeric / 10000000, 7)) END AS total_disbursed_cr\nFROM curated.v_focus_legacy\nWHERE year_key = 2024 AND lgd_district IS NOT NULL\nGROUP BY lgd_district ORDER BY (SUM(amount_disbursed)) DESC NULLS LAST LIMIT 3",
+     "truth": [
+      [
+       [
+        "WEST GARO HILLS",
+        32990000
+       ],
+       [
+        "NORTH GARO HILLS",
+        27730000
+       ],
+       [
+        "EASTERN WEST KHASI HILLS",
+        10050000
+       ],
+       [
+        "SOUTH WEST GARO HILLS",
+        9085000
+       ],
+       [
+        "WEST KHASI HILLS",
+        7020000
+       ],
+       [
+        "EAST GARO HILLS",
+        6470000
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K22-FocusLegacy",
+   "kind": "K22",
+   "scheme": "Focus Legacy",
+   "path": "typed",
+   "ok": true,
+   "turns": [
+    {
+     "q": "Focus Legacy amount disbursed by district in 2024-25",
+     "sent": "Focus Legacy amount disbursed by district in 2024-25",
+     "how": "typed",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Focus Legacy total disbursed by district, FY 2024-25 — 12 districts:\n\n- Eastern West Khasi Hills: ₹1.01 crore total disbursed\n- East Garo Hills: ₹0.65 crore total disbursed\n- East Jaintia Hills: ₹0.12 crore total disbursed\n- East Khasi Hills: ₹0.54 crore total disbursed\n- North Garo Hills: ₹2.77 crore total disbursed\n- Ri Bhoi: ₹0.45 crore total disbursed\n- South Garo Hills: ₹0.58 crore total disbursed\n- South West Garo Hills: ₹0.91 crore total disbursed\n- South West Khasi Hills: ₹0.29 crore total disbursed\n- West Garo Hills: ₹3.30 crore total disbursed\n- West Jaintia Hills: ₹0.18 crore total ",
+     "chips": [
+      "How many producer groups were paid in Meghalaya, by district?",
+      "Show Focus Legacy payments by financial year in Meghalaya.",
+      "Which products do Focus Legacy groups work on in Meghalaya?"
+     ],
+     "rewritten": "How much money was disbursed under Focus Legacy by district in FY 2024-25?",
+     "sql": "/* metric:focus_legacy_total_disbursed breakdown */ SELECT lgd_district AS district, CASE WHEN ABS((SUM(amount_disbursed))::numeric) >= 10000000 THEN ROUND((SUM(amount_disbursed))::numeric / 10000000, 2) ELSE TRIM_SCALE(ROUND((SUM(amount_disbursed))::numeric / 10000000, 7)) END AS total_disbursed_cr\nFROM curated.v_focus_legacy\nWHERE year_key = 2024 AND lgd_district IS NOT NULL\nGROUP BY lgd_district ORDER BY lgd_district",
+     "truth": [
+      [
+       [
+        "WEST GARO HILLS",
+        32990000
+       ],
+       [
+        "NORTH GARO HILLS",
+        27730000
+       ],
+       [
+        "EASTERN WEST KHASI HILLS",
+        10050000
+       ],
+       [
+        "SOUTH WEST GARO HILLS",
+        9085000
+       ],
+       [
+        "WEST KHASI HILLS",
+        7020000
+       ],
+       [
+        "EAST GARO HILLS",
+        6470000
+       ]
+      ]
+     ]
+    },
+    {
+     "q": "top 3",
+     "sent": "top 3",
+     "how": "typed",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "12 results match in total; the top 3 are shown below.\n\nTop 3 districts, FY 2024-25 by total disbursed:\n\n- West Garo Hills: ₹3.30 crore total disbursed\n- North Garo Hills: ₹2.77 crore total disbursed\n- Eastern West Khasi Hills: ₹1.01 crore total disbursed",
+     "chips": [
+      "How many producer groups were paid in Meghalaya, by district?",
+      "Show Focus Legacy payments by financial year in Meghalaya.",
+      "Which products do Focus Legacy groups work on in Meghalaya?"
+     ],
+     "rewritten": "Top 3 districts: How much money was disbursed under Focus Legacy in FY 2024-25",
+     "sql": "/* metric:focus_legacy_total_disbursed ranking */ SELECT lgd_district AS district, CASE WHEN ABS((SUM(amount_disbursed))::numeric) >= 10000000 THEN ROUND((SUM(amount_disbursed))::numeric / 10000000, 2) ELSE TRIM_SCALE(ROUND((SUM(amount_disbursed))::numeric / 10000000, 7)) END AS total_disbursed_cr\nFROM curated.v_focus_legacy\nWHERE year_key = 2024 AND lgd_district IS NOT NULL\nGROUP BY lgd_district ORDER BY (SUM(amount_disbursed)) DESC NULLS LAST LIMIT 3",
+     "truth": [
+      [
+       [
+        "WEST GARO HILLS",
+        32990000
+       ],
+       [
+        "NORTH GARO HILLS",
+        27730000
+       ],
+       [
+        "EASTERN WEST KHASI HILLS",
+        10050000
+       ],
+       [
+        "SOUTH WEST GARO HILLS",
+        9085000
+       ],
+       [
+        "WEST KHASI HILLS",
+        7020000
+       ],
+       [
+        "EAST GARO HILLS",
+        6470000
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K20-CMElevate",
+   "kind": "K20",
+   "scheme": "CM Elevate",
+   "path": "voice",
+   "ok": true,
+   "turns": [
+    {
+     "q": "Compare CM Elevate applications in West Jaintia Hills and South West Garo Hills",
+     "sent": "Compare CM Elevate applications in West Jaintia Hills and South West Garo Hills",
+     "how": "rules",
+     "dataset_pick": "CM Elevate",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "South West Garo Hills is clearly higher than West Jaintia Hills on valid CM Elevate applications in West Jaintia Hills and South West Garo Hills district: 268 against 231, a difference of 37 (16.0% more).",
+     "chips": [
+      "How many CM Elevate applications are there, by scheme in Meghalaya?",
+      "Break that down by block within South West Garo Hills.",
+      "Show the verification status breakdown for CM Elevate in Meghalaya, by district?"
+     ],
+     "rewritten": "Compare CM Elevate (applications) applications in West Jaintia Hills and South West Garo Hills",
+     "sql": "SELECT lgd_district, COUNT(DISTINCT request_id) AS applications FROM curated.v_cm_elevate WHERE lgd_district IN ('WEST JAINTIA HILLS', 'SOUTH WEST GARO HILLS') AND data_verified = 'Valid' GROUP BY lgd_district ORDER BY lgd_district LIMIT 100",
+     "truth": [
+      [
+       [
+        "SOUTH WEST GARO HILLS",
+        268
+       ],
+       [
+        "WEST JAINTIA HILLS",
+        231
+       ]
+      ]
+     ]
+    },
+    {
+     "q": "break it down by block",
+     "sent": "break that down by block",
+     "how": "regroup",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Applications verified valid by block in 2 districts (CM Elevate):\n- **West Jaintia Hills** — Thadlaskein 95; Laskein 71; Amlarem 34; Namdong 20; Jowai-Municipal Board 11\n- **South West Garo Hills** — Zikzak 98; Rerapara 58; Purakhasia 58; Betasing 54",
+     "chips": [
+      "How many CM Elevate applications are there, by scheme in Meghalaya?",
+      "Break that down by village within Zikzak block.",
+      "Show the verification status breakdown for CM Elevate in Meghalaya, by block?"
+     ],
+     "rewritten": "CM Elevate (applications) applications in West Jaintia Hills and South West Garo Hills by block",
+     "sql": "/* metric:cm_elevate_applications_valid breakdown */ SELECT lgd_district AS district, lgd_block AS block, COUNT(DISTINCT request_id) FILTER (WHERE data_verified = 'Valid') AS applications_valid\nFROM curated.v_cm_elevate\nWHERE UPPER(lgd_district) IN ('WEST JAINTIA HILLS', 'SOUTH WEST GARO HILLS') AND lgd_block IS NOT NULL\nGROUP BY lgd_district, lgd_block ORDER BY array_position(ARRAY['WEST JAINTIA HILLS', 'SOUTH WEST GARO HILLS']::text[], UPPER(lgd_district)), applications_valid DESC NULLS LAST",
+     "truth": [
+      [
+       [
+        "ZIKZAK",
+        "SOUTH WEST GARO HILLS",
+        98
+       ],
+       [
+        "PURAKHASIA",
+        "SOUTH WEST GARO HILLS",
+        58
+       ],
+       [
+        "RERAPARA",
+        "SOUTH WEST GARO HILLS",
+        58
+       ],
+       [
+        "BETASING",
+        "SOUTH WEST GARO HILLS",
+        54
+       ],
+       [
+        "THADLASKEIN",
+        "WEST JAINTIA HILLS",
+        95
+       ],
+       [
+        "LASKEIN",
+        "WEST JAINTIA HILLS",
+        71
+       ]
+      ]
+     ]
+    },
+    {
+     "q": "which block has the most",
+     "sent": "which block has the most",
+     "how": "rules",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Zikzak has the most CM Elevate applications verified valid in West Jaintia Hills and South West Garo Hills district: 98, only just ahead of Thadlaskein (95). Laskein comes next, with 71.",
+     "chips": [
+      "How many CM Elevate applications are there, by scheme in Meghalaya?",
+      "Break that down by village within Zikzak block.",
+      "Show the verification status breakdown for CM Elevate in Meghalaya, by block?"
+     ],
+     "rewritten": "Which block has the highest: CM Elevate (applications) applications in West Jaintia Hills and South West Garo Hills",
+     "sql": "/* metric:cm_elevate_applications_valid ranking */ SELECT lgd_block AS block, COUNT(DISTINCT request_id) FILTER (WHERE data_verified = 'Valid') AS applications_valid\nFROM curated.v_cm_elevate\nWHERE UPPER(lgd_district) IN ('WEST JAINTIA HILLS', 'SOUTH WEST GARO HILLS') AND lgd_block IS NOT NULL\nGROUP BY lgd_block ORDER BY applications_valid DESC NULLS LAST LIMIT 3",
+     "truth": [
+      [
+       [
+        "ZIKZAK",
+        98
+       ],
+       [
+        "THADLASKEIN",
+        95
+       ],
+       [
+        "LASKEIN",
+        71
+       ],
+       [
+        "PURAKHASIA",
+        58
+       ],
+       [
+        "RERAPARA",
+        58
+       ],
+       [
+        "BETASING",
+        54
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K20-CMElevate",
+   "kind": "K20",
+   "scheme": "CM Elevate",
+   "path": "typed",
+   "ok": true,
+   "turns": [
+    {
+     "q": "Compare CM Elevate applications in West Jaintia Hills and South West Garo Hills",
+     "sent": "Compare CM Elevate applications in West Jaintia Hills and South West Garo Hills",
+     "how": "typed",
+     "dataset_pick": "CM Elevate",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "South West Garo Hills is clearly higher than West Jaintia Hills on valid CM Elevate applications in West Jaintia Hills and South West Garo Hills district: 268 against 231, a difference of 37 (16.0% more).",
+     "chips": [
+      "How many CM Elevate applications are there, by scheme in Meghalaya?",
+      "Break that down by block within South West Garo Hills.",
+      "Show the verification status breakdown for CM Elevate in Meghalaya, by district?"
+     ],
+     "rewritten": "Compare CM Elevate (applications) applications in West Jaintia Hills and South West Garo Hills",
+     "sql": "SELECT lgd_district, COUNT(DISTINCT request_id) AS applications FROM curated.v_cm_elevate WHERE lgd_district IN ('WEST JAINTIA HILLS', 'SOUTH WEST GARO HILLS') AND data_verified = 'Valid' GROUP BY lgd_district LIMIT 100",
+     "truth": [
+      [
+       [
+        "SOUTH WEST GARO HILLS",
+        268
+       ],
+       [
+        "WEST JAINTIA HILLS",
+        231
+       ]
+      ]
+     ]
+    },
+    {
+     "q": "break it down by block",
+     "sent": "break it down by block",
+     "how": "typed",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Applications verified valid by block in 2 districts (CM Elevate):\n- **West Jaintia Hills** — Thadlaskein 95; Laskein 71; Amlarem 34; Namdong 20; Jowai-Municipal Board 11\n- **South West Garo Hills** — Zikzak 98; Rerapara 58; Purakhasia 58; Betasing 54",
+     "chips": [
+      "How many CM Elevate applications are there, by scheme in Meghalaya?",
+      "Break that down by village within Zikzak block.",
+      "Show the verification status breakdown for CM Elevate in Meghalaya, by block?"
+     ],
+     "rewritten": "CM Elevate (applications) applications in West Jaintia Hills and South West Garo Hills by block",
+     "sql": "/* metric:cm_elevate_applications_valid breakdown */ SELECT lgd_district AS district, lgd_block AS block, COUNT(DISTINCT request_id) FILTER (WHERE data_verified = 'Valid') AS applications_valid\nFROM curated.v_cm_elevate\nWHERE UPPER(lgd_district) IN ('WEST JAINTIA HILLS', 'SOUTH WEST GARO HILLS') AND lgd_block IS NOT NULL\nGROUP BY lgd_district, lgd_block ORDER BY array_position(ARRAY['WEST JAINTIA HILLS', 'SOUTH WEST GARO HILLS']::text[], UPPER(lgd_district)), applications_valid DESC NULLS LAST",
+     "truth": [
+      [
+       [
+        "ZIKZAK",
+        "SOUTH WEST GARO HILLS",
+        98
+       ],
+       [
+        "PURAKHASIA",
+        "SOUTH WEST GARO HILLS",
+        58
+       ],
+       [
+        "RERAPARA",
+        "SOUTH WEST GARO HILLS",
+        58
+       ],
+       [
+        "BETASING",
+        "SOUTH WEST GARO HILLS",
+        54
+       ],
+       [
+        "THADLASKEIN",
+        "WEST JAINTIA HILLS",
+        95
+       ],
+       [
+        "LASKEIN",
+        "WEST JAINTIA HILLS",
+        71
+       ]
+      ]
+     ]
+    },
+    {
+     "q": "which block has the most",
+     "sent": "which block has the most",
+     "how": "typed",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Zikzak has the most CM Elevate applications verified valid in West Jaintia Hills and South West Garo Hills district: 98, only just ahead of Thadlaskein (95). Laskein comes next, with 71.",
+     "chips": [
+      "How many CM Elevate applications are there, by scheme in Meghalaya?",
+      "Break that down by village within Zikzak block.",
+      "Show the verification status breakdown for CM Elevate in Meghalaya, by block?"
+     ],
+     "rewritten": "Which block has the highest: CM Elevate (applications) applications in West Jaintia Hills and South West Garo Hills",
+     "sql": "/* metric:cm_elevate_applications_valid ranking */ SELECT lgd_block AS block, COUNT(DISTINCT request_id) FILTER (WHERE data_verified = 'Valid') AS applications_valid\nFROM curated.v_cm_elevate\nWHERE UPPER(lgd_district) IN ('WEST JAINTIA HILLS', 'SOUTH WEST GARO HILLS') AND lgd_block IS NOT NULL\nGROUP BY lgd_block ORDER BY applications_valid DESC NULLS LAST LIMIT 3",
+     "truth": [
+      [
+       [
+        "ZIKZAK",
+        98
+       ],
+       [
+        "THADLASKEIN",
+        95
+       ],
+       [
+        "LASKEIN",
+        71
+       ],
+       [
+        "PURAKHASIA",
+        58
+       ],
+       [
+        "RERAPARA",
+        58
+       ],
+       [
+        "BETASING",
+        54
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K20-CMElevateLegacy",
+   "kind": "K20",
+   "scheme": "CM Elevate Legacy",
+   "path": "voice",
+   "ok": true,
+   "turns": [
+    {
+     "q": "Compare CM Elevate Legacy total disbursed in South West Garo Hills and East Garo Hills",
+     "sent": "Compare CM Elevate Legacy total disbursed in South West Garo Hills and East Garo Hills",
+     "how": "rules",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "South West Garo Hills is clearly higher than East Garo Hills on CM Elevate Legacy total disbursed in South West Garo Hills and East Garo Hills district across all financial years: ₹6.12 crore against ₹4.49 crore, a difference of ₹1.63 crore (36.3% more).",
+     "chips": [
+      "How much of the CM Elevate Legacy loan money went through Bank vs LIFCOM in Meghalaya?",
+      "How many CM Elevate Legacy records are there, by scheme in Meghalaya?",
+      "What share of the sanctioned amount has been disbursed under CM Elevate Legacy in Meghalaya, by district?"
+     ],
+     "rewritten": null,
+     "sql": "/* metric:cm_elevate_disb_total_disbursed compare */ SELECT lgd_district AS district, CASE WHEN ABS((SUM(total_disbursement))::numeric) >= 10000000 THEN ROUND((SUM(total_disbursement))::numeric / 10000000, 2) ELSE TRIM_SCALE(ROUND((SUM(total_disbursement))::numeric / 10000000, 7)) END AS total_disbursed_cr\nFROM curated.v_cm_elevate_disbursement\nWHERE UPPER(lgd_district) IN ('SOUTH WEST GARO HILLS', 'EAST GARO HILLS') AND lgd_district IS NOT NULL\nGROUP BY lgd_district ORDER BY lgd_district",
+     "truth": [
+      [
+       [
+        "SOUTH WEST GARO HILLS",
+        61238092
+       ],
+       [
+        "EAST GARO HILLS",
+        44939067.8
+       ]
+      ]
+     ]
+    },
+    {
+     "q": "break it down by block",
+     "sent": "break that down by block",
+     "how": "regroup",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Total disbursed by block in 2 districts (CM Elevate Legacy, across all financial years):\n- **South West Garo Hills** — Zikzak ₹2.28 crore; Betasing ₹1.57 crore; Rerapara ₹1.43 crore; Purakhasia ₹0.85 crore\n- **East Garo Hills** — Songsak ₹2.13 crore; Dambo Rongjeng ₹1.64 crore; Samanda ₹0.73 crore; William Nagar-Municipal Board ₹0",
+     "chips": [
+      "How much of the CM Elevate Legacy loan money went through Bank vs LIFCOM in Meghalaya?",
+      "How many CM Elevate Legacy records are there, by scheme in Meghalaya?",
+      "What share of the sanctioned amount has been disbursed under CM Elevate Legacy in Meghalaya, by block?"
+     ],
+     "rewritten": "CM Elevate Legacy total disbursed in South West Garo Hills and East Garo Hills by block",
+     "sql": "/* metric:cm_elevate_disb_total_disbursed breakdown */ SELECT lgd_district AS district, lgd_block AS block, CASE WHEN ABS((SUM(total_disbursement))::numeric) >= 10000000 THEN ROUND((SUM(total_disbursement))::numeric / 10000000, 2) ELSE TRIM_SCALE(ROUND((SUM(total_disbursement))::numeric / 10000000, 7)) END AS total_disbursed_cr\nFROM curated.v_cm_elevate_disbursement\nWHERE UPPER(lgd_district) IN ('SOUTH WEST GARO HILLS', 'EAST GARO HILLS') AND lgd_block IS NOT NULL\nGROUP BY lgd_district, lgd_block ORDER BY array_position(ARRAY['SOUTH WEST GARO HILLS', 'EAST GARO HILLS']::text[], UPPER(lgd_distr",
+     "truth": [
+      [
+       [
+        "SONGSAK",
+        "EAST GARO HILLS",
+        21296258.25
+       ],
+       [
+        "DAMBO RONGJENG",
+        "EAST GARO HILLS",
+        16392702.55
+       ],
+       [
+        "SAMANDA",
+        "EAST GARO HILLS",
+        7250107
+       ],
+       [
+        "WILLIAM NAGAR-MUNICIPAL BOARD",
+        "EAST GARO HILLS",
+        0
+       ],
+       [
+        "ZIKZAK",
+        "SOUTH WEST GARO HILLS",
+        22797385.5
+       ],
+       [
+        "BETASING",
+        "SOUTH WEST GARO HILLS",
+        15690955
+       ]
+      ]
+     ]
+    },
+    {
+     "q": "which block has the most",
+     "sent": "which block has the most",
+     "how": "rules",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Zikzak has the most CM Elevate Legacy total disbursed in South West Garo Hills and East Garo Hills district across all financial years: ₹2.28 crore, only just ahead of Songsak (₹2.13 crore). Dambo Rongjeng comes next, at ₹1.64 crore.",
+     "chips": [
+      "How much of the CM Elevate Legacy loan money went through Bank vs LIFCOM in Meghalaya?",
+      "How many CM Elevate Legacy records are there, by scheme in Meghalaya?",
+      "What share of the sanctioned amount has been disbursed under CM Elevate Legacy in Meghalaya, by block?"
+     ],
+     "rewritten": "Which block has the highest: CM Elevate Legacy total disbursed in South West Garo Hills and East Garo Hills",
+     "sql": "/* metric:cm_elevate_disb_total_disbursed ranking */ SELECT lgd_block AS block, CASE WHEN ABS((SUM(total_disbursement))::numeric) >= 10000000 THEN ROUND((SUM(total_disbursement))::numeric / 10000000, 2) ELSE TRIM_SCALE(ROUND((SUM(total_disbursement))::numeric / 10000000, 7)) END AS total_disbursed_cr\nFROM curated.v_cm_elevate_disbursement\nWHERE UPPER(lgd_district) IN ('SOUTH WEST GARO HILLS', 'EAST GARO HILLS') AND lgd_block IS NOT NULL\nGROUP BY lgd_block ORDER BY (SUM(total_disbursement)) DESC NULLS LAST LIMIT 3",
+     "truth": [
+      [
+       [
+        "ZIKZAK",
+        22797385.5
+       ],
+       [
+        "SONGSAK",
+        21296258.25
+       ],
+       [
+        "DAMBO RONGJENG",
+        16392702.55
+       ],
+       [
+        "BETASING",
+        15690955
+       ],
+       [
+        "RERAPARA",
+        14271433.5
+       ],
+       [
+        "PURAKHASIA",
+        8478318
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K20-CMElevateLegacy",
+   "kind": "K20",
+   "scheme": "CM Elevate Legacy",
+   "path": "typed",
+   "ok": true,
+   "turns": [
+    {
+     "q": "Compare CM Elevate Legacy total disbursed in South West Garo Hills and East Garo Hills",
+     "sent": "Compare CM Elevate Legacy total disbursed in South West Garo Hills and East Garo Hills",
+     "how": "typed",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "South West Garo Hills is clearly higher than East Garo Hills on CM Elevate Legacy total disbursed in South West Garo Hills and East Garo Hills district across all financial years: ₹6.12 crore against ₹4.49 crore, a difference of ₹1.63 crore (36.3% more).",
+     "chips": [
+      "How much of the CM Elevate Legacy loan money went through Bank vs LIFCOM in Meghalaya?",
+      "How many CM Elevate Legacy records are there, by scheme in Meghalaya?",
+      "What share of the sanctioned amount has been disbursed under CM Elevate Legacy in Meghalaya, by district?"
+     ],
+     "rewritten": null,
+     "sql": "/* metric:cm_elevate_disb_total_disbursed compare */ SELECT lgd_district AS district, CASE WHEN ABS((SUM(total_disbursement))::numeric) >= 10000000 THEN ROUND((SUM(total_disbursement))::numeric / 10000000, 2) ELSE TRIM_SCALE(ROUND((SUM(total_disbursement))::numeric / 10000000, 7)) END AS total_disbursed_cr\nFROM curated.v_cm_elevate_disbursement\nWHERE UPPER(lgd_district) IN ('SOUTH WEST GARO HILLS', 'EAST GARO HILLS') AND lgd_district IS NOT NULL\nGROUP BY lgd_district ORDER BY lgd_district",
+     "truth": [
+      [
+       [
+        "SOUTH WEST GARO HILLS",
+        61238092
+       ],
+       [
+        "EAST GARO HILLS",
+        44939067.8
+       ]
+      ]
+     ]
+    },
+    {
+     "q": "break it down by block",
+     "sent": "break it down by block",
+     "how": "typed",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Total disbursed by block in 2 districts (CM Elevate Legacy, across all financial years):\n- **South West Garo Hills** — Zikzak ₹2.28 crore; Betasing ₹1.57 crore; Rerapara ₹1.43 crore; Purakhasia ₹0.85 crore\n- **East Garo Hills** — Songsak ₹2.13 crore; Dambo Rongjeng ₹1.64 crore; Samanda ₹0.73 crore; William Nagar-Municipal Board ₹0",
+     "chips": [
+      "How much of the CM Elevate Legacy loan money went through Bank vs LIFCOM in Meghalaya?",
+      "How many CM Elevate Legacy records are there, by scheme in Meghalaya?",
+      "What share of the sanctioned amount has been disbursed under CM Elevate Legacy in Meghalaya, by block?"
+     ],
+     "rewritten": "CM Elevate Legacy total disbursed in South West Garo Hills and East Garo Hills by block",
+     "sql": "/* metric:cm_elevate_disb_total_disbursed breakdown */ SELECT lgd_district AS district, lgd_block AS block, CASE WHEN ABS((SUM(total_disbursement))::numeric) >= 10000000 THEN ROUND((SUM(total_disbursement))::numeric / 10000000, 2) ELSE TRIM_SCALE(ROUND((SUM(total_disbursement))::numeric / 10000000, 7)) END AS total_disbursed_cr\nFROM curated.v_cm_elevate_disbursement\nWHERE UPPER(lgd_district) IN ('SOUTH WEST GARO HILLS', 'EAST GARO HILLS') AND lgd_block IS NOT NULL\nGROUP BY lgd_district, lgd_block ORDER BY array_position(ARRAY['SOUTH WEST GARO HILLS', 'EAST GARO HILLS']::text[], UPPER(lgd_distr",
+     "truth": [
+      [
+       [
+        "SONGSAK",
+        "EAST GARO HILLS",
+        21296258.25
+       ],
+       [
+        "DAMBO RONGJENG",
+        "EAST GARO HILLS",
+        16392702.55
+       ],
+       [
+        "SAMANDA",
+        "EAST GARO HILLS",
+        7250107
+       ],
+       [
+        "WILLIAM NAGAR-MUNICIPAL BOARD",
+        "EAST GARO HILLS",
+        0
+       ],
+       [
+        "ZIKZAK",
+        "SOUTH WEST GARO HILLS",
+        22797385.5
+       ],
+       [
+        "BETASING",
+        "SOUTH WEST GARO HILLS",
+        15690955
+       ]
+      ]
+     ]
+    },
+    {
+     "q": "which block has the most",
+     "sent": "which block has the most",
+     "how": "typed",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Zikzak has the most CM Elevate Legacy total disbursed in South West Garo Hills and East Garo Hills district across all financial years: ₹2.28 crore, only just ahead of Songsak (₹2.13 crore). Dambo Rongjeng comes next, at ₹1.64 crore.",
+     "chips": [
+      "How much of the CM Elevate Legacy loan money went through Bank vs LIFCOM in Meghalaya?",
+      "How many CM Elevate Legacy records are there, by scheme in Meghalaya?",
+      "What share of the sanctioned amount has been disbursed under CM Elevate Legacy in Meghalaya, by block?"
+     ],
+     "rewritten": "Which block has the highest: CM Elevate Legacy total disbursed in South West Garo Hills and East Garo Hills",
+     "sql": "/* metric:cm_elevate_disb_total_disbursed ranking */ SELECT lgd_block AS block, CASE WHEN ABS((SUM(total_disbursement))::numeric) >= 10000000 THEN ROUND((SUM(total_disbursement))::numeric / 10000000, 2) ELSE TRIM_SCALE(ROUND((SUM(total_disbursement))::numeric / 10000000, 7)) END AS total_disbursed_cr\nFROM curated.v_cm_elevate_disbursement\nWHERE UPPER(lgd_district) IN ('SOUTH WEST GARO HILLS', 'EAST GARO HILLS') AND lgd_block IS NOT NULL\nGROUP BY lgd_block ORDER BY (SUM(total_disbursement)) DESC NULLS LAST LIMIT 3",
+     "truth": [
+      [
+       [
+        "ZIKZAK",
+        22797385.5
+       ],
+       [
+        "SONGSAK",
+        21296258.25
+       ],
+       [
+        "DAMBO RONGJENG",
+        16392702.55
+       ],
+       [
+        "BETASING",
+        15690955
+       ],
+       [
+        "RERAPARA",
+        14271433.5
+       ],
+       [
+        "PURAKHASIA",
+        8478318
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K22-CMElevateLegacy",
+   "kind": "K22",
+   "scheme": "CM Elevate Legacy",
+   "path": "voice",
+   "ok": true,
+   "turns": [
+    {
+     "q": "CM Elevate Legacy total disbursed by district in 2024-25",
+     "sent": "CM Elevate Legacy total disbursed by district in 2024-25",
+     "how": "rules",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "East Khasi Hills stands out with ₹15.32 crore in CM Elevate Legacy total disbursed in FY 2024-25, well ahead of West Garo Hills (₹11.40 crore). That is about a quarter (25.6%) of the ₹59.82 crore across Meghalaya's twelve districts. East Jaintia Hills has the least, at ₹1.66 crore — East Khasi Hills has about nine times as much.\n- **East Khasi Hills** — ₹15.32 crore\n- **West Garo Hills** — ₹11.40 crore\n- **West Khasi Hills** — ₹5.03 crore\n- **Ri Bhoi** — ₹4.58 crore\n- **South West Garo Hills** — ₹3.91 crore\n- **East Garo Hills** — ₹3.81 crore\n- **West Jaintia Hills** — ₹3.60 crore\n- **Eastern ",
+     "chips": [
+      "How much of the CM Elevate Legacy loan money went through Bank vs LIFCOM in Meghalaya?",
+      "How many CM Elevate Legacy records are there, by scheme in Meghalaya?",
+      "What share of the sanctioned amount has been disbursed under CM Elevate Legacy in Meghalaya, by district?"
+     ],
+     "rewritten": "How much money was disbursed under CM Elevate Legacy by district in FY 2024-25?",
+     "sql": "/* metric:cm_elevate_disb_total_disbursed breakdown */ SELECT lgd_district AS district, CASE WHEN ABS((SUM(total_disbursement))::numeric) >= 10000000 THEN ROUND((SUM(total_disbursement))::numeric / 10000000, 2) ELSE TRIM_SCALE(ROUND((SUM(total_disbursement))::numeric / 10000000, 7)) END AS total_disbursed_cr\nFROM curated.v_cm_elevate_disbursement\nWHERE year_key = 2024 AND lgd_district IS NOT NULL\nGROUP BY lgd_district ORDER BY lgd_district",
+     "truth": [
+      [
+       [
+        "EAST KHASI HILLS",
+        153166420.3
+       ],
+       [
+        "WEST GARO HILLS",
+        114000963
+       ],
+       [
+        "WEST KHASI HILLS",
+        50273913.5
+       ],
+       [
+        "RI BHOI",
+        45836973.5
+       ],
+       [
+        "SOUTH WEST GARO HILLS",
+        39080483
+       ],
+       [
+        "EAST GARO HILLS",
+        38057719.25
+       ]
+      ]
+     ]
+    },
+    {
+     "q": "top 3",
+     "sent": "top 3",
+     "how": "rules",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "East Khasi Hills has the most CM Elevate Legacy total disbursed in FY 2024-25: ₹15.32 crore, well ahead of West Garo Hills (₹11.40 crore). That is about half (48.3%) of the ₹31.75 crore across all three districts. West Khasi Hills has the least, at ₹5.03 crore — East Khasi Hills has about three times as much.\n- **East Khasi Hills** — ₹15.32 crore\n- **West Garo Hills** — ₹11.40 crore\n- **West Khasi Hills** — ₹5.03 crore",
+     "chips": [
+      "How much of the CM Elevate Legacy loan money went through Bank vs LIFCOM in Meghalaya?",
+      "How many CM Elevate Legacy records are there, by scheme in Meghalaya?",
+      "What share of the sanctioned amount has been disbursed under CM Elevate Legacy in Meghalaya, by district?"
+     ],
+     "rewritten": "Top 3 districts: How much money was disbursed under CM Elevate Legacy in FY 2024-25",
+     "sql": "/* metric:cm_elevate_disb_total_disbursed ranking */ SELECT lgd_district AS district, CASE WHEN ABS((SUM(total_disbursement))::numeric) >= 10000000 THEN ROUND((SUM(total_disbursement))::numeric / 10000000, 2) ELSE TRIM_SCALE(ROUND((SUM(total_disbursement))::numeric / 10000000, 7)) END AS total_disbursed_cr\nFROM curated.v_cm_elevate_disbursement\nWHERE year_key = 2024 AND lgd_district IS NOT NULL\nGROUP BY lgd_district ORDER BY (SUM(total_disbursement)) DESC NULLS LAST LIMIT 3",
+     "truth": [
+      [
+       [
+        "EAST KHASI HILLS",
+        153166420.3
+       ],
+       [
+        "WEST GARO HILLS",
+        114000963
+       ],
+       [
+        "WEST KHASI HILLS",
+        50273913.5
+       ],
+       [
+        "RI BHOI",
+        45836973.5
+       ],
+       [
+        "SOUTH WEST GARO HILLS",
+        39080483
+       ],
+       [
+        "EAST GARO HILLS",
+        38057719.25
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K22-CMElevateLegacy",
+   "kind": "K22",
+   "scheme": "CM Elevate Legacy",
+   "path": "typed",
+   "ok": true,
+   "turns": [
+    {
+     "q": "CM Elevate Legacy total disbursed by district in 2024-25",
+     "sent": "CM Elevate Legacy total disbursed by district in 2024-25",
+     "how": "typed",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "East Khasi Hills stands out with ₹15.32 crore in CM Elevate Legacy total disbursed in FY 2024-25, well ahead of West Garo Hills (₹11.40 crore). That is about a quarter (25.6%) of the ₹59.82 crore across Meghalaya's twelve districts. East Jaintia Hills has the least, at ₹1.66 crore — East Khasi Hills has about nine times as much.\n- **East Khasi Hills** — ₹15.32 crore\n- **West Garo Hills** — ₹11.40 crore\n- **West Khasi Hills** — ₹5.03 crore\n- **Ri Bhoi** — ₹4.58 crore\n- **South West Garo Hills** — ₹3.91 crore\n- **East Garo Hills** — ₹3.81 crore\n- **West Jaintia Hills** — ₹3.60 crore\n- **Eastern ",
+     "chips": [
+      "How much of the CM Elevate Legacy loan money went through Bank vs LIFCOM in Meghalaya?",
+      "How many CM Elevate Legacy records are there, by scheme in Meghalaya?",
+      "What share of the sanctioned amount has been disbursed under CM Elevate Legacy in Meghalaya, by district?"
+     ],
+     "rewritten": "How much money was disbursed under CM Elevate Legacy by district in FY 2024-25?",
+     "sql": "/* metric:cm_elevate_disb_total_disbursed breakdown */ SELECT lgd_district AS district, CASE WHEN ABS((SUM(total_disbursement))::numeric) >= 10000000 THEN ROUND((SUM(total_disbursement))::numeric / 10000000, 2) ELSE TRIM_SCALE(ROUND((SUM(total_disbursement))::numeric / 10000000, 7)) END AS total_disbursed_cr\nFROM curated.v_cm_elevate_disbursement\nWHERE year_key = 2024 AND lgd_district IS NOT NULL\nGROUP BY lgd_district ORDER BY lgd_district",
+     "truth": [
+      [
+       [
+        "EAST KHASI HILLS",
+        153166420.3
+       ],
+       [
+        "WEST GARO HILLS",
+        114000963
+       ],
+       [
+        "WEST KHASI HILLS",
+        50273913.5
+       ],
+       [
+        "RI BHOI",
+        45836973.5
+       ],
+       [
+        "SOUTH WEST GARO HILLS",
+        39080483
+       ],
+       [
+        "EAST GARO HILLS",
+        38057719.25
+       ]
+      ]
+     ]
+    },
+    {
+     "q": "top 3",
+     "sent": "top 3",
+     "how": "typed",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "East Khasi Hills has the most CM Elevate Legacy total disbursed in FY 2024-25: ₹15.32 crore, well ahead of West Garo Hills (₹11.40 crore). That is about half (48.3%) of the ₹31.75 crore across all three districts. West Khasi Hills has the least, at ₹5.03 crore — East Khasi Hills has about three times as much.\n- **East Khasi Hills** — ₹15.32 crore\n- **West Garo Hills** — ₹11.40 crore\n- **West Khasi Hills** — ₹5.03 crore",
+     "chips": [
+      "How much of the CM Elevate Legacy loan money went through Bank vs LIFCOM in Meghalaya?",
+      "How many CM Elevate Legacy records are there, by scheme in Meghalaya?",
+      "What share of the sanctioned amount has been disbursed under CM Elevate Legacy in Meghalaya, by district?"
+     ],
+     "rewritten": "Top 3 districts: How much money was disbursed under CM Elevate Legacy in FY 2024-25",
+     "sql": "/* metric:cm_elevate_disb_total_disbursed ranking */ SELECT lgd_district AS district, CASE WHEN ABS((SUM(total_disbursement))::numeric) >= 10000000 THEN ROUND((SUM(total_disbursement))::numeric / 10000000, 2) ELSE TRIM_SCALE(ROUND((SUM(total_disbursement))::numeric / 10000000, 7)) END AS total_disbursed_cr\nFROM curated.v_cm_elevate_disbursement\nWHERE year_key = 2024 AND lgd_district IS NOT NULL\nGROUP BY lgd_district ORDER BY (SUM(total_disbursement)) DESC NULLS LAST LIMIT 3",
+     "truth": [
+      [
+       [
+        "EAST KHASI HILLS",
+        153166420.3
+       ],
+       [
+        "WEST GARO HILLS",
+        114000963
+       ],
+       [
+        "WEST KHASI HILLS",
+        50273913.5
+       ],
+       [
+        "RI BHOI",
+        45836973.5
+       ],
+       [
+        "SOUTH WEST GARO HILLS",
+        39080483
+       ],
+       [
+        "EAST GARO HILLS",
+        38057719.25
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K20-CMSS",
+   "kind": "K20",
+   "scheme": "CMSS",
+   "path": "voice",
+   "ok": true,
+   "turns": [
+    {
+     "q": "Compare CMSS students paid in East Garo Hills and West Khasi Hills",
+     "sent": "Compare CMSS students paid in East Garo Hills and West Khasi Hills",
+     "how": "rules",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Across the two districts, the CMSS scheme recorded 11,522 students paid. The highest count was 6,968 in West Khasi Hills, while the lowest was 4,554 in East Garo Hills. The data shows that West Khasi Hills had more students paid than East Garo Hills.",
+     "chips": [
+      "How many CMSS applications were received in Meghalaya, by district?",
+      "Break that down by block within 279.",
+      "How many CMSS students were paid in Meghalaya, by district?"
+     ],
+     "rewritten": null,
+     "sql": "SELECT district_lgd_code, lgd_district, COUNT(*) FILTER(WHERE is_disbursed) AS students_paid, COUNT(*) AS total_applications FROM curated.v_cmss WHERE lgd_district IN ('EAST GARO HILLS', 'WEST KHASI HILLS') GROUP BY district_lgd_code, lgd_district ORDER BY district_lgd_code LIMIT 100",
+     "truth": [
+      [
+       [
+        "WEST KHASI HILLS",
+        6968
+       ],
+       [
+        "EAST GARO HILLS",
+        4554
+       ]
+      ]
+     ]
+    },
+    {
+     "q": "break it down by block",
+     "sent": "break that down by block",
+     "how": "regroup",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Students paid by block in 2 districts (CMSS, across all financial years):\n- **East Garo Hills** — Dambo Rongjeng 1,736; Samanda 1,535; Songsak 714; William Nagar-Municipal Board 569\n- **West Khasi Hills** — Nongstoin 2,057; Nongstoin-Town Committee 1,620; Mawshynrut 1,304; Rambrai 780; Ri Muliang 703; Shallang 504",
+     "chips": [
+      "How many CMSS applications were received in Meghalaya, by block?",
+      "Break that down by village within Nongstoin block."
+     ],
+     "rewritten": "CMSS students paid in East Garo Hills and West Khasi Hills by block",
+     "sql": "/* metric:cmss_students_paid breakdown */ SELECT lgd_district AS district, lgd_block AS block, COUNT(*) FILTER (WHERE is_disbursed) AS students_paid\nFROM curated.v_cmss\nWHERE UPPER(lgd_district) IN ('EAST GARO HILLS', 'WEST KHASI HILLS') AND lgd_block IS NOT NULL\nGROUP BY lgd_district, lgd_block ORDER BY array_position(ARRAY['EAST GARO HILLS', 'WEST KHASI HILLS']::text[], UPPER(lgd_district)), students_paid DESC NULLS LAST",
+     "truth": [
+      [
+       [
+        "DAMBO RONGJENG",
+        "EAST GARO HILLS",
+        1736
+       ],
+       [
+        "SAMANDA",
+        "EAST GARO HILLS",
+        1535
+       ],
+       [
+        "SONGSAK",
+        "EAST GARO HILLS",
+        714
+       ],
+       [
+        "WILLIAM NAGAR-MUNICIPAL BOARD",
+        "EAST GARO HILLS",
+        569
+       ],
+       [
+        "NONGSTOIN",
+        "WEST KHASI HILLS",
+        2057
+       ],
+       [
+        "NONGSTOIN-TOWN COMMITTEE",
+        "WEST KHASI HILLS",
+        1620
+       ]
+      ]
+     ]
+    },
+    {
+     "q": "which block has the most",
+     "sent": "which block has the most",
+     "how": "rules",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Nongstoin has the most CMSS students paid in East Garo Hills and West Khasi Hills district across all financial years: 2,057, ahead of Dambo Rongjeng (1,736). Nongstoin-Town Committee comes next, with 1,620.",
+     "chips": [
+      "How many CMSS applications were received in Meghalaya, by block?",
+      "Break that down by village within Nongstoin block."
+     ],
+     "rewritten": "Which block has the highest: CMSS students paid in East Garo Hills and West Khasi Hills",
+     "sql": "/* metric:cmss_students_paid ranking */ SELECT lgd_block AS block, COUNT(*) FILTER (WHERE is_disbursed) AS students_paid\nFROM curated.v_cmss\nWHERE UPPER(lgd_district) IN ('EAST GARO HILLS', 'WEST KHASI HILLS') AND lgd_block IS NOT NULL\nGROUP BY lgd_block ORDER BY students_paid DESC NULLS LAST LIMIT 3",
+     "truth": [
+      [
+       [
+        "NONGSTOIN",
+        2057
+       ],
+       [
+        "DAMBO RONGJENG",
+        1736
+       ],
+       [
+        "NONGSTOIN-TOWN COMMITTEE",
+        1620
+       ],
+       [
+        "SAMANDA",
+        1535
+       ],
+       [
+        "MAWSHYNRUT",
+        1304
+       ],
+       [
+        "RAMBRAI",
+        780
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K20-CMSS",
+   "kind": "K20",
+   "scheme": "CMSS",
+   "path": "typed",
+   "ok": true,
+   "turns": [
+    {
+     "q": "Compare CMSS students paid in East Garo Hills and West Khasi Hills",
+     "sent": "Compare CMSS students paid in East Garo Hills and West Khasi Hills",
+     "how": "typed",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Across the two districts, the CMSS scheme recorded 11,522 students paid. The highest count was 6,968 in West Khasi Hills, while the lowest was 4,554 in East Garo Hills. The data shows that West Khasi Hills had more students paid than East Garo Hills.",
+     "chips": [
+      "How many CMSS applications were received in Meghalaya, by district?",
+      "Break that down by block within 279.",
+      "How many CMSS students were paid in Meghalaya, by district?"
+     ],
+     "rewritten": null,
+     "sql": "SELECT district_lgd_code, lgd_district, COUNT(*) FILTER(WHERE is_disbursed) AS students_paid, COUNT(*) AS total_applications FROM curated.v_cmss WHERE lgd_district IN ('EAST GARO HILLS', 'WEST KHASI HILLS') GROUP BY district_lgd_code, lgd_district ORDER BY district_lgd_code LIMIT 100",
+     "truth": [
+      [
+       [
+        "WEST KHASI HILLS",
+        6968
+       ],
+       [
+        "EAST GARO HILLS",
+        4554
+       ]
+      ]
+     ]
+    },
+    {
+     "q": "break it down by block",
+     "sent": "break it down by block",
+     "how": "typed",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Students paid by block in 2 districts (CMSS, across all financial years):\n- **East Garo Hills** — Dambo Rongjeng 1,736; Samanda 1,535; Songsak 714; William Nagar-Municipal Board 569\n- **West Khasi Hills** — Nongstoin 2,057; Nongstoin-Town Committee 1,620; Mawshynrut 1,304; Rambrai 780; Ri Muliang 703; Shallang 504",
+     "chips": [
+      "How many CMSS applications were received in Meghalaya, by block?",
+      "Break that down by village within Nongstoin block."
+     ],
+     "rewritten": "CMSS students paid in East Garo Hills and West Khasi Hills by block",
+     "sql": "/* metric:cmss_students_paid breakdown */ SELECT lgd_district AS district, lgd_block AS block, COUNT(*) FILTER (WHERE is_disbursed) AS students_paid\nFROM curated.v_cmss\nWHERE UPPER(lgd_district) IN ('EAST GARO HILLS', 'WEST KHASI HILLS') AND lgd_block IS NOT NULL\nGROUP BY lgd_district, lgd_block ORDER BY array_position(ARRAY['EAST GARO HILLS', 'WEST KHASI HILLS']::text[], UPPER(lgd_district)), students_paid DESC NULLS LAST",
+     "truth": [
+      [
+       [
+        "DAMBO RONGJENG",
+        "EAST GARO HILLS",
+        1736
+       ],
+       [
+        "SAMANDA",
+        "EAST GARO HILLS",
+        1535
+       ],
+       [
+        "SONGSAK",
+        "EAST GARO HILLS",
+        714
+       ],
+       [
+        "WILLIAM NAGAR-MUNICIPAL BOARD",
+        "EAST GARO HILLS",
+        569
+       ],
+       [
+        "NONGSTOIN",
+        "WEST KHASI HILLS",
+        2057
+       ],
+       [
+        "NONGSTOIN-TOWN COMMITTEE",
+        "WEST KHASI HILLS",
+        1620
+       ]
+      ]
+     ]
+    },
+    {
+     "q": "which block has the most",
+     "sent": "which block has the most",
+     "how": "typed",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Nongstoin has the most CMSS students paid in East Garo Hills and West Khasi Hills district across all financial years: 2,057, ahead of Dambo Rongjeng (1,736). Nongstoin-Town Committee comes next, with 1,620.",
+     "chips": [
+      "How many CMSS applications were received in Meghalaya, by block?",
+      "Break that down by village within Nongstoin block."
+     ],
+     "rewritten": "Which block has the highest: CMSS students paid in East Garo Hills and West Khasi Hills",
+     "sql": "/* metric:cmss_students_paid ranking */ SELECT lgd_block AS block, COUNT(*) FILTER (WHERE is_disbursed) AS students_paid\nFROM curated.v_cmss\nWHERE UPPER(lgd_district) IN ('EAST GARO HILLS', 'WEST KHASI HILLS') AND lgd_block IS NOT NULL\nGROUP BY lgd_block ORDER BY students_paid DESC NULLS LAST LIMIT 3",
+     "truth": [
+      [
+       [
+        "NONGSTOIN",
+        2057
+       ],
+       [
+        "DAMBO RONGJENG",
+        1736
+       ],
+       [
+        "NONGSTOIN-TOWN COMMITTEE",
+        1620
+       ],
+       [
+        "SAMANDA",
+        1535
+       ],
+       [
+        "MAWSHYNRUT",
+        1304
+       ],
+       [
+        "RAMBRAI",
+        780
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K20-Homestay",
+   "kind": "K20",
+   "scheme": "Homestay",
+   "path": "voice",
+   "ok": false,
+   "turns": [
+    {
+     "q": "Compare Homestay applications in West Khasi Hills and South Garo Hills",
+     "sent": "Compare Homestay applications in West Khasi Hills and South Garo Hills",
+     "how": "rules",
+     "ok": false,
+     "fails": [
+      "[entity-resolution] row SOUTH GARO HILLS = 96 missing"
+     ],
+     "route": "data",
+     "answer": "Under Homestay, across all financial years in West Khasi Hills and South Garo Hills district, here are the 4 results:\n**Key points**\n- Applications: 221 in total, across 4 financial year shorts.\n- Spread over 2 districts.\n- Most in WEST KHASI HILLS: 125, across 2 financial year shorts.\n- Highest single financial year short: 71, at WEST KHASI HILLS / 2025-26.\n**Details**\n- WEST KHASI HILLS / 2025-26 — applications: 71\n- SOUTH GARO HILLS / 2025-26 — applications: 62\n- WEST KHASI HILLS / 2026-27 — applications: 54\n- SOUTH GARO HILLS / 2026-27 — applications: 34",
+     "chips": [
+      "How many Homestay applications were approved in Meghalaya, by district?",
+      "Break that down by block within West Khasi Hills.",
+      "How many Homestay applications were received in Meghalaya, by district?"
+     ],
+     "rewritten": null,
+     "sql": "SELECT lgd_district, financial_year_short, COUNT(*) AS applications \nFROM curated.v_homestay_api \nWHERE lgd_district IN ('WEST KHASI HILLS', 'SOUTH GARO HILLS') \nGROUP BY lgd_district, financial_year_short \nORDER BY financial_year_short, applications DESC NULLS LAST \nLIMIT 100",
+     "truth": [
+      [
+       [
+        "WEST KHASI HILLS",
+        125
+       ],
+       [
+        "SOUTH GARO HILLS",
+        96
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K20-Homestay",
+   "kind": "K20",
+   "scheme": "Homestay",
+   "path": "typed",
+   "ok": false,
+   "turns": [
+    {
+     "q": "Compare Homestay applications in West Khasi Hills and South Garo Hills",
+     "sent": "Compare Homestay applications in West Khasi Hills and South Garo Hills",
+     "how": "typed",
+     "ok": false,
+     "fails": [
+      "[entity-resolution] row SOUTH GARO HILLS = 96 missing"
+     ],
+     "route": "data",
+     "answer": "Under Homestay, across all financial years in West Khasi Hills and South Garo Hills district, here are the 4 results:\n**Key points**\n- Applications: 221 in total, across 4 financial year shorts.\n- Spread over 2 districts.\n- Most in WEST KHASI HILLS: 125, across 2 financial year shorts.\n- Highest single financial year short: 71, at WEST KHASI HILLS / 2025-26.\n**Details**\n- WEST KHASI HILLS / 2025-26 — applications: 71\n- SOUTH GARO HILLS / 2025-26 — applications: 62\n- WEST KHASI HILLS / 2026-27 — applications: 54\n- SOUTH GARO HILLS / 2026-27 — applications: 34",
+     "chips": [
+      "How many Homestay applications were approved in Meghalaya, by district?",
+      "Break that down by block within West Khasi Hills.",
+      "How many Homestay applications were received in Meghalaya, by district?"
+     ],
+     "rewritten": null,
+     "sql": "SELECT lgd_district, financial_year_short, COUNT(*) AS applications \nFROM curated.v_homestay_api \nWHERE lgd_district IN ('WEST KHASI HILLS', 'SOUTH GARO HILLS') \nGROUP BY lgd_district, financial_year_short \nORDER BY financial_year_short, applications DESC NULLS LAST \nLIMIT 100",
+     "truth": [
+      [
+       [
+        "WEST KHASI HILLS",
+        125
+       ],
+       [
+        "SOUTH GARO HILLS",
+        96
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K22-Homestay",
+   "kind": "K22",
+   "scheme": "Homestay",
+   "path": "voice",
+   "ok": true,
+   "turns": [
+    {
+     "q": "Homestay applications by district in 2025-26",
+     "sent": "Homestay applications by district in 2025-26",
+     "how": "rules",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "East Khasi Hills has the most Homestay applications in FY 2025-26: 116, well ahead of West Khasi Hills (71). That is 23.0% of the 505 across Meghalaya's twelve districts. South West Garo Hills has the fewest, at 6 — East Khasi Hills has more than ten times as many.\n- **East Khasi Hills** — 116\n- **West Khasi Hills** — 71\n- **South Garo Hills** — 62\n- **South West Khasi Hills** — 44\n- **Ri Bhoi** — 37\n- **West Jaintia Hills** — 34\n- **North Garo Hills** — 33\n- **Eastern West Khasi Hills** — 32\n- **West Garo Hills** — 32\n- **East Jaintia Hills** — 31\n- **East Garo Hills** — 7\n- **South West Garo",
+     "chips": [
+      "How many Homestay applications were approved in Meghalaya, by district?",
+      "Break that down by block within East Khasi Hills.",
+      "How many Homestay applications were received in Meghalaya, by district?"
+     ],
+     "rewritten": "How many Homestay applications were there by district in FY 2025-26?",
+     "sql": "/* metric:homestay_api_applications breakdown */ SELECT lgd_district AS district, COUNT(*) AS applications\nFROM curated.v_homestay_api\nWHERE year_key = 2025 AND lgd_district IS NOT NULL\nGROUP BY lgd_district ORDER BY lgd_district",
+     "truth": [
+      [
+       [
+        "EAST KHASI HILLS",
+        116
+       ],
+       [
+        "WEST KHASI HILLS",
+        71
+       ],
+       [
+        "SOUTH GARO HILLS",
+        62
+       ],
+       [
+        "SOUTH WEST KHASI HILLS",
+        44
+       ],
+       [
+        "RI BHOI",
+        37
+       ],
+       [
+        "WEST JAINTIA HILLS",
+        34
+       ]
+      ]
+     ]
+    },
+    {
+     "q": "top 3",
+     "sent": "top 3",
+     "how": "rules",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "East Khasi Hills comes out on top with 116 Homestay applications in FY 2025-26, well ahead of West Khasi Hills (71). South Garo Hills is third, with 62.\n1. **East Khasi Hills** — 116\n2. **West Khasi Hills** — 71\n3. **South Garo Hills** — 62",
+     "chips": [
+      "How many Homestay applications were approved in Meghalaya, by district?",
+      "Break that down by block within East Khasi Hills.",
+      "How many Homestay applications were received in Meghalaya, by district?"
+     ],
+     "rewritten": "Top 3 districts: How many Homestay applications were there in FY 2025-26",
+     "sql": "/* metric:homestay_api_applications ranking */ SELECT lgd_district AS district, COUNT(*) AS applications\nFROM curated.v_homestay_api\nWHERE year_key = 2025 AND lgd_district IS NOT NULL\nGROUP BY lgd_district ORDER BY applications DESC NULLS LAST LIMIT 3",
+     "truth": [
+      [
+       [
+        "EAST KHASI HILLS",
+        116
+       ],
+       [
+        "WEST KHASI HILLS",
+        71
+       ],
+       [
+        "SOUTH GARO HILLS",
+        62
+       ],
+       [
+        "SOUTH WEST KHASI HILLS",
+        44
+       ],
+       [
+        "RI BHOI",
+        37
+       ],
+       [
+        "WEST JAINTIA HILLS",
+        34
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K22-Homestay",
+   "kind": "K22",
+   "scheme": "Homestay",
+   "path": "typed",
+   "ok": true,
+   "turns": [
+    {
+     "q": "Homestay applications by district in 2025-26",
+     "sent": "Homestay applications by district in 2025-26",
+     "how": "typed",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "East Khasi Hills has the most Homestay applications in FY 2025-26: 116, well ahead of West Khasi Hills (71). That is 23.0% of the 505 across Meghalaya's twelve districts. South West Garo Hills has the fewest, at 6 — East Khasi Hills has more than ten times as many.\n- **East Khasi Hills** — 116\n- **West Khasi Hills** — 71\n- **South Garo Hills** — 62\n- **South West Khasi Hills** — 44\n- **Ri Bhoi** — 37\n- **West Jaintia Hills** — 34\n- **North Garo Hills** — 33\n- **Eastern West Khasi Hills** — 32\n- **West Garo Hills** — 32\n- **East Jaintia Hills** — 31\n- **East Garo Hills** — 7\n- **South West Garo",
+     "chips": [
+      "How many Homestay applications were approved in Meghalaya, by district?",
+      "Break that down by block within East Khasi Hills.",
+      "How many Homestay applications were received in Meghalaya, by district?"
+     ],
+     "rewritten": "How many Homestay applications were there by district in FY 2025-26?",
+     "sql": "/* metric:homestay_api_applications breakdown */ SELECT lgd_district AS district, COUNT(*) AS applications\nFROM curated.v_homestay_api\nWHERE year_key = 2025 AND lgd_district IS NOT NULL\nGROUP BY lgd_district ORDER BY lgd_district",
+     "truth": [
+      [
+       [
+        "EAST KHASI HILLS",
+        116
+       ],
+       [
+        "WEST KHASI HILLS",
+        71
+       ],
+       [
+        "SOUTH GARO HILLS",
+        62
+       ],
+       [
+        "SOUTH WEST KHASI HILLS",
+        44
+       ],
+       [
+        "RI BHOI",
+        37
+       ],
+       [
+        "WEST JAINTIA HILLS",
+        34
+       ]
+      ]
+     ]
+    },
+    {
+     "q": "top 3",
+     "sent": "top 3",
+     "how": "typed",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "East Khasi Hills comes out on top with 116 Homestay applications in FY 2025-26, well ahead of West Khasi Hills (71). South Garo Hills is third, with 62.\n1. **East Khasi Hills** — 116\n2. **West Khasi Hills** — 71\n3. **South Garo Hills** — 62",
+     "chips": [
+      "How many Homestay applications were approved in Meghalaya, by district?",
+      "Break that down by block within East Khasi Hills.",
+      "How many Homestay applications were received in Meghalaya, by district?"
+     ],
+     "rewritten": "Top 3 districts: How many Homestay applications were there in FY 2025-26",
+     "sql": "/* metric:homestay_api_applications ranking */ SELECT lgd_district AS district, COUNT(*) AS applications\nFROM curated.v_homestay_api\nWHERE year_key = 2025 AND lgd_district IS NOT NULL\nGROUP BY lgd_district ORDER BY applications DESC NULLS LAST LIMIT 3",
+     "truth": [
+      [
+       [
+        "EAST KHASI HILLS",
+        116
+       ],
+       [
+        "WEST KHASI HILLS",
+        71
+       ],
+       [
+        "SOUTH GARO HILLS",
+        62
+       ],
+       [
+        "SOUTH WEST KHASI HILLS",
+        44
+       ],
+       [
+        "RI BHOI",
+        37
+       ],
+       [
+        "WEST JAINTIA HILLS",
+        34
+       ]
+      ]
+     ]
+    }
+   ]
+  }
+ ]
+}

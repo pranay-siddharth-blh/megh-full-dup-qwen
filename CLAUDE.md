@@ -21,6 +21,12 @@ gateway outage of 2–3 Nov). **Voice layer updated 10–11 Nov 2026 (§0); `doc
   the block level (no ask-back); metric_catalog `_value_sql` money below a crore exact to the rupee (2 places of a
   crore had said Rs 6,30,000 as "Rs 6,00,000"); c16 `_c16_year_series`: "per / every / each financial year" (and
   "per financial" with year lost) = the year grouping, "across all districts" beside it = the whole state.
+- Second round (7b72bc2): c18 `_c18_edit_rank_in_place` ("what is the top block in Ri Bhoi" after a data answer = the
+  same measure ranked inside that district) + c14 keeps a frame-edit follow-up DATA; c16 one place listed twice = that
+  place, "X applications" + the catalogue's "X applications by district" = one measure, block ranking inside listed
+  districts; c18 frame reading of a block beats a same-name constituency (model down); pmay_g yields a block ranking
+  to the catalogue; compare verified for Homestay / CMSS / CM Elevate valid (bank K20). c03 resumes a no-measure
+  grouping after the scheme pick with the headline measure; c16 "<scheme> figure / numbers for <place>" = headline.
 - Engine (Full Duplex `megh/shaper.py`, backups `ops/backups_original/2026-11-16/shaper_*perms*`): a district + a lower
   level ("the blocks of X", "drill down into X", "by blockwise") = its breakdown, never "what about X block?"; a rank
   word keeps the question as said; "per financial" -> "per financial year"; "Meghalaya <MGNREGA-only measure>" ->

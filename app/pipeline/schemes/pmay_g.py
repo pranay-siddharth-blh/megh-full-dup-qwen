@@ -878,6 +878,12 @@ def _pmay_facts_query(question: str, schemes: list[str], resolved: dict,
         dim, ents = "state", ["MEGHALAYA"]
     if any(isinstance(e, (list, dict, set, tuple)) for e in ents) or len(ents) > 6:
         return None
+    _words = {w.strip("?.,:;!").lower() for w in (question or "").split()}
+    if dim == "district" and len(ents) > 1 and _words & {"block", "blocks"} and _words & {
+            "highest", "most", "top", "lowest", "least", "bottom", "maximum", "minimum"}:
+        # 2026-11-16 (permutation bank K20): "which block has the most" after the blocks of two districts is a block
+        # ranking inside them (the catalogue's), not this comparison of the districts again
+        return None
     if yks is not None and len(ents) > 1:
         return None          # places x years: the model path's grouped query
     metrics = _pmay_metrics(question, len(ents) > 1 or yks is not None)

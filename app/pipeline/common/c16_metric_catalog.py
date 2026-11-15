@@ -155,6 +155,8 @@ def _c16_filters(resolved: dict) -> "dict | None":
     for key in ("district", "block", "village_code", "assembly_constituency"):
         many = resolved.get(f"{key}_list")
         one = resolved.get(key)
+        if many and one not in (None, "") and isinstance(one, str)                 and {str(x).upper() for x in many} == {one.upper()}:
+            many = None                     # 2026-11-16 (model down): the rule resolver listed the one place twice
         if many and one not in (None, ""):
             return None
         if many:
@@ -245,7 +247,7 @@ def _c16_extra_words(question: str, schemes: "list[str]", entity_result: dict, t
     return extra
 
 
-_C16_EVERY = frozenset("per every each".split())
+_C16_EVERY = frozenset("per every each by".split())   # "by financial year across all districts" (the voice wording)
 _C16_FY = frozenset("financial fiscal".split())
 _C16_ALL_PLACES_LEADS = frozenset("across in over for throughout".split())
 _C16_AVERAGE = frozenset("average avg mean typical".split())
@@ -306,7 +308,10 @@ def _c16_shape(question: str, filters: dict) -> "dict | None":
     if filters.get("assembly_constituency") is not None and (ranking or lists or dims - {"year"}):
         return None
     if ranking:
-        if dims or lists:
+        # 2026-11-16 (permutation bank K20): "which block has the most" after the blocks of two listed districts =
+        # the blocks of those districts ranked (a district list with a block ranking); any other list declines
+        block_in_listed = lists == ["district"] and {_C16_DIM_WORDS[w] for w in low if w in _C16_DIM_WORDS} == {"block"}
+        if dims or (lists and not block_in_listed):
             return None
         named = [_C16_DIM_WORDS[w] for w in low if w in _C16_DIM_WORDS]
         which = _c16_which_group(q) if not named else None
@@ -413,6 +418,15 @@ def _metric_catalog_plan(question: str, schemes: "list[str]", entity_result: dic
         out.update(status="skip", reason="not one scheme")
         return out
     found = metric_catalog.match(question, schemes[0])
+    if found.status == "several":
+        # 2026-11-16 (permutation bank, model down): "CM Elevate applications by district" named both "CM Elevate
+        # Applications" and the catalogue's own "CM Elevate Applications by District" (the same count, grouped): not
+        # two measures. A measure whose key is another named one's plus "_by_<level>" is that one.
+        keys = {m.key for m in found.several}
+        base = [m for m in found.several
+                if not any(m.key == f"{k}_by_{lv}" for k in keys for lv in ("district", "block", "year", "village"))]
+        if len(base) == 1 and len(found.several) > 1:
+            found = metric_catalog.Match("one", base[0], found.spans, found.phrases)
     resolved0 = entity_result.get("resolved") or {}
     if found.status == "several" and resolved0.get("village_code") not in (None, "", [], ()) \
             and not resolved0.get("village_code_list") and not isinstance(resolved0.get("village_code"), list):
