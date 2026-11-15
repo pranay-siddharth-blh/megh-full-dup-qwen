@@ -796,6 +796,17 @@ async def answer_question_via_graph(question: str, session=None, scope=None) -> 
     """Same contract as pipeline.answer_question: the same result dict, the
     same ClarificationNeeded (question, options, rule, village_hint) for a
     pause, the same exceptions for the router to map to 503/504/5xx."""
+    # D-112: exact village-name reads are kept for this turn (the guardrail's
+    # place masking and the resolver ask the same names several times)
+    from app.entity_resolver import exact_village_turn, exact_village_turn_end
+    token = exact_village_turn()
+    try:
+        return await _answer_question_via_graph(question, session=session, scope=scope)
+    finally:
+        exact_village_turn_end(token)
+
+
+async def _answer_question_via_graph(question: str, session=None, scope=None) -> dict:
     rt = await _runtime()
     thread_id = session.session_id if session is not None else f"graph-{uuid.uuid4().hex[:16]}"
     config = {"configurable": {"thread_id": thread_id}, "recursion_limit": _RECURSION_LIMIT}

@@ -672,6 +672,8 @@ not recorded.*
     `_answer`) and sends Server-Sent Events: `step` (a graph node started, from `_observed`),
     `draft_reset` / `token` (the composer's text as the model writes it), then `done` with exactly
     the `/api/query` result, or `error` with the status `/api/query` would have raised.
+    (D-112, 2026-11-15: an `answer` event with the same result now comes before the bookkeeping,
+    and `done` after it.)
   - The composer streams only when a live client is bound (`turn_events`, a ContextVar). Every
     other caller (`/api/query`, tests, scripts, harnesses) makes the unchanged, non-streamed call.
   - **The streamed text is a draft, never the answer.** Number faithfulness, the strict retry,
@@ -1208,6 +1210,63 @@ not recorded.*
   is merged, this branch's mic still opens the live voice (its `onMic` is unchanged) while the toast already says the
   mic types.
 - **Status:** Active (frontend only).
+### D-112 — Streaming: the answer and its picture as soon as they are final, the waits off the path (2026-11-15)
+
+- **Context:** a stream audit (15 Nov) timed a typical data answer: first event ~0.4 s, rows 1.3–6.8 s, `done`
+  0.13–0.45 s after the rows; then the chat revealed the text word by word (~2 s) and only after that drew the
+  chart (it popped in and grew the bubble), whose entrance took 0.7 s + up to 0.45 s more. Ranked waits: (1) the
+  chart waited for the reveal on every answer, cache hits included; (2) the guardrail's village masking ran eight
+  scheme scans one after another, one uncached DB round trip each, twice per question (~1–2.5 s on the VPN); (3) the
+  SQL verifier's model call ran only after the plan check, the query and the row checks (p50 855 ms); (4) `done`
+  waited for the rolling summary's model call (every 4th turn) and the bookkeeping; (5) the voice stage held a ready
+  picture until the voice spoke or 2.5 s; (6) a strict retry blanked the draft; (7) every streamed token re-rendered
+  the whole App. The standard: faster and smoother, never a different figure.
+- **Decision:**
+  1. **Chat: the chart does not wait for the text** (`Messages.jsx` `BotMessage eager`, the chat list only). The
+     answer's charts and tables are laid out when the answer arrives and draw at once (a 0.32 s rise); the whole
+     text is laid out underneath, invisible (`.md-stack` / `.md-ghost`), so the bubble has its final height from the
+     first frame and nothing moves while the words are revealed over it; sources, SQL and follow-ups keep their
+     place hidden and fade in when the text is done. The reveal lives in its own component (`AnswerText`), so a tick
+     never re-renders a chart; `Analytics` and `Markdown` are memoised. A chart frame shows faint axes until drawn
+     (`.chw:not(.drawn)`); the Chart.js entrance is 520 ms + ≤ 260 ms stagger (`chartTheme.CHART_ENTRY`). A fresh
+     answer taller than the view starts at its question instead of jumping to the end of the table. The voice
+     stage's answer card keeps the old behaviour (its items are revealed as the voice names them).
+  2. **Village masking** (`c14 _mask_village_names`, `entity_resolver.village_names_exact`): the eight scans run at
+     once (the first scheme in the old order still wins); the raw and the rewritten question are masked once when
+     they are the same text; identical concurrent reads share one round trip; answers are kept for the turn
+     (`exact_village_turn`, bound by `pipeline_graph.answer_question_via_graph`) and, in the running app only
+     (`EXACT_VILLAGE_PROCESS_CACHE`, set by `main.lifespan`), for 30 min, cleared by the catalogue reload. A failed
+     read is never kept. Off in a test process, which swaps the data under the same reader.
+  3. **An `answer` event** (`routers/query.py` `_emit_answer`): the stream sends `{type:'answer', result}` when the
+     result is final (after the restyle, the continue offer and a cache hit's context fold), BEFORE the bookkeeping
+     (history, durable save, audit, cache writes); `done` follows with the same result, unchanged. A clarification
+     pause too. The page shows the answer on `answer` and keeps the turn running until `done` (turn lock, revision
+     guard CTX-01 / KI-028, caches written only at the end: all unchanged); the voice's tool_result follows the shown
+     answer and its queue waits for `done`. A client that leaves after `answer` no longer cancels the turn (the
+     answer was delivered, its bookkeeping completes); before it, Stop cancels as before. On the stream, the rolling
+     summary's model call runs beside the answer (`context_manager.defer_summaries`): its prompt is built at the same
+     point from the same turns, the call is awaited before `session_sync.sync_out` inside the turn lock, so the next
+     turn sees the summary exactly as before; a stopped or failed turn cancels it; `/api/query` is unchanged.
+  4. **Voice stage:** the picture's frame (titles, axes, the map's outline) comes up with the answer, no hold; its
+     items still come in as the voice names them (`useCardReveal`). While the pipeline works the stage shows the
+     chat's live step under the title and in the orb's pill (one calm line, a breathing dot).
+  5. **SQL verifier beside the query** (`c11 _execute_one_attempt`): the call starts after the free guards, beside the
+     plan check, the query and the row checks (`_c11_checked_rows`); it judges the SQL as asked, never the rows, and
+     its inputs are fixed by then. Its verdict is read where it was read before, only once those passed; a check
+     that fails first cancels it. Same verdicts.
+  6. **Rendering:** the in-flight steps and draft live outside the App's message list (`liveTurn.js`,
+     `useSyncExternalStore`): a token re-renders the typing message only; the stage reads only the step label
+     (`useLiveSelect`). A `draft_reset` keeps the old draft on screen, dimmed ("Checking the answer"), until the
+     rewrite's first words replace it; the reveal resumes from the words the two share.
+- **Not done:** rows or chart specs are never sent before the answer is final (they are converted, renamed and
+  capped after `post_rows`); templated answers still stream only their opening line.
+- **Measured (2026-11-15, worktree `wt/stream-2026-11-15`):** chat fixture (headless Edge): chart drawing
+  2,098 → 0 ms after the answer arrives, settled 3,250 → 765 ms, bubble growth after arrival 966 → 0 px. Village
+  masking, 5 questions in process: 2,764 → 289 ms (first time), → 2 ms repeated (app cache). Live (`answer` vs
+  `done`, 16 questions): the answer ~50 ms earlier on an ordinary turn, 930 ms earlier on a summary turn. Verifier
+  overlap (5 model-SQL attempts): 110–750 ms of the query path now runs beside the verifier. No-model gold bank,
+  60 varied ids: 49/60 vs 47/60 for nomodel-14 on the same ids, 0 newly failing (the 11 failures are the same 503s).
+- **Status:** Active.
 
 ### D-109 — No-model coverage: more questions answered by the catalogue and rules alone (2026-11-14)
 

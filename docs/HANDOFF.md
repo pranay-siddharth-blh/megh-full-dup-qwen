@@ -3,6 +3,15 @@
 *For the next Claude session or account. Keep this short and overwrite it at the end of every
 significant session.*
 
+**2026-11-15 (streaming, D-112): branch `wt/stream-2026-11-15` (worktree `D:\megwt\stream`), NOT merged, NOT
+pushed.** The answer and its picture show as soon as they are final: an `answer` SSE event before the bookkeeping,
+charts drawn with (not after) the text reveal, the voice stage's frame up with the answer, the waits taken off the path
+(village masking, SQL verifier, rolling summary). No figure changes (no-model bank subset: 0 newly failing). Merge
+notes: `App.jsx` `runQuestion` / the scroll-follow effect and `Messages.jsx` `BotMessage` / `TypingMessage` changed;
+`wt/dictate` touches `onMic` and the composer CSS, `wt/frame` c01 / c14 ctx07 (this branch changed only c14
+`_mask_village_names` / `_guardrail_check`). Next: run the gold bank with the model ON on the merged tree; a real-mic
+check of the stage's step line and early frames.
+
 **2026-11-14 (evening): everything of the day is MERGED into `arch/step1-2026-11-14` (this checkout), NOT pushed.**
 Follow-ups by rule, cross-scheme roles as data (D-107, the entry below, now merged), guardrails (D-108), no-model
 coverage (D-109), UI smoothness. pytest 6,343 + the 4 known; scripts 14/14; frontend 180/180; no-model gold bank

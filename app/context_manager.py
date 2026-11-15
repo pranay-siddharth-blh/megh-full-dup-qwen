@@ -46,6 +46,8 @@ scope on every turn — this module only ever changes question TEXT and
 resolved-entity HINTS that feed the existing SQL-generation prompt; it never
 grants access to a query the current turn's own scope wouldn't already pass.
 """
+import asyncio
+import contextvars
 import logging
 import time
 from decimal import Decimal
@@ -1144,11 +1146,13 @@ async def maybe_update_summary(session: "Session | None") -> None:
     CONTEXT_SUMMARY_EVERY_N_TURNS turns. Never raises: a failed summary just
     means the conversation keeps running without an updated one (requirement
     9) — the caller doesn't need to check the return value."""
+    if _SUMMARY_LATER.get():
+        # a deferred call of an earlier part of this turn (answer_many) lands first,
+        # so the check below sees what it would have seen without the deferral
+        await finish_summaries(_SUMMARY_LATER.get())
     if session is None or not should_update_summary(session):
         return
     try:
-        from app import llm
-
         recent = [t.question for t in session.turns[-settings.CONTEXT_RECENT_TURNS:] if t.question]
         if not recent:
             return
@@ -1162,12 +1166,75 @@ async def maybe_update_summary(session: "Session | None") -> None:
             + "\n".join(f"- {q}" for q in recent)
             + "\n\nSummary:"
         )
+        turn_count = session.state.turn_count
+        later = _SUMMARY_LATER.get()
+        if later is not None:
+            # D-112: a streamed turn writes its summary beside the answer instead of
+            # before it; the router awaits it before the durable save (finish_summaries)
+            later.append(asyncio.get_running_loop().create_task(_write_summary(session, prompt, turn_count)))
+            return
+        await _write_summary(session, prompt, turn_count)
+    except Exception:  # noqa: BLE001 — requirement 9: continue without the new summary
+        logger.warning("context_manager: summary generation failed (non-fatal)", exc_info=True)
+
+
+# D-112 (streaming, 2026-11-15): while a streamed turn is answered, the rolling
+# summary's model call (~550 ms every CONTEXT_SUMMARY_EVERY_N_TURNS turns) runs
+# beside the answer instead of before it. The prompt is built at the same point as
+# before (same turns, same state); only the model call and the write move. The
+# router awaits the call before session_sync.sync_out, inside the turn's lock, so
+# the next turn (here or on another worker) sees the summary exactly as before; a
+# failed or stopped turn cancels it (routers.query._restore_turn_start).
+_SUMMARY_LATER: "contextvars.ContextVar[list | None]" = contextvars.ContextVar("summary_later", default=None)
+
+
+def defer_summaries() -> "tuple[contextvars.Token, list]":
+    """Make maybe_update_summary schedule its model call instead of awaiting it, for
+    the current turn. Returns (token, the list of scheduled calls)."""
+    pending: list = []
+    return _SUMMARY_LATER.set(pending), pending
+
+
+def end_defer(token: "contextvars.Token", pending: list) -> None:
+    """Stop deferring; a call nobody awaited (a failed / stopped turn) is cancelled."""
+    cancel_summaries(pending)
+    try:
+        _SUMMARY_LATER.reset(token)
+    except ValueError:
+        _SUMMARY_LATER.set(None)
+
+
+def cancel_summaries(pending: "list | None") -> None:
+    for t in list(pending or []):
+        if not t.done():
+            t.cancel()
+
+
+async def finish_summaries(pending: "list | None") -> None:
+    """Await the scheduled summary calls (never raises)."""
+    for t in list(pending or []):
+        try:
+            await t
+        except asyncio.CancelledError:
+            me = asyncio.current_task()
+            if me is not None and me.cancelling():
+                raise                    # this turn itself is being stopped
+            logger.warning("context_manager: deferred summary was cancelled (non-fatal)")
+        except Exception:  # noqa: BLE001 — a summary never costs the turn (_write_summary catches its own)
+            logger.warning("context_manager: deferred summary failed (non-fatal)", exc_info=True)
+    if pending:
+        pending.clear()
+
+
+async def _write_summary(session: "Session", prompt: str, turn_count: int) -> None:
+    try:
+        from app import llm
         out = await llm.call_rewriter(prompt, role="summary")
         out = out.strip().strip('"')
         if out and len(out) <= 800:
             session.summary = out
-            session.summary_turn_count = session.state.turn_count
-            logger.info("context_manager: summary updated (turn_count=%d)", session.state.turn_count)
+            session.summary_turn_count = turn_count
+            logger.info("context_manager: summary updated (turn_count=%d)", turn_count)
             # Not persisted here. The router's awaited session_sync.sync_out
             # carries session.summary in the same versioned write as the rest of
             # the turn. A separate fire-and-forget write from here could finish

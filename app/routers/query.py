@@ -95,14 +95,22 @@ async def query_stream(req: QueryRequest, request: Request,
       data: {"type": "step", "node": "entities"}     a graph node started
       data: {"type": "draft_reset"}                  the composer starts (again)
       data: {"type": "token", "text": "..."}         the composer's text, as written
+      data: {"type": "answer", "result": {...}}      the final answer, before the bookkeeping (D-112)
       data: {"type": "done", "result": {...}}        exactly what /api/query returns
       data: {"type": "error", "status": 503, "detail": "..."}   what it would raise
     A ": ping" comment every STREAM_PING_SECONDS keeps proxies from closing a
-    quiet stream. The draft is never the answer: `done` carries the checked
-    text. A client that disconnects (the Stop button) cancels the turn."""
+    quiet stream. The draft is never the answer: `answer` and `done` carry the
+    checked text. `answer` (D-112, 2026-11-15) is sent the moment the result is
+    final (after the restyle and the continue offer), before the turn's
+    bookkeeping (history, durable context, audit, cache writes); `done` follows
+    when that is finished, with the same result. A client shows the answer on
+    `answer` and keeps the turn running until `done`. A client that disconnects
+    (the Stop button) cancels the turn; once `answer` was sent the turn is
+    finished instead (the answer was delivered, so its bookkeeping completes)."""
     if not req.question or not req.question.strip():
         raise HTTPException(400, "question must not be empty")
     queue: asyncio.Queue = asyncio.Queue()
+    answered = [False]          # an `answer` frame went out to the client
 
     async def run() -> None:
         token = turn_events.bind(queue.put_nowait)
@@ -131,17 +139,26 @@ async def query_stream(req: QueryRequest, request: Request,
                         break
                     yield ": ping\n\n"
                     continue
+                if ev.get("type") == "answer":
+                    answered[0] = True      # before the yield: a client may leave while it is suspended there
                 yield "data: " + json.dumps(jsonable_encoder(ev), ensure_ascii=False) + "\n\n"
                 if ev.get("type") in ("done", "error"):
                     break
         finally:
             if not task.done():
-                # The client went away (Stop, closed tab): nothing will read
-                # this answer, so stop spending model and DB time on it.
-                task.cancel()
-                logger.info("query stream: client disconnected, turn cancelled")
-                # "continue" afterwards answers it (conversation_layer).
-                _remember_stopped(req, request, scope)
+                if answered[0]:
+                    # The answer was delivered: the turn's bookkeeping finishes in the
+                    # background (history, durable context, cache), as if the client stayed.
+                    _BACKGROUND.add(task)
+                    task.add_done_callback(_BACKGROUND.discard)
+                    logger.info("query stream: client left after the answer; the turn completes")
+                else:
+                    # The client went away (Stop, closed tab): nothing will read
+                    # this answer, so stop spending model and DB time on it.
+                    task.cancel()
+                    logger.info("query stream: client disconnected, turn cancelled")
+                    # "continue" afterwards answers it (conversation_layer).
+                    _remember_stopped(req, request, scope)
 
     return StreamingResponse(events(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
@@ -178,6 +195,17 @@ def _session_id(req: QueryRequest, request: Request, scope: auth.UserScope) -> s
 
 
 _BACKGROUND: set = set()   # strong refs to fire-and-forget tasks
+
+
+def _emit_answer(result: dict) -> None:
+    """D-112: the stream's `answer` event, the final result as it stands now (encoded
+    here, so later bookkeeping cannot change what was sent). No-op without a stream."""
+    if not turn_events.streaming():
+        return
+    try:
+        turn_events.emit({"type": "answer", "result": jsonable_encoder(result)})
+    except Exception:  # noqa: BLE001 — the `done` event still carries the answer
+        logger.debug("answer event not sent", exc_info=True)
 
 
 def _remember_stopped(req: QueryRequest, request: Request, scope: auth.UserScope) -> None:
@@ -233,7 +261,16 @@ async def _answer(req: QueryRequest, request: Request, scope: auth.UserScope) ->
     entry[1] += 1
     try:
         async with entry[0]:
-            return await _answer_turn(req, request, scope)
+            # D-112: on the stream, the rolling summary's model call runs beside the
+            # answer and is awaited before the durable save (context_manager.defer_summaries)
+            deferred = context_manager.defer_summaries() if turn_events.streaming() else None
+            if deferred is not None:
+                request.state.megh_summaries = deferred[1]
+            try:
+                return await _answer_turn(req, request, scope)
+            finally:
+                if deferred is not None:
+                    context_manager.end_defer(*deferred)
     finally:
         entry[1] -= 1
         if entry[1] <= 0 and _TURN_LOCKS.get(sid) is entry:
@@ -266,6 +303,8 @@ def _restore_turn_start(request: Request, session) -> None:
     worker kept a half-changed copy (the pending clarification already cleared,
     say), and the next reply behaved differently on this worker than on the
     others (CTX-10, 2026-10-29). The revision is left alone: nothing was saved."""
+    # D-112: a summary still being written for this turn must not land afterwards
+    context_manager.cancel_summaries(getattr(request.state, "megh_summaries", None))
     start = getattr(request.state, "megh_turn_start", None)
     if not start or session is None:
         return
@@ -420,6 +459,7 @@ async def _answer_turn(req: QueryRequest, request: Request, scope: auth.UserScop
             # chip, a pause included: it returned before the offer was attached,
             # and the next message dropped the set-aside context (CTX-13).
             out = conversation_layer.attach_continue_offer(session, out)
+            _emit_answer(out)          # D-112: the pause is shown before its bookkeeping
             # A clarification pause is still a turn the user should see when they
             # reopen the thread — persist it durably (L2) exactly like an answered
             # turn, so the conversation appears in the sidebar and replays the
@@ -437,6 +477,7 @@ async def _answer_turn(req: QueryRequest, request: Request, scope: auth.UserScop
             turn_trace.finish(trace, out)
             # The pending clarification must reach whichever worker receives the
             # reply (KI-001): it is part of the durable snapshot.
+            await context_manager.finish_summaries(getattr(request.state, "megh_summaries", None))
             if durable_session:
                 await session_sync.sync_out(session, session_id, tenant_id=scope.tenant_id,
                                             user_id=scope.db_user_id, title=translated_from or req.question)
@@ -529,6 +570,9 @@ async def _answer_turn(req: QueryRequest, request: Request, scope: auth.UserScop
         await pipeline._update_context(session, question, result)
         if "scope_banner" not in result:
             pipeline._attach_scope_banner(result, session)
+    # D-112: the answer is final here; the stream shows it now, before the
+    # bookkeeping below (`done` follows with the same result)
+    _emit_answer(result)
     # L2 durable — conversation + turn + audit (fire-and-forget)
     conversation_store.persist_turn(
         tenant_id=scope.tenant_id, user_id=scope.db_user_id, session_id=session_id,
@@ -553,6 +597,8 @@ async def _answer_turn(req: QueryRequest, request: Request, scope: auth.UserScop
     # follow-up's antecedent, the summary. AWAITED, because the next request can
     # land on another worker immediately (session_sync.sync_out upserts the row
     # itself, so it no longer races persist_turn's insert).
+    # D-112: a streamed turn's summary call ran beside the answer; it lands first.
+    await context_manager.finish_summaries(getattr(request.state, "megh_summaries", None))
     if durable_session:
         await session_sync.sync_out(session, session_id, tenant_id=scope.tenant_id,
                                     user_id=scope.db_user_id, title=translated_from or req.question)

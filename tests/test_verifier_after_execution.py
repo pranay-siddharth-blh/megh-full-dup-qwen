@@ -4,7 +4,13 @@ _execute_one_attempt used to ask the verifier before the query touched the
 database. Now: the free code guards, then the query runs on the read-only pool
 (a Postgres error goes to repair with no model call), then the result checks,
 then the verifier on the SQL. It is not shown the rows: a result-shape check
-by the 30B wrongly flagged 23 of 57 correct queries (prompt_builder.build_verify_prompt)."""
+by the 30B wrongly flagged 23 of 57 correct queries (prompt_builder.build_verify_prompt).
+
+D-112 (2026-11-15): the verifier CALL now starts beside the plan check and the query (it
+never sees the rows, and its inputs are fixed by then); its VERDICT is still read only after
+the query and the result checks passed, and a failed check cancels the call. These stubs never
+wait, so the order below is unchanged; the overlap itself is tested in
+tests/test_streaming_2026_11_15.py."""
 import asyncio
 import json
 

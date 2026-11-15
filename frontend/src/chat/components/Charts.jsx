@@ -496,6 +496,8 @@ function ChartCanvas({ build, deps, zoom = false, label = '' }) {
     let chart;
     try { chart = new Chart(ref.current, build()); } catch (e) { console.error('Chart init failed:', e); }
     chartRef.current = chart || null;
+    // D-112: the frame's placeholder axes (chat.css .chw:not(.drawn)) give way to the chart
+    if (chart && ref.current.parentElement) ref.current.parentElement.classList.add('drawn');
     // The drawn chart, readable from the canvas (the headless UI checks assert on
     // its labels and series; not a global).
     if (ref.current) ref.current.__chart = chart || null;

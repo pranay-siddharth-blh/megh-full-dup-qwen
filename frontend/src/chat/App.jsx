@@ -34,6 +34,7 @@ import { plainText } from './components/Markdown.jsx';
 import { copyText } from './components/Messages.jsx';
 import { IS_MAC, SHORTCUTS, enterSends, isComposing, isTyping, keyLabel, matches } from './shortcuts.js';
 import { WelcomeCard } from './components/WelcomeCard.jsx';
+import { endLive, getLive, patchLive, sameResult, startLive } from './liveTurn.js';
 
 // K-10 (audit 2026-10-29): the server refuses a question over 2,000 characters
 // (settings.MAX_QUESTION_CHARS, imported from constants.js); the box stops there
@@ -400,23 +401,47 @@ export default function App() {
     followRef.current = true;                 // the officer just asked: show it
     waitingRef.current = null;                // a new question replaces any waiting one
     const typingId = nextId();
+    // D-112: the in-flight steps and draft live in liveTurn.js; the list holds a placeholder
+    startLive(typingId);
     setMessages((m) => [
       ...m,
       ...(addUser ? [{ id: nextId(), time: nowTime(), at: new Date().toISOString(), kind: 'user', text: q }] : []),
-      { id: typingId, kind: 'typing', steps: [], draft: '' },
+      { id: typingId, kind: 'typing' },
     ]);
-    const patchTyping = (fn) => setMessages((m) => m.map((x) => (x.id === typingId ? { ...x, ...fn(x) } : x)));
     // X-10 (audit 2026-10-29): tokens are added once per animation frame, not one
-    // state update (and re-render) per word
+    // state update (and re-render) per word. D-112: and they re-render the typing
+    // message only, not the App.
     let pending = '';
     let frame = 0;
-    const flush = () => { frame = 0; const t = pending; pending = ''; if (t) patchTyping((x) => ({ draft: x.draft + t })); };
+    // D-112: a draft_reset (the strict retry) keeps the old draft on screen, dimmed,
+    // until the rewrite's first words arrive and replace it; the reveal then resumes
+    // from the words the two share instead of the text vanishing
+    let replaceDraft = false;
+    const flush = () => {
+      frame = 0; const t = pending; pending = '';
+      if (!t) return;
+      if (replaceDraft) { replaceDraft = false; patchLive(typingId, () => ({ draft: t, stale: false })); }
+      else patchLive(typingId, (x) => ({ draft: x.draft + t }));
+    };
+    // D-112: the stream's `answer` event shows the final answer at once; `done`
+    // (the bookkeeping finished) follows with the same result and ends the turn
+    let shownId = null;
+    let shown = null;
+    const richMessage = (response, id = nextId()) => ({ id, time: nowTime(), at: new Date().toISOString(), kind: 'rich',
+      question: q, response, animate: true, streamKey: typingId, view });
     const onEvent = (ev) => {
-      if (ev.type === 'step') patchTyping((x) => ({ steps: [...x.steps, ev.node] }));
-      else if (ev.type === 'draft_reset') { pending = ''; patchTyping(() => ({ draft: '' })); }
-      else if (ev.type === 'token') {
+      if (ev.type === 'step') patchLive(typingId, (x) => ({ steps: [...x.steps, ev.node] }));
+      else if (ev.type === 'draft_reset') {
+        pending = '';
+        if (getLive(typingId).draft) { replaceDraft = true; patchLive(typingId, () => ({ stale: true })); }
+      } else if (ev.type === 'token') {
         pending += ev.text;
         if (!frame) frame = typeof requestAnimationFrame === 'function' ? requestAnimationFrame(flush) : setTimeout(flush, 16);
+      } else if (ev.type === 'answer' && ev.result && ev.result.answer && !shownId) {
+        pending = '';
+        shown = ev.result;
+        shownId = nextId();
+        setMessagesHere((m) => [...dropTyping(m), richMessage(ev.result, shownId)]);
       }
     };
     const stop = new AbortController();
@@ -429,12 +454,24 @@ export default function App() {
       // K-18 (audit 2026-10-29): a chip's text is already the app's English; translating
       // it again was slower, sometimes reworded it, and broke the "Continue" match
       const response = await streamNLPResponse(asked, english ? 'en' : lang, sessionRef.current, { skipCache, signal: stop.signal, onEvent, keepTurns });
-      setMessagesHere((m) => [...dropTyping(m), response.answer
-        ? { id: nextId(), time: nowTime(), at: new Date().toISOString(), kind: 'rich', question: q, response, animate: true, streamKey: typingId, view }
-        : { id: nextId(), time: nowTime(), at: new Date().toISOString(), kind: 'bot', retryQ: q, text: friendlyError(response.detail || '') }]);
+      if (shownId) {
+        // `done` carries the same result as `answer`; were it ever different, the final one wins
+        if (!sameResult(shown, response)) {
+          setMessagesHere((m) => m.map((x) => (x.id === shownId ? { ...x, response } : x)));
+        }
+      } else {
+        setMessagesHere((m) => [...dropTyping(m), response.answer
+          ? richMessage(response)
+          : { id: nextId(), time: nowTime(), at: new Date().toISOString(), kind: 'bot', retryQ: q, text: friendlyError(response.detail || '') }]);
+      }
       connBack();                             // an answer arrived: the connection is fine
     } catch (err) {
-      if (err instanceof ConnectionError) {
+      if (shownId) {
+        // The answer was already shown (D-112): it is final and checked. Stop, a dropped
+        // connection or a failed save after it leave it in place; the server completes
+        // the turn's bookkeeping once the answer has gone out.
+        if (!(err instanceof StoppedError)) console.warn('After the answer:', err && err.message);
+      } else if (err instanceof ConnectionError) {
         // Not an error with the question: the banner explains, and the
         // question is asked again by itself when the connection is back.
         const msgId = nextId();
@@ -456,6 +493,7 @@ export default function App() {
       }
     } finally {
       if (stopRef.current === stop) stopRef.current = null;
+      endLive(typingId);
       runningRef.current = false; setRunning(false);
       refocusComposer();
       // The turn is persisted server-side; re-read the history shortly after.
@@ -681,7 +719,27 @@ export default function App() {
   }, []);
   useEffect(() => {
     if (!messages.length) { setNewBelow(null); return; }
-    if (followRef.current) { scrollToEnd(false); setNewBelow(null); return; }
+    if (followRef.current) {
+      // D-112: a fresh answer arrives whole (its chart and table laid out at once). When
+      // the question and its answer are taller than the view, the view starts at the
+      // question, so the words are read as they appear, instead of jumping to the end
+      // of the table; the follow stops there (the arrow brings the end).
+      const last = messages[messages.length - 1];
+      const el = chatAreaRef.current;
+      const inner = chatInnerRef.current;
+      if (last.kind === 'rich' && last.animate && el && inner) {
+        const asked = inner.querySelectorAll('.msg.user');
+        const q = asked.length ? asked[asked.length - 1] : null;
+        const top = q ? el.scrollTop + q.getBoundingClientRect().top - el.getBoundingClientRect().top - 12 : 0;
+        if (q && el.scrollHeight - top > el.clientHeight) {
+          followRef.current = false;
+          el.scrollTop = Math.max(0, top);
+          setNewBelow(null);
+          return;
+        }
+      }
+      scrollToEnd(false); setNewBelow(null); return;
+    }
     const last = messages[messages.length - 1];
     setNewBelow(last.kind === 'typing' ? 'writing' : 'answer');
   }, [messages, scrollToEnd]);
@@ -895,7 +953,7 @@ export default function App() {
   const typeOnStage = useCallback((q) => { setInput(q); sendQueryRef.current(); }, []);
   const closeStage = useCallback(() => live.closeView(), [live]);
   const renderStageMessage = (m) => {
-    if (m.kind === 'typing') return <TypingMessage key={m.id} steps={m.steps} draft={m.draft} streamKey={m.id} />;
+    if (m.kind === 'typing') return <TypingMessage key={m.id} streamKey={m.id} />;
     if (m.kind === 'rich') {
       return <BotMessage key={m.id} id={m.id} question={m.question} response={m.response} time={m.time}
                          animate={m.animate} streamKey={m.streamKey} at={m.at} view={m.view}
@@ -1104,13 +1162,13 @@ export default function App() {
                   // Regenerate / Try again sit on the latest answer only: an
                   // older one would come back below newer turns, out of place.
                   const isLast = i === messages.length - 1 && !running;
-                  if (m.kind === 'typing') return <TypingMessage key={m.id} steps={m.steps} draft={m.draft} streamKey={m.id} />;
+                  if (m.kind === 'typing') return <TypingMessage key={m.id} streamKey={m.id} />;
                   if (m.kind === 'rich') {
                     return <BotMessage key={m.id} id={m.id} question={m.question} response={m.response} time={m.time}
                                        animate={m.animate} streamKey={m.streamKey} at={m.at} view={m.view}
                                        onAsk={ask} speakingId={speakingId} onSpeak={onSpeak}
                                        onRegenerate={isLast && m.question && !m.local ? () => rerun(m.id, m.question) : null}
-                                       sessionId={sessionId} />;
+                                       sessionId={sessionId} eager />;
                   }
                   if (m.kind === 'user') {
                     return <TextMessage key={m.id} id={m.id} role="user" text={m.text} time={m.time}
