@@ -164,3 +164,38 @@ test('the PDF chart cases: a missing financial year is a gap; a year line drawn 
   const pie = plan({ data: two }, 'for above one give me', 'pie').cards.find((c) => c.kind === 'donut');
   assert.ok(pie && pie.items.length === 2 && pie.note.includes('not a split'));
 });
+
+// 2026-11-16 visual audit (demo eve): nothing shown twice, nothing dropped
+test('a row that names its measure: the tile says it, and a second figure equal to the first is not a second tile', () => {
+  const data = [
+    { scheme: 'MGNREGA', measure: 'Person-days', value: 2161437, beneficiaries: 25935 },
+    { scheme: 'PMAY-G', measure: 'Houses sanctioned', value: 3862, beneficiaries: 3862 },
+    { scheme: 'Focus Legacy', measure: 'Producer Groups', value: 225, beneficiaries: 2076 },
+    { scheme: 'CMSS', measure: 'Applications', value: 2223, beneficiaries: 1955 },
+  ];
+  const p = plan({ data, route: 'data' }, "For Williamnagar constituency, give me every scheme's figure.");
+  const t = p.cards[0].items;
+  assert.equal(t.filter((x) => x.label === 'PMAY-G').length, 1);
+  assert.equal(t.find((x) => x.label === 'MGNREGA').sub, 'person-days');
+  assert.equal(t.find((x) => x.label === 'Focus Legacy').sub, 'producer groups');
+  assert.ok(t.every((x) => x.sub !== 'value'));
+  const seen = new Set(t.map((x) => `${x.label}=${x.value}`));
+  assert.equal(seen.size, t.length);
+});
+
+test('two schemes compared over the same districts: both are drawn, the map after their bars', () => {
+  const data = [
+    { district: 'East Garo Hills', scheme: 'Focus Plus', beneficiaries: 11379, amount_crore: 12.62 },
+    { district: 'South West Garo Hills', scheme: 'Focus Plus', beneficiaries: 15274, amount_crore: 16.64 },
+    { district: 'West Garo Hills', scheme: 'Focus Plus', beneficiaries: 35059, amount_crore: 39.16 },
+    { district: 'East Garo Hills', scheme: 'CM Elevate Legacy', beneficiaries: 199, amount_crore: 4.49 },
+    { district: 'South West Garo Hills', scheme: 'CM Elevate Legacy', beneficiaries: 461, amount_crore: 6.12 },
+    { district: 'West Garo Hills', scheme: 'CM Elevate Legacy', beneficiaries: 493, amount_crore: 14.72 },
+  ];
+  const p = plan({ data, route: 'data' }, 'Compare Focus Plus and CM Elevate Legacy in East Garo Hills, West Garo Hills and South West Garo Hills.');
+  assert.deepEqual(kinds(p), ['bars', 'bars', 'map']);
+  assert.ok(p.cards[0].title.startsWith('Focus Plus') && p.cards[1].title.startsWith('CM Elevate Legacy'));
+  // the same card drawn another way still replaces its twin (the map promoted: no second ranking of the same figures)
+  const m = plan({ data: data.slice(0, 3), route: 'data' }, 'Focus Plus beneficiaries in the Garo Hills', 'map');
+  assert.equal(m.cards.filter((c) => c.kind === 'map').length, 1);
+});
