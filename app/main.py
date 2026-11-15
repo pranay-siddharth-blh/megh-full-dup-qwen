@@ -209,6 +209,9 @@ app.include_router(feedback_router)
 # Full-duplex voice (2026-11-02): /ws/voice only; the pipeline is not touched (app/voice/__init__.py).
 from app.voice.relay import router as voice_router  # noqa: E402
 app.include_router(voice_router)
+# Dictation (D-111, 2026-11-15): /ws/dictate, the composer mic types the officer's words (app/dictation/).
+from app.dictation.router import router as dictate_router  # noqa: E402
+app.include_router(dictate_router)
 
 
 async def _privileged_view(authorization: str | None, x_metrics_token: str | None) -> bool:

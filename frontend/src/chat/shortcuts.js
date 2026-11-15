@@ -30,7 +30,7 @@ export const SHORTCUTS = [
   { id: 'copyLast', mod: true, shift: true, key: 'c', label: 'Copy the last answer', whileTyping: true },
   { id: 'regenerate', mod: true, shift: true, key: 'g', label: 'Regenerate the last answer', whileTyping: true },
   { id: 'download', mod: true, shift: true, key: 'd', label: 'Download chat (PDF / Excel)', whileTyping: true },
-  { id: 'mic', mod: true, macCtrl: true, key: 'm', label: 'Start / stop voice input', whileTyping: true },
+  { id: 'mic', mod: true, macCtrl: true, key: 'm', label: 'Dictate (speak to type)', whileTyping: true },
   // Works in the question box too: a plain text box has no bold, and the cursor
   // lives there nearly all the time.
   { id: 'sidebar', mod: true, key: 'b', label: 'Show / hide the sidebar', whileTyping: true },

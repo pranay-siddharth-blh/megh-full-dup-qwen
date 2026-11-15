@@ -650,7 +650,10 @@ async def call_asr(
     if settings.ASR_PROMPT:
         form["prompt"] = settings.ASR_PROMPT
 
-    async with _slot():
+    # The speech gate, not the LLM's _slot() (D-111): voice input never waits
+    # behind chat answers and never queues them.
+    from app import asr_gate
+    async with asr_gate.slot("upload", settings.MODEL_QUEUE_TIMEOUT_SECONDS):
 
         resp = await _client.post(
             f"{settings.ASR_BASE_URL.rstrip('/')}/audio/transcriptions",

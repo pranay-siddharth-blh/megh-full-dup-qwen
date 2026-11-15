@@ -1117,6 +1117,55 @@ not recorded.*
   results (a figure for one row of a table), and "define <measure>" when the documents hold no definition.
 - **Status:** Active.
 
+### D-111 — Dictation: the composer mic streams to /ws/dictate and types the words at the caret (2026-11-15)
+
+- **Context:** the composer mic opened the live voice; dictation (`useVoice.js`) ran only as its fallback, its live
+  text was invisible (the box shrunk to 1 px), it re-sent the WHOLE recording every 2 s (quadratic cost), appended
+  instead of inserting at the caret, and `/api/query/transcribe` held the LLM's concurrency slot (`llm._slot`).
+  The owner asked for dictation "as good as Claude's", sovereign (only our own models).
+- **Decision:**
+  1. **The mic = dictation** (title "Dictate (speak to type)", `aria-pressed`, Ctrl/Cmd+M; tap to start, tap / ✓ to
+     insert, ✕ / Esc to put the box back, Send = stop and send; no hold-to-talk). The live voice keeps its code
+     (`live.open()`); its button is the voice orb (another workstream), which calls `micLock.stopDictation()` first.
+     While the voice view is open Ctrl+M does nothing here (the stage's own M mutes).
+  2. **Protocol** `/ws/dictate` (`app/dictation/router.py`): `hello{token, lang}` within 5 s -> `ready{max_s,
+     partials}`; binary PCM16 16 kHz frames (the live voice's worklet, 80 ms); `stop` / `cancel`; server
+     `partial{seq, stable, tentative}` (whole text so far), `final{text, corrections, seconds[, ended]}`,
+     `no_speech`, `error{reason}`, `closed{reason}`. 4400 / 4401 / 4429 as `/ws/voice`.
+  3. **Server** (`app/dictation/`): a segmenter cuts at a pause >= 500 ms (energy on 20 ms pieces against the
+     room's floor) or at 12 s (at the quietest 20 ms of the last 3 s); each segment is heard by qwen3-asr (BatchEar,
+     primed with `ASR_PROMPT`, retried once); every sample is heard (D-019) except a voiceless tail under 1 s before
+     Stop (it always came back as the prompt echo). Live words: the open segment re-heard after 0.35 s of voice,
+     then every 1 s of audio, one request at a time. On stop, with two or more voiced segments and <= 45 s, the
+     whole recording is heard once more IN PARALLEL with the last segment and taken unless it lost a scheme,
+     district or year (`merge_ears`, Full Duplex `fdx/relisten.py`).
+  4. **Clean** (`clean.py`, no regex): guards (`asr_guard` no-speech / prompt echo; relisten's lone word over
+     long voice and too many letters for the time); fillers; spoken numbers (FY "2023-24", "5 lakh", "2.5 crore",
+     "₹5 lakh", "top 5", "100 days", "12%"; a number under ten with nothing to measure stays a word); the
+     mishearing table `data/dictation_hearing.yaml` (read ONLY by dictation: typed questions are unchanged); a
+     block / constituency name by sound, only just before "block" / "constituency" and only a clear winner;
+     scheme / district names in Megh's case; `spelling.normalise()` keeping only its scheme / district / block
+     corrections. Word changes go to the page as `corrections` (a subtle "heard 'reply' as Ri Bhoi" in the undo toast).
+  5. **Engine seam** `ears.py`: `BatchEar` (qwen3-asr, `DICTATE_ASR_*`, defaults = the `ASR_*` settings) and a
+     `StreamEar` (Kyutai) that ships DISABLED (`msgpack` is not in the venv); `DICTATE_PARTIALS=asr|kyutai|off`.
+  6. **Speech has its own gate** (`app/asr_gate.py`): `/ws/dictate` (`DICTATE_ASR_CONCURRENCY`) and
+     `/api/query/transcribe` (`ASR_MAX_CONCURRENCY`) never take the LLM's slots.
+  7. **Limits / privacy:** 120 s, 10 s idle, 60 hellos per address per minute, 40 sessions per worker, one per
+     user (newest wins), frames > 8 KB dropped; audio in memory only, `ASR_DEBUG_DIR` never applies, logs carry
+     counts and timings only.
+  8. **Page:** `useDictation.js` (socket + worklet; frames said while connecting are kept; falls back to
+     `useVoice.js` when the socket cannot be used), `dictation/machine.js` (pure reducer), `dictation/insert.js`
+     (caret / selection, spacing and capitals from the surrounding text, cancel restores exactly),
+     `dictation/micLock.js`, `components/DictationBar.jsx` (dot, timer, level, ✕, ✓; tentative words muted in a
+     mirror over the box, which stays visible). English only.
+- **Measured (15 Nov, real qwen3-asr, 240 spoken clips, 2 at a time, real time):** live run: facts kept 93.3%,
+  normalised WER 1.45%, scheme names 99.5%, FY 100%, first partial p50 0.42 s (p90 0.69), final p50 0.45 s
+  (p90 0.88). After the fixes the run itself found (block names by sound, "Repui", "Peep EMAYG"), re-scored
+  offline on the same recorded words (`--rescore`): facts 99.2%, WER 0.59%, schemes 100%, FY 100% — in-sample, so
+  optimistic; the two misses left are the ASR hearing "West Jaintia" as "East Jaintia".
+  `tests/accuracy/results/dictation_bank_qwen3-run1.json`.
+- **Status:** Active (worktree branch `wt/dictate-2026-11-15`). Open: KI-725 (limits), KI-726 (typed word rewrites).
+
 ### D-109 — No-model coverage: more questions answered by the catalogue and rules alone (2026-11-14)
 
 - **Context:** with the model gateway down (GPU crash, 14 Nov) the accuracy gold bank was run in "no-model mode"

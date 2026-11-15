@@ -6,6 +6,17 @@ gateway outage of 2–3 Nov). **Voice layer updated 10–11 Nov 2026 (§0); `doc
 
 ## 0. Current state of the live voice (10–11 Nov 2026) — read before touching anything voice
 
+### 0a''''. 15 Nov 2026 — Dictation (D-111, worktree branch `wt/dictate-2026-11-15`)
+- **The composer mic now DICTATES** (types the officer's words at the caret, the box stays visible); the live voice is
+  opened by the voice orb (another workstream; `live.open()` is unchanged, the orb calls `micLock.stopDictation()`).
+- Server `app/dictation/` (`/ws/dictate`: router, session, segmenter, ears, clean, numbers, words) + `app/asr_gate.py`
+  (speech never takes the LLM's `_slot()`; `/api/query/transcribe` moved too) + `data/dictation_hearing.yaml` (read
+  by dictation only). Page: `useDictation.js`, `dictation/{machine,insert,micLock}.js`, `components/DictationBar.jsx`;
+  `useVoice.js` stays as the fallback (no socket).
+- Tests: `tests/test_dictation_ws_2026_11_15.py`, `tests/test_dictation_clean_2026_11_15.py`,
+  `frontend/tests/dictation.test.js`; accuracy runner `tests/accuracy/dictation_bank.py` (240 spoken clips, real
+  qwen3-asr; `--rescore` re-scores a recorded run offline). Results in docs/TESTING.md §3; limits KI-725, KI-726.
+
 ### 0a'''. 14 Nov 2026 — THIS checkout is where work continues: Bitbucket merge + architecture round (read first)
 - **What this folder is:** `D:\meg one clone\meghoneai` = the team's Bitbucket Main (`blh2026/meghoneai`, 5c1deb1, 13 Nov:
   CMSS + Homestay = 8 schemes, D-099..D-102) merged with our voice / accuracy work. **We only pull; push is disabled on

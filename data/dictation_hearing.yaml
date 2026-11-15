@@ -1,0 +1,103 @@
+# How the speech model mishears Megh's words, for DICTATION only (D-111, 15 Nov 2026).
+#
+# Read by app/dictation/clean.py and NOTHING else: a typed question never goes through this table, so typing
+# behaves exactly as before. Ported from the voice work that tuned these on real microphones (10-12 Nov 2026):
+# D:\Full Duplex Architecture\megh\domain\voice_overlay.yaml (asr_fixes, term_fixes) and megh/adapter.py
+# (_DISTRICT_FIX); plus the misses of the 240-clip spoken bank ("Pep M A Y G", "Peep E M A Y G", "In reply,").
+#
+# No regular expressions (D-046). Each fix is word sequences:
+#   heard:  word sequences as the model writes them. Compared on letters and digits only, lower case, and a
+#           sequence also matches the same letters written together or apart: "c m l 8" matches "CML8",
+#           "C.M.L. 8" and "cml 8".
+#   slots:  one word from each list, in order; "" in a list makes that word optional
+#   to:     what is written instead (the case of the first letter follows the words replaced)
+#   kind:   scheme | place | term (shown to the officer as "heard 'x' -> y")
+#   when:   optional; a list of alternatives, any one is enough:
+#             prev: [words]   the word just before must be one of these
+#             next: [words]   the word just after must be one of these; "<end>" = nothing after or a , . ? ! ;
+#                             right after; "<year>" = a year / financial year next, or in / for / during + one
+# The longest match at a position wins. Adding a mishearing here needs no code change.
+
+fixes:
+  - to: CM Elevate
+    kind: scheme
+    heard: ["c m elevate", "c m l 8", "c m l eight", "c m l ate", "c m l ait", "see em l 8", "see em elevate",
+            "see m elevate", "seam elevate", "cm l evate", "c m levate", "cm elevator", "see em elevator"]
+
+  - to: MGNREGA
+    kind: scheme
+    heard: ["m g n r e g a", "mgn rega", "m n rega", "mnrega", "magnrega", "magna rega", "man rega", "man d rega",
+            "mandrega", "mandreka", "manrega", "manreka", "narega", "nrega", "en rega", "mgnreg a", "mgnr ega",
+            "mg nrega", "magnarega", "m g n rega"]
+
+  - to: PMAY-G
+    kind: scheme
+    heard: ["p m a y g", "pmay g", "p m a y dash g", "pm a y g"]
+    slots:
+      - [[pip, pep, pee, pea, peep, pe, p], ["e", ""], [em, m], [ay, eh, a], [why, wy, y], [gee, ji, g]]
+
+  - to: PMAY
+    kind: scheme
+    slots:
+      - [[pip, pep, pee, pea, peep, pe], ["e", ""], [em, m], [ay, eh, a], [why, wy, y]]
+
+  - to: person-days
+    kind: term
+    heard: ["person dies", "person dyes", "person daze", "persons days", "person days", "parson days", "person deys"]
+
+  - to: person-day
+    kind: term
+    heard: ["person day"]
+
+  - to: job cards
+    kind: term
+    heard: ["job cods", "job carts", "job guards", "job cords"]
+
+  - to: job card
+    kind: term
+    heard: ["job cod", "job cart", "job cord"]
+
+  - to: Ri Bhoi
+    kind: place
+    heard: ["ri bhoi", "ribhoi", "re boy", "re boi", "ree boy", "ree boi", "ree buy", "re buy", "ri boi",
+            "ree bhoi", "ri voi", "ri vohi", "ri vhoi", "rivoi", "ree voi", "ree vohi", "ri bhoy", "ri boy",
+            "re bhoi", "rib hoi", "ri bhai"]
+
+  # 15 Nov dictation bank: "In Ri Bhoi, give me ..." heard as "In Repui, ..." (a word that is no English word)
+  - to: Ri Bhoi
+    kind: place
+    heard: ["repui", "re pui", "ripui", "ri pui", "repoi", "ripoi"]
+    when:
+      - {prev: [in, for, of, from, and]}
+      - {next: [district, block, "<year>", "<end>"]}
+
+  # "Ri Bhoi" heard as "reply" (12 Nov fix round), only where a place stands: after in / for / of / from and
+  # before district / block, a year or the end ("PMAY-G houses in reply in 2022-23", "In reply, give me ...").
+  # "in reply to my question" is left alone.
+  - to: Ri Bhoi
+    kind: place
+    heard: ["reply"]
+    when:
+      - {prev: [in, for, of, from], next: [district, block, "<year>", "<end>"]}
+      - {next: [district]}
+
+  - to: Khasi
+    kind: place
+    heard: [cassie, kasi, kassi, khasie, kasee, kassie, khaasi]
+    when:
+      - {next: [hills, hill]}
+      - {prev: [east, west, north, south, eastern]}
+
+  - to: Garo
+    kind: place
+    heard: [garrow, garow, gareau, garro, gharo]
+    when:
+      - {next: [hills, hill]}
+      - {prev: [east, west, north, south]}
+
+  - to: Jaintia
+    kind: place
+    heard: [jaintiya, jayantia, jayanthia, jaintya, jayantiya]
+    when:
+      - {next: [hills, hill]}
+      - {prev: [east, west]}
