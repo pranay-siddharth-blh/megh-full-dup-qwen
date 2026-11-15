@@ -261,6 +261,21 @@ def test_w3_works_without_the_gazetteer(monkeypatch):
     assert out[1] == "PMAY-G houses completed in Ri Bhoi"
 
 
+@pytest.mark.parametrize("msg", ["in mawlai", "what about Umsning?", "and Tura?"])
+def test_w3_a_name_of_two_levels_is_left_to_the_resolver_to_ask(msg):
+    # Mawlai / Umsning: a block AND a constituency; Tura: a block AND a district (harness P8 / P10: the pause asks)
+    t = _turn("MGNREGA households employed in East Khasi Hills in FY 2023-24", ["MGNREGA"],
+              {"district": "EAST KHASI HILLS", "year_key": 2023}, _model())
+    assert p._c18_frame_followup(msg, t) is None
+
+
+def test_w3_the_level_said_with_the_name_settles_it():
+    t = _turn("MGNREGA households employed in East Khasi Hills in FY 2023-24", ["MGNREGA"],
+              {"district": "EAST KHASI HILLS", "year_key": 2023}, _model())
+    assert p._c18_frame_followup("what about Mawlai block?", t)[1] == \
+        "MGNREGA households employed in Mawlai block, East Khasi Hills in FY 2023-24"
+
+
 def test_w3_a_bare_place_name_is_left_to_the_pause_and_swap_paths():
     assert p._c18_frame_followup("Ri Bhoi", _by_district_turn()) is None
 

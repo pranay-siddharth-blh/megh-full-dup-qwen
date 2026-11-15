@@ -577,6 +577,19 @@ def _c18_one_place(text: str) -> "tuple[str, str, str] | None":
             form = typed
     if p0 < 0:
         return None
+    try:
+        from app.entity_resolver import place_levels
+        levels = place_levels(name)
+    except Exception:  # noqa: BLE001 — no index: the catalogue level stands
+        levels = set()
+    if len(levels) > 1:
+        # "Mawlai" is a block AND a constituency, "Rajabala" a constituency AND a village: the resolver asks which,
+        # unless the message says the level itself ("Umsning block")
+        after = _c15_words(text[p0 + len(form):])[:1]
+        said = {"district": ("district",), "block": ("block",),
+                "assembly_constituency": ("constituency", "assembly", "ac")}.get(dim, ())
+        if not after or after[0] not in said:
+            return None
     rest = text[:p0] + " " + text[p0 + len(form):]
     return name, ("constituency" if dim == "assembly_constituency" else dim), rest
 
