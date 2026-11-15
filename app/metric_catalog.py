@@ -28,6 +28,7 @@ import json
 import logging
 import threading
 import time
+import dataclasses
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -107,7 +108,10 @@ _state: dict = {"metrics": {}, "by_scheme": {}, "verified": {t: {} for t in QUER
 
 
 def _stem(word: str) -> str:
-    """Plural-blind: "households" and "household" are one word for matching."""
+    """Plural-blind: "households" and "household" are one word for matching; "beneficiaries" and "beneficiary" too
+    (2026-11-15: the "-ies" plural was cut to "beneficiarie", so "per beneficiary" never named the measure)."""
+    if len(word) > 4 and word.endswith("ies"):
+        return word[:-3] + "y"
     return word[:-1] if len(word) > 3 and word.endswith("s") and not word.endswith("ss") else word
 
 
@@ -544,6 +548,39 @@ def constituency_column(m: Metric) -> "str | None":
         return None
     bare = col.split("(", 1)[1].split(")", 1)[0] if "(" in col else col
     return col if bare.strip().lower() in m.columns else None
+
+
+def money_scale(m: Metric) -> "float | None":
+    """Rupees per unit of the measure's RAW expression (`m.expression`), or None when it is not money. A crore
+    alias ("_cr") is a rupee expression divided only when selected (_value_sql); a lakh alias is already lakh."""
+    if m.alias.endswith("_lakh"):
+        return 1e5
+    if m.alias.endswith(("_cr", "_rupees")) or str(m.unit).lower() in ("rupees", "rupee"):
+        return 1.0
+    return None
+
+
+def ratio_query(num: Metric, den: Metric, filters: dict, alias: str) -> "tuple[str, list, str] | None":
+    """(sql, params, shown) for num / den: the money measure's rupees per one of the counted things, each a total
+    over the same filters, in one statement of two scalar subqueries; None if either cannot be built."""
+    scale = money_scale(num)
+    if scale is None:
+        return None
+    raw_num = dataclasses.replace(num, alias="num_raw")        # the raw expression, not crore-rounded
+    raw_den = dataclasses.replace(den, alias="den_raw")
+    qn, qd = build(raw_num, filters, None, qtype="total"), build(raw_den, filters, None, qtype="total")
+    if qn is None or qd is None:
+        return None
+    sql, params, shown = combine_totals([(raw_num, qn), (raw_den, qd)])
+    head = f"/* metric:{num.key}/{den.key} ratio */ "
+
+    def ratio(text: str) -> str:
+        body = text[text.index("SELECT ") + len("SELECT "):]
+        first, _, second = body.partition(",\n       ")
+        a = first[:first.rindex(") AS num_raw")] + ")"
+        b = second[:second.rindex(") AS den_raw")] + ")"
+        return (head + f"SELECT ROUND(({a})::numeric * {scale:g} / NULLIF(({b}), 0), 2) AS {alias}")
+    return ratio(sql), params, ratio(shown)
 
 
 def is_catalog_sql(sql: "str | None") -> bool:

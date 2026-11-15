@@ -773,7 +773,10 @@ def _framed_fallback(rows: list[dict], schemes: "list[str] | None", entities: "d
         if not parts:
             return _deterministic_answer(rows)
         if len(parts) == 1:
-            body = f"the recorded total is {parts[0]}"
+            # a ratio column ("amount_per_producer_group_rupees", the catalogue's money per counted thing) is an
+            # average, not a total (2026-11-15)
+            ratio = len(nums) == 1 and "_per_" in str(nums[0][0]).lower()
+            body = f"the {'average is' if ratio else 'recorded total is'} {parts[0]}"
         else:
             body = "the records show " + ", ".join(parts[:-1]) + f" and {parts[-1]}"
         sentence = f"{lead}{for_labels}{scope}, {body}."
@@ -860,16 +863,23 @@ def _c12_bracket_end(answer: str, at: int) -> int:
 
 
 def _c12_is_count_cell(rows: list[dict], val: float, money: list) -> bool:
-    """`val` equals a numeric result cell and NO money cell: a count written with a ₹ by mistake."""
+    """`val` equals a result cell whose NAME says it counts things ("disbursements", "beneficiaries",
+    "applications_count"), and no money cell: a count written with a ₹ by mistake. A cell named like money, or with
+    no telling name ("released", "amount_raw"), is never taken for a count."""
     if any(abs(m[0] - val) < 0.005 for m in money):
         return False
     for r in rows or []:
         if not isinstance(r, dict):
             continue
-        for v in r.values():
-            if isinstance(v, bool) or not isinstance(v, (int, float, Decimal)):
+        for k, v in r.items():
+            if isinstance(v, bool) or not isinstance(v, (int, float, Decimal)) or abs(float(v) - val) >= 0.005:
                 continue
-            if abs(float(v) - val) < 0.005:
+            low = str(k).lower()
+            parts = low.split("_")
+            if any(m in low for m in _C17_MONEY_PARTS) and not (parts[-1] in _C17_EVENT_PLURALS
+                                                                and not any(w in parts for w in _C17_AMOUNT_WORDS)):
+                continue
+            if any(c in low for c in _C17_COUNT_PARTS) or parts[-1] in _C17_EVENT_PLURALS:
                 return True
     return False
 

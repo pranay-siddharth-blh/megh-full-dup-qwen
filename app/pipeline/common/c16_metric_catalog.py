@@ -289,6 +289,87 @@ def _metric_catalog_plan(question: str, schemes: "list[str]", entity_result: dic
     return out
 
 
+# "average / per": the words of a ratio question that are not a measure.
+_C16_RATIO_WORDS = frozenset("average avg mean per each one every typical".split())
+_C16_RATIO_STOP = frozenset("in for during across under of at by from statewide".split())
+
+
+def _c16_measure_at(toks: "list[str]", m) -> "int | None":
+    """Token index where one of the measure's catalogue phrases starts in the question, or None."""
+    for i in range(len(toks)):
+        for ph in m.phrases:
+            if ph and tuple(toks[i:i + len(ph)]) == ph:
+                return i
+    return None
+
+
+def _c16_ratio_pair(question: str, ms: list) -> "tuple | None":
+    """(money measure, counted measure, noun) when the question asks one money total PER one counted thing:
+    the money words come before "per" and the counted measure's words after it. None otherwise."""
+    if len(ms) != 2:
+        return None
+    money = [m for m in ms if metric_catalog.money_scale(m) is not None]
+    counts = [m for m in ms if metric_catalog.money_scale(m) is None]
+    if len(money) != 1 or len(counts) != 1:
+        return None
+    toks = [metric_catalog._stem(t.low) for t in _c01_tm_tokens(question or "")]
+    if "per" not in toks:
+        return None
+    per = toks.index("per")
+    at_m, at_c = _c16_measure_at(toks, money[0]), _c16_measure_at(toks, counts[0])
+    if at_m is None or at_c is None or not (at_m < per < at_c):
+        return None
+    noun = []
+    for w in toks[per + 1:]:
+        if w in _C16_RATIO_STOP or not w.isalpha():
+            break
+        noun.append(w)
+    noun = [w for w in noun if w not in ("a", "an", "the", "each", "one")][:3] or ["unit"]
+    return money[0], counts[0], "_".join(noun)
+
+
+def _c16_plan_ratio(question, schemes, entity_result, found, out, money, count, noun) -> dict:
+    """Money per counted thing, both verified totals over the same filters: ROUND(SUM / COUNT, 2) in one query."""
+    out["metric"] = f"{money.key}/{count.key}"
+    filters = _c16_filters(entity_result.get("resolved") or {})
+    if filters is None:
+        out["reason"] = "a filter the measure cannot take"
+        return out
+    shape = _c16_shape(question, filters)
+    if shape is None or shape["qtype"] != "total":
+        out["reason"] = "a ratio is read as one figure only"
+        return out
+    out["qtype"] = "ratio"
+    allowed = _C16_RATIO_WORDS | _c16_measure_vocabulary(money) | _c16_measure_vocabulary(count)
+    stated_all = bool(_ALL_YEARS_CUE.search(question or "") or _STATED_ALL_YEARS_CUE.search(question or ""))
+    if stated_all:
+        allowed = allowed | _C16_ALL_YEARS_WORDS
+    extra = _c16_extra_words(question, schemes, entity_result, found.spans, allowed)
+    if extra:
+        out["reason"] = "asks more than the ratio: " + " ".join(extra[:6])
+        return out
+    years = filters.get("year_key") or []
+    if len(years) > 1:
+        out["reason"] = "several years"
+        return out
+    for m in (money, count):
+        if metric_catalog.single_year(m.key) and len(years) != 1:
+            out["reason"] = f"{m.key} is read one financial year at a time"
+            return out
+        if not years and metric_catalog.YEAR_COLUMN in m.columns and not stated_all:
+            out["reason"] = "no year named"
+            return out
+        if metric_catalog.verified("total", m.key, found.phrases) is None:
+            out.update(status="built", query=None, verified=False, reason=f"{m.key} not verified for a total")
+            return out
+    q = metric_catalog.ratio_query(money, count, filters, f"amount_per_{noun}_rupees")
+    if q is None:
+        out["reason"] = "the view lacks a column the question needs"
+        return out
+    out.update(status="built", query=q, verified=True)
+    return out
+
+
 # The words that join two figures asked together ("producer groups AND total", "subsidy PLUS loan").
 _C16_JOIN_WORDS = frozenset("and plus also both as well along with".split())
 
@@ -315,6 +396,9 @@ def _c16_plan_several(question: str, schemes: "list[str]", entity_result: dict, 
     not be answered alone the same way declines the whole question (the model path answers it)."""
     ms = list(found.several)
     out["metric"] = "+".join(m.key for m in ms)
+    pair = _c16_ratio_pair(question, ms)
+    if pair is not None:
+        return _c16_plan_ratio(question, schemes, entity_result, found, out, *pair)
     if schemes == ["CM Elevate Legacy"] and _CML_SANCTION_COUNT_Q.search(question or ""):
         out["reason"] = "a sanctioned count is COUNT(sanctioned_amount), not this measure"
         return out
