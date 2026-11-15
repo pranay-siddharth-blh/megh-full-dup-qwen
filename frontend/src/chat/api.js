@@ -232,7 +232,9 @@ export async function fetchNLPResponse(question, language, sessionId, opts = {})
 
 // The same question over POST /api/query/stream (Server-Sent Events, D-039).
 // onEvent gets every live event: {type:'step', node}, {type:'draft_reset'},
-// {type:'token', text}. Resolves with the same result /api/query returns.
+// {type:'token', text}, and {type:'answer', result} (D-112: the final answer,
+// sent before the server's bookkeeping; `done` follows with the same result).
+// Resolves with the same result /api/query returns, on `done`.
 // A server without the stream route (404/405), or a stream that fails before
 // any event arrived, falls back to the plain request.
 export async function streamNLPResponse(question, language, sessionId, opts = {}) {

@@ -9,6 +9,11 @@ import { themeFor } from '../chartTheme.js';
 import { sendFeedbackApi } from '../api.js';
 import { inlineSpans } from '../text.js';
 import { enterSends } from '../shortcuts.js';
+import { useLiveTurn } from '../liveTurn.js';
+
+// Parsing an answer's Markdown once per text: a re-render with the same visible
+// text (a parent's state change, a token frame) reuses the elements (D-112).
+const MemoMarkdown = memo(Markdown);
 
 /* One chat message. A bot answer (`response` from /api/query) renders the same
    blocks as addBotRich() in web/ai_query.html: routing badge (off), answer text,
@@ -854,10 +859,16 @@ function StatusPill({ label }) {
 
 // Only the current step is shown (the pill); the steps already passed are not
 // listed (removed at the user's request, 2026-10-19).
-export function TypingMessage({ steps, draft, streamKey }) {
+// D-112: the steps and the draft come from the live store (liveTurn.js) unless given,
+// so a streamed token re-renders this message only; a draft being rewritten (the
+// strict retry) stays on screen, dimmed, until the new words replace it.
+export const TypingMessage = memo(function TypingMessage({ steps: givenSteps, draft: givenDraft, streamKey }) {
+  const live = useLiveTurn(streamKey);
+  const steps = givenSteps || live.steps;
+  const draft = givenDraft != null ? givenDraft : live.draft;
   const trail = stepTrail(steps);
   const [shownDraft] = useReveal(draft, streamKey);
-  const current = draft ? 'Writing the answer' : (trail[trail.length - 1] || 'Thinking');
+  const current = live.stale ? 'Checking the answer' : draft ? 'Writing the answer' : (trail[trail.length - 1] || 'Thinking');
   return (
     <div className="msg bot">
       <div className="av">M</div>
@@ -865,15 +876,15 @@ export function TypingMessage({ steps, draft, streamKey }) {
         <StatusPill label={current} />
         {draft && (
           <div className="bubble pending-bubble">
-            <div className="answer-text md draft-text">
-              <Markdown text={shownDraft} /><span className="draft-cursor" aria-hidden="true" />
+            <div className={'answer-text md draft-text' + (live.stale ? ' stale' : '')}>
+              <MemoMarkdown text={shownDraft} /><span className="draft-cursor" aria-hidden="true" />
             </div>
           </div>
         )}
       </div>
     </div>
   );
-}
+});
 
 // "⋯" under an answer: a small menu with when it was given ("Today, 11:34 AM").
 // Closes on a click outside it or Esc.
@@ -914,9 +925,6 @@ function RegenerateAction({ onRegenerate, label = 'Regenerate answer' }) {
   );
 }
 
-// Parsing an answer's Markdown once per text: a re-render with the same visible
-// text (a parent's state change, a token frame) reuses the elements (D-112).
-const MemoMarkdown = memo(Markdown);
 // The charts and tables of an answer re-render only when the answer itself changes:
 // a reveal tick, a "Regenerate" prop or the footer's state never rebuilds a chart
 // (a rebuilt Chart.js instance replays its entrance).

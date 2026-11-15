@@ -5,8 +5,10 @@ Streamed answers, live progress steps, Stop and Regenerate (D-039).
     event and returns the full text; call_response_composer streams only when
     a live client is bound, and falls back to the plain call if the stream fails;
   * every graph node announces itself ("step") as it starts;
-  * POST /api/query/stream frames step / token / done / error events, and a
-    client that goes away (Stop) cancels the turn;
+  * POST /api/query/stream frames step / token / answer / done / error events
+    (D-112: `answer` = the final result before the bookkeeping, `done` = the
+    same result after it), and a client that goes away (Stop) before the
+    answer cancels the turn;
   * skip_cache (Regenerate) answers afresh instead of from the caches.
 
 Nothing here needs the VPN.
@@ -183,6 +185,25 @@ def test_stream_frames_steps_tokens_and_the_same_result(monkeypatch):
     frames = asyncio.run(go())
     assert frames == [{"type": "step", "node": "compose"}, {"type": "token", "text": "42 "},
                       {"type": "done", "result": {"answer": "42 applications.", "route": "data", "row_count": 1}}]
+
+
+def test_stream_frames_the_answer_before_done(monkeypatch):
+    """D-112: the final answer goes out as `answer` before the turn's bookkeeping;
+    `done` closes the stream with the same result."""
+    result = {"answer": "42 applications.", "route": "data", "row_count": 1}
+
+    async def fake_answer(req, request, scope):
+        turn_events.emit({"type": "step", "node": "compose"})
+        router._emit_answer(result)
+        turn_events.emit({"type": "step", "node": "bookkeeping"})
+        return result
+    monkeypatch.setattr(router, "_answer", fake_answer)
+
+    async def go():
+        resp = await router.query_stream(router.QueryRequest(question="q"), _request(), scope=None)
+        return _frames(await _drain(resp))
+    assert asyncio.run(go()) == [{"type": "step", "node": "compose"}, {"type": "answer", "result": result},
+                                 {"type": "step", "node": "bookkeeping"}, {"type": "done", "result": result}]
 
 
 def test_stream_reports_the_status_plain_query_would_raise(monkeypatch):
