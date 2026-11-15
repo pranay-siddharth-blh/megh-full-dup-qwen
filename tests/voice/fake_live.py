@@ -29,7 +29,8 @@ Directives (imitate the real model's bad days):
   !!realtime <q>   the sovereign engine's way (2026-11-16): a holding line ("One moment, sir.") said word by word in
                    REAL time (each word's transcript with its audio, one word at a time, the next word only when its
                    audio has played), then the call, then the answer the same way, its first word with a leading space
-                   (the adapter starts a following line with one). `!!realtime2 <q>`: the lead line is "Sure, sir."
+                   (the adapter starts a following line with one). `!!realtime2 <q>`: the lead line is "Sure, sir."; `!!realtime3 <q>`:
+                   a second holding line ("Still working on it, sir.") after the answer has reached the page, then the answer
   read "!!garble <text>"   misreads a read the page asked for with a figure of its own (the relay ends it with
                    the safe line)
 
@@ -140,7 +141,7 @@ async def handler(ws):
             return
         if spoken:                                   # what was "heard": the words without any test directive
             heard = text
-            for d in ("!!silent ", "!!memory ", "!!quiet ", "!!cancel ", "!!lag ", "!!wrong ", "!!nothing ", "!!again ", "!!echo ", "!!reread ", "!!mixed ", "!!burst ", "!!realtime ", "!!realtime2 "):
+            for d in ("!!silent ", "!!memory ", "!!quiet ", "!!cancel ", "!!lag ", "!!wrong ", "!!nothing ", "!!again ", "!!echo ", "!!reread ", "!!mixed ", "!!burst ", "!!realtime ", "!!realtime2 ", "!!realtime3 "):
                 if heard.startswith(d):
                     heard = heard[len(d):]
             for d in ("!!repeat ", "!!reword "):
@@ -152,9 +153,10 @@ async def handler(ws):
         low = text.lower().strip(" .?!")
         if text.startswith("!!nothing "):
             return                                   # no call, no word, no turn end
-        if text.startswith("!!realtime ") or text.startswith("!!realtime2 "):
+        if text.startswith("!!realtime ") or text.startswith("!!realtime2 ") or text.startswith("!!realtime3 "):
             rt_q = text.split(" ", 1)[1]
             lead = "Sure, sir." if text.startswith("!!realtime2 ") else "One moment, sir."
+            later = text.startswith("!!realtime3 ")
             st["speaking"] = asyncio.create_task(speak_rt(lead, end=False))   # the holding line, then the call
             try:
                 await st["speaking"]
@@ -165,6 +167,12 @@ async def handler(ws):
             except asyncio.TimeoutError:
                 return
             st["last_speak"] = r.get("speak") or "Done."
+            if later:                                # the engine's later filler, said after the answer is on the page
+                st["speaking"] = asyncio.create_task(speak_rt("Still working on it, sir.", first_space=True, end=False))
+                try:
+                    await st["speaking"]
+                except asyncio.CancelledError:
+                    return
             st["speaking"] = asyncio.create_task(speak_rt(st["last_speak"], first_space=True))
             return
         if text.startswith("!!silent "):

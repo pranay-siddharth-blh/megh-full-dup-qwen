@@ -10,7 +10,7 @@ import { VOICES, voiceOf } from '../voice/voices.js';
 import { SCHEME_HUES } from '../chartTheme.js';
 import VOICE_PACK from '../voice/meghVoicePack.js';
 import { levelText, parkOffset, parkTransform, spokenSentences } from '../voice/stageMotion.js';
-import { readingStart, segmentStart } from '../voice/captionPacer.js';
+import { readingStart, segmentStart, withoutHolding } from '../voice/captionPacer.js';
 import { useLiveSelect } from '../liveTurn.js';
 import { liveLabel } from './Messages.jsx';
 import '../../styles/voice-stage.css';
@@ -508,7 +508,9 @@ export function VoiceStage({ live, messages, renderMessage, onType, onClose }) {
   if (pacer && currentId != null) {
     const shownWords = pacer.words.slice(0, pacer.shown);
     const from = current && current.kind === 'typing' ? readingStart(pacer, segRef.current.at) : segmentStart(pacer, segRef.current.at);
-    spokenLive = from === null ? '' : shownWords.slice(from).join(' ');
+    // an answer's caption never holds the engine's holding lines, whatever their position (its later fillers too)
+    const mine = from === null ? [] : shownWords.slice(from);
+    spokenLive = (current && current.kind === 'typing' ? mine : withoutHolding(mine)).join(' ');
   }
   const spokenMap = useRef(new Map());
   if (fresh && currentId != null && spokenLive) spokenMap.current.set(currentId, spokenLive);
