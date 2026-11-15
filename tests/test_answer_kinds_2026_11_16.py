@@ -132,7 +132,7 @@ def test_money_of_a_crore_or_more_reads_in_crore(natural_on):
     assert p._c12_money(-2976.56, "lakh") == "-₹29.77 crore"
     assert p._c12_money(3628.67, "crore") == "₹3,628.67 crore"
     # under a crore: as before
-    assert p._c12_money(940000, "rupees") == "₹9,40,000 (≈ ₹9.40 lakh)"
+    assert p._c12_money(940000, "rupees") == "₹9,40,000"
     assert p._c12_money(85.25, "lakh") == "₹85.25 lakh"
     # a composer's own exact copy in brackets is not said twice
     out = p._c12_normalise_figures("₹1,356.45 crore (₹13,56,45,32,500) was spent.", [{"b": 13564532500}],
@@ -355,3 +355,61 @@ def test_polite_request_answer_does_not_open_with_yes(natural_on):
 def test_a_measure_counted_in_a_place_is_not_a_geography_count():
     assert p._c15_geography_count("How many persons received employment in Amlarem constituency during 2022-23?") is None
     assert p._c15_geography_count("What is the number of blocks in Ri Bhoi?") == ("block", "RI BHOI", None)
+
+
+def test_spoken_notation_in_words():
+    assert p._c19_speakable("East Garo Hills: Focus Plus 11,379 / ₹12.62 crore | CM Elevate Legacy 199 / ₹4.49 crore "
+                            "→ Focus Plus") == ("East Garo Hills: Focus Plus 11,379 and ₹12.62 crore, CM Elevate Legacy "
+                                                "199 and ₹4.49 crore, with Focus Plus ahead")
+    assert p._c19_speakable("36 in 2021-12-01.") == "36 in December 2021."
+    assert p._c19_speakable("MGNREGA person days 2022 23 and FY 2023 24") == \
+        "MGNREGA person days FY 2022-23 and FY 2023-24"
+    assert p._c12s_e9_what("person_days_2022_23") == "person-days in FY 2022-23" or \
+        p._c12s_e9_what("person_days_2022_23").endswith("in FY 2022-23")
+
+
+def test_speech_guard_does_not_join_a_crore_figure_to_the_next_count():
+    from app.voice import speech_guard as sg
+    a = "Under MGNREGA, Gambegre block recorded total expenditure of ₹14.55 crore and 5,00,656 person-days."
+    assert sg.deviations("That comes to about 5.01 lakh in all.", sg.facts_from(a)) == []
+    assert sg._digit_values("2 crore 55 lakh 96 thousand 237") == [(25596237.0,)]
+
+
+def test_money_below_a_crore_has_one_form(natural_on):
+    assert p._c12_money(0.28, "crore") == "₹0.28 crore"          # the SQL's 2 decimals: no finer lakh figure
+    assert p._c12_money(630000, "rupees") == "₹6,30,000"
+    assert p._c12_money(35000, "rupees") == "₹35,000"
+
+
+def test_change_over_a_span_is_a_per_year_series():
+    q = "How have MGNREGA person-days changed from FY 2023-24 to FY 2025-26 in West Garo Hills?"
+    assert p._c13_change_over_span(q).endswith(", year by year?")
+    assert p._c13_change_over_span("MGNREGA person-days from FY 2023-24 to FY 2025-26") == \
+        "MGNREGA person-days from FY 2023-24 to FY 2025-26"
+
+
+def test_which_one_reads_follow_ups_too():
+    assert p._c13_which_one("which is the lowest?")
+    assert p._c13_which_one("Which district has the lowest Focus Legacy producer groups?")
+    assert not p._c13_which_one("top 3 districts by producer groups")
+    assert p._c12s_date_words("financial_year", "2024-2025") == "2024-25"
+
+
+def test_zero_place_in_a_breakdown_is_none_recorded(natural_on):
+    rows = [{"lgd_block": "TIKRIKILLA", "person_days": 4689766}, {"lgd_block": "RONGRAM", "person_days": 3009245},
+            {"lgd_block": "DALU", "person_days": 2646057}, {"lgd_block": "DEMDEMA", "person_days": 0}]
+    sql = "SELECT lgd_block, SUM(person_days) AS person_days FROM curated.v_employment GROUP BY lgd_block"
+    q = "MGNREGA person-days in West Garo Hills by block"
+    shape = p._answer_shape(q, sql, rows)
+    text = p._c19_written(shape, rows, q, ["MGNREGA"], {})
+    assert "No MGNREGA person-days of employment are recorded for Demdema in the source data" in text
+    assert "Demdema has the fewest" not in text
+
+
+def test_zero_place_in_the_spoken_breakdown(natural_on):
+    rows = [{"lgd_block": "TIKRIKILLA", "person_days": 4689766}, {"lgd_block": "RONGRAM", "person_days": 3009245},
+            {"lgd_block": "DALU", "person_days": 2646057}, {"lgd_block": "DEMDEMA", "person_days": 0}]
+    sql = "SELECT lgd_block, SUM(person_days) AS person_days FROM curated.v_employment GROUP BY lgd_block"
+    q = "MGNREGA person-days in West Garo Hills by block"
+    spoken = p._c19_spoken_shape(p._answer_shape(q, sql, rows), rows, q, ["MGNREGA"], {})
+    assert spoken is None or "Demdema has the fewest" not in spoken

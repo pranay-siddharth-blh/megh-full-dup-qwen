@@ -244,6 +244,9 @@ def _c12s_date_words(col, v) -> str:
     Anything that is not a date is its own text."""
     ymd = _c12s_iso_date(v)
     if ymd is None:
+        s = str(v).strip()
+        if len(s) == 9 and s[4] == "-" and (s[:4] + s[5:]).isdecimal() and int(s[5:]) == int(s[:4]) + 1:
+            return f"{s[:4]}-{s[7:]}"                       # "2024-2025" -> "2024-25" (read as FY 2024-25)
         return str(v)
     y, m, d = ymd
     if "month" in _c12s_parts(str(col)):
@@ -658,7 +661,18 @@ def _c12s_e9_what(col: str) -> str:
     """What a measure counts, without its unit (the figure carries it): 'total expenditure'."""
     unit = _unit_suffix(str(col).lower())
     name = unit[0] if unit else _human_metric(str(col))
-    return " ".join(_C12S_E9_ALIAS_WORDS.get(w, w) for w in name.split(" "))
+    words = [_C12S_E9_ALIAS_WORDS.get(w, w) for w in name.split(" ")]
+    # "person_days_2022_23" read "person days 2022 23" (caption log 2026-11-16): the year said as FY 2022-23
+    out, i = [], 0
+    while i < len(words):
+        w = words[i]
+        if i + 1 < len(words) and _c19_fy_pair(w, words[i + 1]):
+            out.append(f"in FY {w}-{words[i + 1]}")
+            i += 2
+            continue
+        out.append(w)
+        i += 1
+    return " ".join(out)
 
 
 def _c12s_e9_same_amount(a: str, b: str, rows: list) -> bool:

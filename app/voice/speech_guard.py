@@ -45,7 +45,9 @@ def _digit_values(text: str, keep_parts: bool = False) -> list[tuple]:
     while i < len(raw):
         start, end, v, word, mult = raw[i]
         total, j, last_mult, last_end = (v * mult if mult else 0.0), i + 1, mult, end
-        while mult and j < len(raw):
+        # 2026-11-16: a written figure with decimals ("₹14.55 crore and 5,00,656 person-days") is never the head of a
+        # spoken run: it was read as one figure 14.55 crore + 5,00,656, so a correct "5 lakh" was blocked
+        while mult and float(v).is_integer() and j < len(raw):
             s2, e2, v2, w2, m2 = raw[j]
             gap = low[last_end:s2].replace(",", " ").split()
             if any(g not in _GAP_OK for g in gap):
@@ -55,7 +57,7 @@ def _digit_values(text: str, keep_parts: bool = False) -> list[tuple]:
                 last_mult, last_end = m2, e2
                 j += 1
                 continue
-            if m2 is None and float(v2).is_integer() and v2 < last_mult:
+            if m2 is None and float(v2).is_integer() and v2 < last_mult and "," not in text[s2:e2]:
                 total += v2
                 last_end = e2
                 j += 1

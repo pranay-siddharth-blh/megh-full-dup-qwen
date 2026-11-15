@@ -521,6 +521,9 @@ def _c19_lead_ranking(shape, pairs, question, schemes, entities) -> str:
         word = _c19_more_word(m, low=True)
         s1 = (f"{top} has the {word} {noun}{where}{when}, at {_c12_fmt_value(m, v1)}, followed by {second} "
               f"{_c19_paren(_c12_fmt_value(m, v2))}.")
+        if v1 == 0 and v2 > 0 and _c12s_additive(m):
+            s1 = (f"No {noun} are recorded for {top}{where}{when} in the source data; among the rest, {second} has "
+                  f"the {word}, at {_c12_fmt_value(m, v2)}.")
         if _C12S_E9_GAP_ASK.search(question or ""):
             s1 = s1[:-1] + f", a gap of {_c12s_e9_gap(m, abs(v1 - v2))}."
     rest = pairs[2:]
@@ -539,6 +542,9 @@ def _c19_lead_ranking(shape, pairs, question, schemes, entities) -> str:
         joiner = "and" if close else "down to" if shape.desc else "up to"
         return s1 + f" {_c19_join(names)} {how} {a} {joiner} {b}."
     rl, vl = pairs[-1]
+    if vl == 0 and _c12s_additive(m):
+        # 2026-11-16 (log bank): Demdema's person-days are missing from the source, not a real zero
+        return s1 + f" No {noun} are recorded for {_c12s_label(rl, shape)} in the source data."
     return s1 + f" At the other end of this list, {_c12s_label(rl, shape)} has {_c12_fmt_value(m, vl)}."
 
 
@@ -584,6 +590,8 @@ def _c19_lead_breakdown(shape, pairs, question, schemes, entities) -> str:
     ratio = hv / lv if lv > 0 else None
     times = _c19_times(ratio) if ratio and ratio >= 2.95 else None
     s3 = f" {bottom} has the {_c19_more_word(m, low=True)}, at {_c12_fmt_value(m, lv)}"
+    if lv == 0:
+        s3 = f" No {noun} are recorded for {bottom} in the source data"
     if times and place_dim and one:
         s3 += f" — {top} has {times} as {'much' if _c19_is_money(m) else 'many'}"
     s3 += "."
@@ -741,6 +749,8 @@ def _c19_spoken_shape(shape, rows: list, question: str, schemes, entities) -> "s
         times = _c19_times(r) if r and r >= 2.95 else None
         s2 = f" {lab(lr)} has the {_c19_more_word(m, low=True)}, {sl}" + \
              (f", so {lab(hr)} has {times} {many}." if times else ".")
+        if lv == 0:
+            s2 = f" None are recorded for {lab(lr)} in the source data."
         nouns = _c12s_dim_noun(shape)
         tail = f" All {n} {nouns} are on your screen." if len(shape.labels) == 1 else " The full list is on your screen."
         return _c19_fit([s1, s2 if n > 2 else "", tail])
@@ -915,12 +925,12 @@ def _c19_spoken_from_text(answer: str, rows: list, single: bool) -> "str | None"
     shown_items = 0
     if items and (not take or take[-1].endswith(":")):
         shown_items = min(2, len(items))
-        lead_items = [_c19_drop_brackets(i).rstrip(".") for i in items[:shown_items]]
+        lead_items = [_c19_speakable(_c19_drop_brackets(i)).rstrip(".") for i in items[:shown_items]]
         intro = said.rstrip().rstrip(":").rstrip()
         said = (intro + (": " if intro else "") + "; ".join(lead_items) + ".").strip()
     if not said:
         return None
-    said = said.replace(" :", ":").replace(":.", ".").replace("..", ".")
+    said = _c19_speakable(said.replace(" :", ":").replace(":.", ".").replace("..", "."))
     tol, floor = (_C19_SINGLE_TOL, 1e5) if single else (_C19_TOL, 1e4)
     spoken = _c19_round_text(said, rows, tol, floor)
     spoken = spoken[:1].upper() + spoken[1:]
@@ -929,6 +939,48 @@ def _c19_spoken_from_text(answer: str, rows: list, single: bool) -> "str | None"
     elif len(sentences) > len(take):
         spoken += " The rest is on your screen."
     return spoken if len(spoken) <= _C19_SPOKEN_MAX + 120 else None
+
+
+def _c19_fy_pair(first: str, second: str) -> bool:
+    """'2022' then '23' (a financial year written as two words by a column name)."""
+    nxt = second.rstrip(".,;:)")
+    return (first.isdecimal() and len(first) == 4 and 1990 <= int(first) <= 2100 and nxt.isdecimal()
+            and len(nxt) == 2 and int(nxt) == (int(first) + 1) % 100)
+
+
+def _c19_speakable(text: str) -> str:
+    """Screen notation said in words (the visual agent's caption log 2026-11-16): "461 / ₹6.12 crore" -> "461 and
+    ₹6.12 crore", "… | …" -> "…, …", "… → Focus Plus" -> "…, with Focus Plus ahead", an ISO date "2021-12-01" ->
+    "December 2021", a column-name year "2022 23" -> "FY 2022-23"."""
+    t = text or ""
+    t = t.replace(" | ", ", ").replace(" / ", " and ")
+    while " → " in t:
+        head, _, rest = t.partition(" → ")
+        name, cut = rest, len(rest)
+        for stop in (";", ",", ".", " - ", " — "):
+            k = rest.find(stop)
+            if 0 <= k < cut:
+                cut = k
+        name = rest[:cut].strip()
+        t = f"{head}, with {name} ahead" + rest[cut:]
+    words = t.split(" ")
+    out = []
+    i = 0
+    while i < len(words):
+        w = words[i]
+        core = w.rstrip(".,;:)")
+        tail = w[len(core):]
+        ymd = _c12s_iso_date(core) if len(core) == 10 else None
+        if ymd:
+            out.append(_c12s_date_words("month" if ymd[2] == 1 else "date", core) + tail)
+        elif _c19_fy_pair(core, words[i + 1] if i + 1 < len(words) else ""):
+            nxt = words[i + 1]
+            out.append(f"FY {core}-{nxt}" if not (i and words[i - 1] == "FY") else f"{core}-{nxt}")
+            i += 1
+        else:
+            out.append(w)
+        i += 1
+    return " ".join(out)
 
 
 def _c19_drop_brackets(text: str) -> str:
