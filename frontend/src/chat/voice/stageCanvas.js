@@ -364,8 +364,10 @@ function Race(card) {
       const max = Math.max(1e-9, ...items.filter((i) => isNum(i.value)).map((i) => i.value));
       const padT = card.unitWord ? 20 : 6; const rowH = Math.min(40, (H - padT - 6) / Math.max(1, n));
       const fs = rowH < 22 ? 10.5 : 12;
-      const lw = Math.min(W * .32, 180, Math.max(40, ...items.map((i) => textW(ctx, i.label, fs, 700))) + 6);
       const valW = Math.max(44, ...items.map((i) => textW(ctx, isNum(i.value) ? say(card, i.value) : 'no data', fs + .5, 800))) + 12;
+      // the names get the room the bars can spare (2026-11-16: "South West Garo H…" cut at a third of a card whose bars
+      // had room to give), measured at the spotlit weight so a named row never loses its last letters; bars keep 120 px
+      const lw = Math.min(190, Math.max(W * .32, W - valW - 140), Math.max(40, ...items.map((i) => textW(ctx, i.label, fs, 800))) + 6);
       const x0 = lw + 14; const x1 = W - valW - 6; const bh = Math.max(6, Math.min(16, rowH * .46)); const depth = Math.min(6, bh * .45);
       if (card.unitWord) label(ctx, fitText(ctx, card.unitWord, W - 20, 10, 700), x0, 10, { size: 10, weight: 700, color: T.mute, align: 'left' });
       card.hits = [];
@@ -526,7 +528,9 @@ function Line(card) {
             ctx.save(); ctx.globalAlpha = !card.highlight || card.highlight === s.key ? 1 : .4;
             ctx.fillStyle = '#fff'; ctx.strokeStyle = alpha(s.color, .75); ctx.lineWidth = 1.5; ctx.setLineDash([2, 2]);
             ctx.beginPath(); ctx.arc(X(k), y, 3.6, 0, TAU); ctx.fill(); ctx.stroke(); ctx.restore();
-            if (k === Math.floor((i + j) / 2)) noDataAt(X(k), y);
+            // the words only on a line or two: with more series they sat on the other series' points and on each
+            // other (2026-11-16, "each year, for all schemes"); the card's note says what a gap is
+            if (k === Math.floor((i + j) / 2) && S.length <= 2) noDataAt(X(k), y);
           }
           i = j + 1;
         }
@@ -995,7 +999,10 @@ function MapR(card) {
         const nx = x + (wide ? 16 : 26);
         const vt = on ? (isNum(it.value) ? say(card, grow(it.value, p)) : leader && leaders[it.key] ? leaders[it.key].label : 'no data') : '';
         const vw = Math.min(cw * .5, textW(ctx, vt, 11.5, 800));
-        label(ctx, fitText(ctx, wide ? nameOf(it.key) : shortOf(it.key), x + cw - 16 - vw - nx, 11.5, 700), nx, ry, { size: 11.5, weight: 700, color: T.ink, align: 'left' });
+        // the full name when it fits, else the district's short name ("SW Garo Hills"), never "South West Garo Hi…" (2026-11-16)
+        const room = x + cw - 16 - vw - nx;
+        const nm = wide && textW(ctx, nameOf(it.key), 11.5, 700) <= room ? nameOf(it.key) : shortOf(it.key);
+        label(ctx, fitText(ctx, nm, room, 11.5, 700), nx, ry, { size: 11.5, weight: 700, color: T.ink, align: 'left' });
         if (vt) label(ctx, fitText(ctx, vt, cw * .5, 11.5, 800), x + cw - 10, ry, { size: 11.5, weight: 800, color: isNum(it.value) ? T.ink : T.mute, align: 'right' });
         if (wide) {
           const bw = pw - 16; rrect(ctx, x + 16, ry + 10, bw, 4, 2); ctx.fillStyle = T.faint; ctx.fill();

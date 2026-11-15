@@ -133,3 +133,27 @@ test('a cut after every chunk had played keeps the words: they were heard (only 
   p = cut(p, 2.5);
   assert.equal(p.words.length, 20);
 });
+
+// 2026-11-16, the user's live test on the sovereign engine: words of the holding line / the answer before leaked in
+test('a reading after a break never glues its first word to the last one, and starts at the break', async () => {
+  const P = await import('../src/chat/voice/captionPacer.js');
+  const p = P.cut(P.newPacer('West Garo Hills has the most. That'), null);
+  P.addText(p, 'One', 0); P.addText(p, ' moment,', 0); P.addText(p, ' sir.', 0);
+  assert.equal(p.text, 'West Garo Hills has the most. That One moment, sir.');
+  assert.equal(P.readingStart(p, p.complete), 7);
+});
+
+test('an answer that takes the stage mid-sentence starts after that sentence (the holding line stays its own)', async () => {
+  const P = await import('../src/chat/voice/captionPacer.js');
+  const p = P.newPacer();
+  P.addText(p, 'One', 0); P.addText(p, ' moment,', 0);
+  const at = p.complete;                                    // the answer took the stage here
+  assert.equal(P.segmentStart(p, at), null);                // the holding line is still coming in
+  P.addText(p, ' sir.', 0); P.addText(p, ' West', 0); P.addText(p, ' Garo', 0);
+  assert.equal(P.segmentStart(p, at), 3);
+  assert.deepEqual(p.words.slice(3), ['West', 'Garo']);
+  // a turn's end is a break: a typed question's answer starts there even without a full stop
+  const q = P.newPacer('All 12 districts are on your screen');
+  P.markBreak(q);
+  assert.equal(P.segmentStart(q, q.complete), q.complete);
+});

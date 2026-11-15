@@ -43,10 +43,41 @@ export function joinOut(prev, piece) {
   return (prev || '') + ('.?!'.includes(last) && last !== '' && letter ? ' ' : '') + p;
 }
 
+let GEN = 0;
 export function newPacer(text = '') {
   const words = splitWords(text);
+  // breaks: word counts where one reading ends and the next begins (a turn's end, a cut); gen: which pacer this is
   return { text: words.join(' '), text_raw: words.length ? words.join(' ') + ' ' : '', words, complete: words.length, anchors: [[words.length, 0]], audioQ: 0, chunks: [],
-    playedBase: 0, shown: words.length, final: false, textAt: 0, tickAt: 0 };
+    playedBase: 0, shown: words.length, final: false, textAt: 0, tickAt: 0, breaks: [words.length], gen: ++GEN };
+}
+
+/** One reading ended here (the relay's end of a turn): what comes next starts a new one (2026-11-16). */
+export function markBreak(p) {
+  const n = p.words.length;
+  if (p.breaks[p.breaks.length - 1] !== n) p.breaks.push(n);
+}
+
+const CLOSE_Q = '"' + "'" + ')”’';
+const closes = (w) => { let t = String(w || ''); while (t && CLOSE_Q.includes(t[t.length - 1])) t = t.slice(0, -1); return !!t && '.?!'.includes(t[t.length - 1]); };
+
+/** Where the words of a reading that began when `at` words had come in start (2026-11-16, the user's live test on the
+    sovereign engine: the holding line's last word was glued to the answer, "sir. West Garo Hills ..."): at `at` when
+    a reading or a sentence ended there, else at the end of the sentence still coming in then (the rest of a holding
+    line is never the answer's). null = that sentence has not ended yet. */
+export function segmentStart(p, at) {
+  if (at <= 0) return 0;
+  for (let k = at; k <= p.complete; k++) {
+    if (p.breaks.includes(k) || closes(p.words[k - 1])) return k;
+  }
+  return null;
+}
+
+/** Where the reading that holds word `at` began (the last break at or before it): the holding line said while an
+    answer is worked out is shown on its own. */
+export function readingStart(p, at) {
+  let b = 0;
+  p.breaks.forEach((k) => { if (k <= at) b = Math.max(b, k); });
+  return b;
 }
 
 // the words a listener can see as whole: the last one may still be growing ("Meghal" + "aya") unless the text ends
@@ -69,7 +100,11 @@ function anchor(p) {
 
 /** A piece of the transcript arrived (`out`). */
 export function addText(p, piece, nowMs) {
-  p.text_raw = joinOut(p.text_raw, piece);
+  // a new reading after a break never glues its first word to the last one ("That" + "One" -> "ThatOne")
+  const raw = p.text_raw || '';
+  const atBreak = p.breaks.includes(p.words.length) && raw && !SPACE.includes(raw[raw.length - 1]);
+  const pc = String(piece || '');
+  p.text_raw = joinOut(raw, atBreak && pc && !SPACE.includes(pc[0]) ? ' ' + pc : pc);
   p.words = splitWords(p.text_raw);
   p.text = p.words.join(' ');
   p.final = false;

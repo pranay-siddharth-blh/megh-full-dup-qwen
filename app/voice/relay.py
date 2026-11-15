@@ -534,6 +534,11 @@ class VoiceSession:
             if sc.get("interrupted"):
                 if self.turn.get("non_english"):    # the English apology interrupted the dropped turn: start clean
                     self.turn = self._new_turn()
+                elif not self.turn["blocked"] and self.turn["said"].strip():
+                    # what was cut off is over: the next words start a new sentence of their own (16 Nov 2026, the
+                    # user's live test on the sovereign engine: a word held back at the cut was glued to the next line,
+                    # "theOne moment, sir."; the engine starts a new line without a space)
+                    self.turn.update(said="", checked=0, part_i=-1, part_txt="")
                 self.turn["fresh"] = True
                 await self.send({"type": "interrupted"})
             if sc.get("turnComplete"):
@@ -663,6 +668,12 @@ class VoiceSession:
         tn = self.turn
         # word ends (index after each complete word: a word is complete when a space follows it)
         ends = [k for k in range(1, len(cur)) if cur[k] == " " and cur[k - 1] != " "]
+        # a word that closes the sentence is complete too (16 Nov 2026, the user's live test on the sovereign engine:
+        # its holding line "One moment, sir." kept "sir." back until the answer's first word came, so the page glued
+        # it to the answer, "sir. West Garo Hills ..."); a figure at the end is still held by the rule below
+        tail = cur.rstrip()
+        if tail and tail[-1] in ".?!" and (not ends or ends[-1] < len(tail)):
+            ends.append(len(tail))
         if not ends:
             return
         starts = [0] + [k + 1 for k in ends[:-1]]

@@ -139,6 +139,8 @@ export function plainCount(note) {
 }
 // "Sanctioned" -> "sanctioned" (an acronym such as "PG members" keeps its capitals)
 const lowerFirst = (t) => (t.length > 1 && t[1] === t[1].toLowerCase() ? t[0].toLowerCase() + t.slice(1) : t);
+// a measure column that says nothing of its own (the row names the measure beside it)
+const GENERIC_MEASURES = ['value', 'figure', 'total', 'count', 'headline', 'headline value'];
 // the most tiles a figure card draws: every scheme once, up to 12 (stageCanvas.TILE_MAX)
 const TILE_CAP = 12;
 
@@ -206,18 +208,35 @@ function perScheme(rows, sh, notes) {
   rows.forEach((r) => { const s = schemeOf(r[sh.scheme]); if (s) { if (!groups.has(s)) groups.set(s, []); groups.get(s).push(r); } });
   const tiles = [];
   const cards = [];
+  // a row that names its own measure ({ scheme, measure: 'Person-days', value }): the tile says that, never "value"
+  // (2026-11-16, "For Williamnagar constituency, give me every scheme's figure")
+  const named = sh.labels.find((c) => nameParts(c).some((x) => ['measure', 'metric', 'indicator'].includes(x)));
+  const rowSays = (r, m) => (named && GENERIC_MEASURES.includes(nameParts(m).join(' ')) && !isBlank(r[named])
+    ? String(r[named]).trim().split(' ').map((w) => (w.length > 1 && w.slice(1) === w.slice(1).toLowerCase() ? w.toLowerCase() : w)).join(' ')
+    : '');
   const tile = (s, r, m) => {
     const unit = unitFor(m);
     const note = noteFor(notes, s, m);
     // the tile says plainly what it counts ("households given work"); the measure and the whole note are its tooltip
     return { key: `${s}|${m}`, label: s, col: m, value: num(r[m]), color: hueOf(s), unit, fmt: fmtFor(unit),
-      sub: plainCount(note) || lowerFirst(measureTitle(m)), note: `${measureTitle(m)}${note ? ' · ' + note : ''}`,
+      sub: plainCount(note) || rowSays(r, m) || lowerFirst(measureTitle(m)), note: `${rowSays(r, m) || measureTitle(m)}${note ? ' · ' + note : ''}`,
       say: SCHEME_SAY[s], notBefore: SAY_NOT_BEFORE[s] };
   };
   const rounds = [[], [], []];
   groups.forEach((rs, s) => {
     const ms = sh.measures.filter((m) => rs.some((r) => !isBlank(r[m])));
-    if (rs.length === 1) ms.slice(0, 3).forEach((m, k) => rounds[k].push(tile(s, rs[0], m)));
+    if (rs.length === 1) {
+      // a scheme's further figures only when they say something new (2026-11-16: "PMAY-G 3,862 houses" and "PMAY-G
+      // 3,862 beneficiaries" were two tiles of the same number, read as the scheme shown twice)
+      const seen = new Set();
+      ms.forEach((m) => {
+        const v = num(rs[0][m]);
+        if (seen.has(v)) return;
+        seen.add(v);
+        const k = seen.size - 1;
+        if (k < rounds.length) rounds[k].push(tile(s, rs[0], m));
+      });
+    }
     else if (ms.length) {                          // a scheme broken down (CM Elevate by its sub-schemes): its own card
       const m = ms[0];
       const by = sh.labels.find((c) => rs.every((r) => !isBlank(r[c])));
@@ -229,6 +248,7 @@ function perScheme(rows, sh, notes) {
   // eight tiles as before; more only so that every scheme keeps its first figure (a ninth scheme, 2026-11-14)
   const cap = Math.min(TILE_CAP, Math.max(8, rounds[0].length));
   rounds.forEach((r) => r.forEach((x) => { if (tiles.length < cap) tiles.push(x); }));
+
   const out = [];
   if (tiles.length) {
     out.push(card('tiles', groups.size > 1 ? 'Each scheme, in its own unit' : `${[...groups.keys()][0]}`, null,
@@ -289,7 +309,10 @@ function byDistrict(rows, sh, notes, q) {
   // two districts: a comparison, measure by measure
   if (ds.length === 2) {
     const tiles = [];
-    sh.measures.slice(0, 4).forEach((m) => {
+    // two measures at most (2026-11-16): eight tiles in the side card were too short to say what each figure counts,
+    // so the two districts' names repeated with bare numbers, and six sat district against district in three columns;
+    // four make a 2 x 2 (a district a column), each tile with its measure; every measure stays in the chat and the table
+    sh.measures.slice(0, 2).forEach((m) => {
       const unit = unitFor(m);
       ds.forEach((r, i) => {
         const d = districtKey(r[sh.district]);
@@ -428,7 +451,10 @@ const canDraw = (c, k) => (c.allowed || []).includes(k) || (c.asked || []).inclu
   // a one-series line (a figure per year) may also be ranked: its years, highest first
   || (k === 'race' && c.kind === 'line' && (c.series || []).length === 1);
 const byValue = (items) => [...items].sort((a, b) => (b.value ?? -Infinity) - (a.value ?? -Infinity));
-const sameItems = (a, b) => (a.items || []).map((x) => x.key).sort().join('|') === (b.items || []).map((x) => x.key).sort().join('|');
+// the same things AND the same figures (2026-11-16: two schemes over the same three districts share their keys, and the
+// second scheme's card was dropped as a repeat when the first was promoted, "compare Focus Plus and CM Elevate Legacy in ...")
+const itemSig = (c) => (c.items || []).map((x) => `${x.key}=${x.value ?? ''}`).sort().join('|');
+const sameItems = (a, b) => itemSig(a) === itemSig(b);
 
 /** The card `c` drawn as `k` (a copy: the plan's own card is never changed). A ranking is sorted, highest first; a line
     drawn as bars keeps its years in order. */
@@ -561,7 +587,14 @@ function autoView(cards, sh, question) {
   if (sh.period && said(TREND_SAY)) { const c = charts.find((x) => x.kind === 'line'); if (c) return promote(cards, c, 'line'); }
   // a comparison of many places is not forced into upright bars (2026-11-12 fix round: 12 districts' value labels
   // piled on each other); it keeps its ranking, which reads every name
-  if (said(COMPARE_SAY)) { const c = pick('bars'); if (c && c.kind !== 'line' && (c.items || []).length <= 8) return promote(cards, c, 'bars', true); }
+  if (said(COMPARE_SAY)) {
+    const c = pick('bars');
+    if (c && c.kind !== 'line' && (c.items || []).length <= 8) {
+      // two schemes compared over the same places: their bars side by side, the map after them (2026-11-16)
+      const out = promote(cards, c, 'bars', true);
+      return out.filter((x) => x.kind === 'bars').length > 1 ? [...out.filter((x) => x.kind !== 'map'), ...out.filter((x) => x.kind === 'map')] : out;
+    }
+  }
   if (sh.district && said(DISTRICT_SAY)) { const m = charts.find((x) => x.kind === 'map'); if (m) return promote(cards, m, 'map'); }
   return cards;
 }

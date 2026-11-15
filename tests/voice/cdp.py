@@ -10,6 +10,7 @@ is Chromium's fake device fed from a WAV file (silence by default), granted with
 import asyncio
 import base64
 import json
+import os
 import subprocess
 import time
 import urllib.request
@@ -22,6 +23,8 @@ EDGE = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
 
 class Browser:
     def __init__(self, port=9353, size=(1440, 900), mic_wav=None, init_js=""):
+        # CDP_PORT_OFFSET: two checkouts running the browser tests side by side never share a debugging port / profile
+        port += int(os.environ.get("CDP_PORT_OFFSET", "0") or 0)
         self.port, self.size, self.id, self.mic_wav, self.init_js = port, size, 0, mic_wav, init_js
 
     async def __aenter__(self):
