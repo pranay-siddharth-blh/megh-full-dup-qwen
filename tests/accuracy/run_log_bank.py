@@ -70,6 +70,7 @@ KINDS = {
     "one-breath combos (two blocks / years, chart, villages)": ["one-breath-combos"],
     "polite 'Can you / Could you' versions of passing questions": ["polite-can-you"],
     "measure names the scheme (no scheme said)": ["measure-implies-scheme"],
+    "rank the same measure inside a district": ["rank-in-place"],
 }
 
 

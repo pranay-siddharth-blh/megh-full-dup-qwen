@@ -797,12 +797,37 @@ def implied_cases() -> list[dict]:
     return C
 
 
+def rank_in_place_cases() -> list[dict]:
+    """(l) after a district breakdown, "which block is the highest / lowest in <district>" must rank the SAME
+    measure (02:25 on 5e9eb48: PMAY-G houses -> answered by the sanctioned AMOUNT)."""
+    C = []
+    specs = [("Show me PMAY-G houses sanctioned by district", f"COUNT(*) FROM {PM}", "count"),
+             ("Show me PMAY-G houses completed by district", f"COUNT(*) FROM {PM} WHERE is_completed AND TRUE", "count"),
+             ("MGNREGA person-days by district", f"SUM(person_days) FROM {EMP}", "count"),
+             ("Focus Legacy producer groups by district", f"COUNT(DISTINCT pg_id) FROM {FL}", "count"),
+             ("MGNREGA expenditure by district", f"ROUND(SUM(total_exp), 2) FROM {EXP}", "lakh")]
+    said = [("which block is the highest in {d}", "DESC"), ("and which block is the lowest in {d}?", "ASC"),
+            ("what is the top block in {d}", "DESC"), ("the weakest block in {d}?", "ASC"),
+            ("which block in {d} has the most", "DESC")]
+    places = ["WEST GARO HILLS", "EAST KHASI HILLS", "RI BHOI", "NORTH GARO HILLS", "WEST JAINTIA HILLS"]
+    for i, (first, expr, unit) in enumerate(specs):
+        d = places[i]
+        sx, order = said[i]
+        w = (expr.replace(" AND TRUE", f" AND lgd_district = '{d}'") if " WHERE " in expr
+             else f"{expr} WHERE lgd_district = '{d}'")
+        C.append(case(f"RNK-{i}", "rank-in-place", "same measure ranked", [
+            turn(first, pause=False, max_s=25),
+            turn(sx.format(d=title(d)), rows=[rows(f"SELECT lgd_block, {w} GROUP BY 1 ORDER BY 2 {order}", unit, take=1)],
+                 pause=False, place=d, max_s=25)]))
+    return C
+
+
 async def main():
     blk = await block_cases()
     cases = log_cases() + blk + vague_cases() + chain_cases() + voice_cases(blk) + headline_cases() + grouping_cases()
     cases += await drill_cases() + combo_cases()
     cases += polite_cases(cases)
-    cases += implied_cases()
+    cases += implied_cases() + rank_in_place_cases()
     bank = {"bank": "Megh One AI LOG BANK (the user's own questions, every block, vague starts, spoken follow-ups)",
             "built_by": "tests/accuracy/build_log_bank.py", "truth_recorded": "2026-11-16", "cases": cases}
     with open(OUT, "w", encoding="utf-8") as fh:
