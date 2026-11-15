@@ -206,7 +206,10 @@ def test_focus_plus_block_reads_the_source_block_column(catalogue):
     assert "UPPER(block_name_raw) = UPPER($1)" in sql and params == ["SELSELLA"] and "lgd_block" not in sql
     assert "UPPER(block_name_raw) = 'SELSELLA'" in shown
     assert mc.build(m, {"block": "SIJU"}) is None            # a block the source column never names
-    assert mc.build(m, {}, "block") is None                  # no grouping by the source's own spellings
+    # 2026-11-15 (KI-728, the drill-down behind a ranking): a grouping by block reads the same source column, as the
+    # model path's block breakdowns do (KI-718); it was declined before
+    _sql, _params, grouped = mc.build(m, {}, "block")
+    assert "UPPER(block_name_raw) AS block" in grouped and "lgd_block" not in grouped
 
 
 # ── ratios, wordings, spelling ───────────────────────────────────────────────
