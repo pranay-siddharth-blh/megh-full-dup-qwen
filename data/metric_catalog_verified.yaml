@@ -248,6 +248,18 @@ ranking:
 
 # Named places or named years side by side.
 compare:
+  # 2026-11-16 (permutation bank K20: "Compare <scheme> <measure> in A and B", independent truth SQL; a comparison is
+  # the verified breakdown restricted to the listed places; Homestay's had been answered by district x year)
+  homestay_api_applications:
+    evidence: "run 2026-11-16 (permutation bank K20, independent truth SQL): agreed"
+  cmss_students_paid:
+    evidence: "run 2026-11-16 (permutation bank K20, independent truth SQL): agreed"
+  cmss_applications:
+    evidence: "run 2026-11-16 (permutation bank, independent truth SQL): agreed"
+  cmss_amount_disbursed:
+    evidence: "run 2026-11-16 (permutation bank, independent truth SQL): agreed"
+  cm_elevate_applications_valid:
+    evidence: "run 2026-11-16 (permutation bank K20, independent truth SQL): agreed"
   cm_elevate_applications_on_hold:
     evidence: "run 2026-10-26: 1/1 agreed"
   cm_elevate_disb_beneficiaries:

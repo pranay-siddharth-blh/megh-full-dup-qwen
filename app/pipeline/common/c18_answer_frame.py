@@ -801,6 +801,50 @@ def _c18_edit_rank(raw: str, frame):
     return "rank", new
 
 
+# 2026-11-16 (log bank RNK): "what is the top block in Ri Bhoi", "the weakest block in North Garo Hills?", "which
+# block is the highest in West Garo Hills" right after a data answer = the same measure ranked at the level said,
+# inside the place said (it went to the knowledge base, or the model ranked another measure)
+_C18_RANK_IN_UP = frozenset("most highest maximum largest biggest top best leading strongest".split())
+_C18_RANK_IN_DOWN = frozenset("least lowest minimum smallest fewest bottom worst weakest poorest".split())
+_C18_RANK_IN_FILLER = frozenset("which what who is are was were has have had the a an and also now then so one of in "
+                                "it that this number figure value by with for me show give please just got get gets "
+                                "within inside under there performing performer district um uh okay ok".split())
+
+
+def _c18_edit_rank_in_place(raw: str, frame):
+    if len(frame.schemes) != 1 or frame.split or not frame.measure_text:
+        return None
+    ws = _c15_words(raw or "")
+    if not ws or len(ws) > 14:
+        return None
+    up = [w for w in ws if w in _C18_RANK_IN_UP]
+    down = [w for w in ws if w in _C18_RANK_IN_DOWN]
+    dims = {w.rstrip("s") for w in ws if w in ("block", "blocks", "village", "villages")}
+    if bool(up) == bool(down) or len(dims) != 1:
+        return None
+    place = _c18_one_place(raw or "")
+    if place is None:
+        return None
+    name, plevel, rest = place
+    level = dims.pop()
+    if plevel != "district" or level not in ("block", "village"):
+        return None
+    nums = [int(w) for w in _c15_words(rest) if w.isdecimal()]
+    for w in _c15_words(rest):
+        if not (w in _C18_RANK_IN_UP or w in _C18_RANK_IN_DOWN or w in _C18_RANK_IN_FILLER or w.isdecimal()
+                or w in ("block", "blocks", "village", "villages")):
+            return None                                   # a measure, a year, a scheme of its own: not ours
+    if len(nums) > 1 or any(n < 1 or n > 50 for n in nums):
+        return None
+    new = _c18_copy(frame)
+    if not _c18_set_place(new, name, "district"):
+        return None
+    _c18_drop(new.filters, "block", "village", "constituency")
+    new.qtype, new.group, new.order = "ranking", level, ("desc" if up else "asc")
+    new.limit = nums[0] if nums else None
+    return "rank", new
+
+
 def _c18_edit_regroup(raw: str, frame):
     text = raw or ""
     year, text = _c18_one_year(text)
@@ -1033,7 +1077,8 @@ def _c18_read_edit(raw: str, frame) -> "tuple[str, object] | None":
     q = raw or ""
     if _mentions_scheme(q) or _named_schemes(q) or _BARE_FOCUS_WORD.search(q):
         return None                                       # a scheme of its own: the swap / comparison / new paths
-    for reader in (_c18_edit_rank_year, _c18_edit_rank, _c18_edit_regroup, _c18_edit_place, _c18_edit_measure, _c18_edit_year):
+    for reader in (_c18_edit_rank_year, _c18_edit_rank, _c18_edit_rank_in_place, _c18_edit_regroup, _c18_edit_place,
+                   _c18_edit_measure, _c18_edit_year):
         try:
             out = reader(q, frame)
         except Exception:  # noqa: BLE001 — a reader that fails reads nothing
@@ -1185,6 +1230,14 @@ def _c18_catalogue_from_frame(frame: "dict | None", question: str, schemes: "lis
     filters = _c16_filters((entity_result or {}).get("resolved") or {})
     if filters is None:
         return None
+    fb = f.filters.get("block")
+    if isinstance(fb, str) and fb and not filters.get("block") and             str(filters.get("assembly_constituency") or "").upper() == fb.upper():
+        # 2026-11-16 (permutation bank, model down): "only Resubelpara" after a by-block answer — the frame read the
+        # block (_c18_one_place prefer), the rule resolver the constituency of the same name: the frame's reading
+        filters.pop("assembly_constituency", None)
+        filters["block"] = fb
+        if f.filters.get("district") and not filters.get("district"):
+            filters["district"] = f.filters["district"]
     for key in ("district", "block", "village_code", "assembly_constituency"):
         want = f.filters.get(key) if f.filters.get(key) is not None else f.filters.get(f"{key}_list")
         have = filters.get(key)
@@ -1209,7 +1262,10 @@ def _c18_catalogue_from_frame(frame: "dict | None", question: str, schemes: "lis
         if metric_catalog.single_year(m.key) and len(years) != 1:
             return None
         if not years and metric_catalog.YEAR_COLUMN in m.columns and not (
-                f.all_years or _ALL_YEARS_CUE.search(question or "") or _STATED_ALL_YEARS_CUE.search(question or "")):
+                f.all_years or _ALL_YEARS_CUE.search(question or "") or _STATED_ALL_YEARS_CUE.search(question or "")
+                or (f.source == "catalogue" and not want_years)):
+            # (2026-11-16, model down: the answer on screen is the catalogue's own all-years figure; the edit keeps it.
+            # With the model up the rephrase had added "across all financial years", so this was only seen without it)
             return None                                   # no year, and the question does not state all of them
     if f.qtype == "total" and len(years) > 1:
         return None

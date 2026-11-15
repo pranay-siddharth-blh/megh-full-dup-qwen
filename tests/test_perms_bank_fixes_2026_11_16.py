@@ -55,3 +55,48 @@ def test_the_figure_of_a_scheme_is_its_headline_measure():
     assert P._c16_default_measure_question("Give me the MGNREGA figure for Ri Bhoi?", "MGNREGA") == \
         "MGNREGA person-days Give me the MGNREGA figure for Ri Bhoi?"
     assert P._c16_default_measure_question("MGNREGA in Ri Bhoi", "MGNREGA") is None
+
+
+def test_one_place_listed_twice_is_that_place():
+    f = P._c16_filters({"district_list": ["SOUTH WEST KHASI HILLS", "SOUTH WEST KHASI HILLS"], "block": "MAWKYRWAT",
+                        "district": "SOUTH WEST KHASI HILLS"})
+    assert f == {"district": "SOUTH WEST KHASI HILLS", "block": "MAWKYRWAT"}
+    # two different places listed beside one: still declined
+    assert P._c16_filters({"district_list": ["RI BHOI", "WEST GARO HILLS"], "district": "RI BHOI"}) is None
+
+
+def _frame(**kw):
+    d = {"schemes": ["MGNREGA"], "qtype": "breakdown", "group": "district", "measure_text": "MGNREGA person-days",
+         "filters": {}, "metric_key": "mgnrega_employment_generated", "source": "catalogue"}
+    d.update(kw)
+    return P._c18_af.AnswerFrame.from_dict(d)
+
+
+def test_rank_inside_a_place_is_a_frame_edit(monkeypatch):
+    # the place index needs megh_db: read the district the way it would (offline)
+    def one_place(text, prefer=None):
+        for name in ("Ri Bhoi", "North Garo Hills", "West Garo Hills"):
+            k = text.find(name)
+            if k >= 0:
+                return name.upper(), "district", text[:k] + " " + text[k + len(name):]
+        return None
+    monkeypatch.setattr(P, "_c18_one_place", one_place)
+    for q, order in (("what is the top block in Ri Bhoi", "desc"), ("the weakest block in North Garo Hills?", "asc"),
+                     ("which block is the highest in West Garo Hills", "desc")):
+        out = P._c18_edit_rank_in_place(q, _frame())
+        assert out is not None, q
+        kind, new = out
+        assert kind == "rank" and new.qtype == "ranking" and new.group == "block" and new.order == order
+        assert new.filters.get("district") and not new.filters.get("block")
+        assert new.measure_text == "MGNREGA person-days"
+    # a measure / year of its own, or no rank word: not this edit
+    assert P._c18_edit_rank_in_place("which block has the most expenditure in Ri Bhoi", _frame()) is None
+    assert P._c18_edit_rank_in_place("blocks in Ri Bhoi", _frame()) is None
+
+
+def test_block_ranking_inside_listed_districts():
+    s = P._c16_shape("Which block has the highest: PMAY-G houses completed in West Garo Hills and Ri Bhoi",
+                     {"district": ["WEST GARO HILLS", "RI BHOI"]})
+    assert s and s["qtype"] == "ranking" and s["group"] == "block"
+    assert P._c16_shape("Which district has the highest PMAY-G houses completed in West Garo Hills and Ri Bhoi",
+                        {"district": ["WEST GARO HILLS", "RI BHOI"]}) is None

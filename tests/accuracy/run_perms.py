@@ -210,6 +210,43 @@ def vague_chains(blocks: dict) -> list[dict]:
     return out
 
 
+def more_chains(blocks: dict) -> list[dict]:
+    """K20: compare two districts -> "break it down by block" (each district's blocks, D-110) -> "which block has the
+    most"; K21: a district in a year -> "and the year before?"; K22: by district in a year -> "top 3" -> "only <the
+    third>" (a filter of what is on screen)."""
+    out = []
+    for i, (S, (m1, _m2, year, _head)) in enumerate(SCHEMES.items()):
+        ds = [d for d in DISTRICTS[i:] + DISTRICTS[:i] if len(blocks.get(f"{S}|{m1}|{d}", [])) >= 2]
+        if len(ds) < 2:
+            continue
+        a, b = ds[0], ds[1]
+        view, expr, base, bcol, unit = MEASURES[(S, m1)]
+        sql = (f"SELECT {bcol}, lgd_district, {expr} FROM {view} WHERE {base} AND {bcol} IS NOT NULL "
+               f"AND lgd_district IN ('{a}', '{b}') GROUP BY 1, 2 ORDER BY 2, 3 DESC")
+        cmp_sql = (f"SELECT lgd_district, {expr} FROM {view} WHERE {base} AND lgd_district IN ('{a}', '{b}') "
+                   f"GROUP BY 1 ORDER BY 2 DESC")
+        top = (f"SELECT {bcol}, {expr} FROM {view} WHERE {base} AND {bcol} IS NOT NULL "
+               f"AND lgd_district IN ('{a}', '{b}') GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1")
+        out.append({"id": f"K20-{S.replace(' ', '')}", "kind": "K20", "scheme": S, "district": a, "turns": [
+            {"q": f"Compare {S} {m1} in {title(a)} and {title(b)}", "pause": False, "place": "-",
+             "rows": [{"sql": cmp_sql, "unit": unit, "take": "all"}]},
+            {"q": "break it down by block", "pause": False, "place": "-", "rows": [{"sql": sql, "unit": unit, "take": "all"}]},
+            {"q": "which block has the most", "pause": False, "place": "-", "rows": [{"sql": top, "unit": unit, "take": 1}]},
+        ]})
+        if year is not None and S not in ("CMSS",):
+            d = ds[2 % len(ds)]
+            if S in ("MGNREGA", "PMAY-G"):                # the only two with data in the year before theirs
+                out.append({"id": f"K21-{S.replace(' ', '')}", "kind": "K21", "scheme": S, "district": d, "turns": [
+                    rows_turn(f"{S} {m1} in {title(d)} in {fy(year)}", S, m1, "district", d, year),
+                    rows_turn("and the year before?", S, m1, "district", d, year - 1),
+                ]})
+            out.append({"id": f"K22-{S.replace(' ', '')}", "kind": "K22", "scheme": S, "district": "", "turns": [
+                rows_turn(f"{S} {m1} by district in {fy(year)}", S, m1, "district", year=year, place="-"),
+                rows_turn("top 3", S, m1, "district", year=year, take=3, place="-"),
+            ]})
+    return out
+
+
 def logged_chains() -> list[dict]:
     """K18 / K19: the wordings of the user's live logs (16 Nov)."""
     out = []
@@ -343,7 +380,7 @@ async def build() -> int:
     for i, scheme in enumerate(SCHEMES):
         per = {(m, d): blocks.get(f"{scheme}|{m}|{d}", []) for (s, m) in MEASURES if s == scheme for d in DISTRICTS}
         cases += chains_for(scheme, i, per)
-    cases += oneshot_chains(yblocks) + vague_chains(blocks) + logged_chains()
+    cases += oneshot_chains(yblocks) + vague_chains(blocks) + logged_chains() + more_chains(blocks)
     with open(BANK, "w", encoding="utf-8") as fh:
         yaml.safe_dump({"built": time.strftime("%Y-%m-%d %H:%M"), "chains": cases}, fh, sort_keys=False,
                        allow_unicode=True, width=120)

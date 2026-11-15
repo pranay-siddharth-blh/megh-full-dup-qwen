@@ -1,4 +1,4 @@
-built: 2026-11-16 01:43
+built: 2026-11-16 02:20
 chains:
 - id: K1-MGNREGA-EASTKHASIH
   kind: K1
@@ -4079,3 +4079,398 @@ chains:
         NULL GROUP BY 1 ORDER BY 1
       unit: lakh
       take: all
+- id: K20-MGNREGA
+  kind: K20
+  scheme: MGNREGA
+  district: EAST KHASI HILLS
+  turns:
+  - q: Compare MGNREGA person-days in East Khasi Hills and West Garo Hills
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, SUM(person_days) FROM curated.v_employment WHERE TRUE AND lgd_district IN ('EAST KHASI HILLS',
+        'WEST GARO HILLS') GROUP BY 1 ORDER BY 2 DESC
+      unit: count
+      take: all
+  - q: break it down by block
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_block, lgd_district, SUM(person_days) FROM curated.v_employment WHERE TRUE AND lgd_block IS NOT NULL
+        AND lgd_district IN ('EAST KHASI HILLS', 'WEST GARO HILLS') GROUP BY 1, 2 ORDER BY 2, 3 DESC
+      unit: count
+      take: all
+  - q: which block has the most
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_block, SUM(person_days) FROM curated.v_employment WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district
+        IN ('EAST KHASI HILLS', 'WEST GARO HILLS') GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: 1
+- id: K21-MGNREGA
+  kind: K21
+  scheme: MGNREGA
+  district: RI BHOI
+  turns:
+  - q: MGNREGA person-days in Ri Bhoi in 2023-24
+    pause: false
+    place: Ri Bhoi
+    figures:
+    - sql: SELECT SUM(person_days) FROM curated.v_employment WHERE TRUE AND lgd_district = 'RI BHOI' AND year_key = 2023
+      unit: count
+  - q: and the year before?
+    pause: false
+    place: Ri Bhoi
+    figures:
+    - sql: SELECT SUM(person_days) FROM curated.v_employment WHERE TRUE AND lgd_district = 'RI BHOI' AND year_key = 2022
+      unit: count
+- id: K22-MGNREGA
+  kind: K22
+  scheme: MGNREGA
+  district: ''
+  turns:
+  - q: MGNREGA person-days by district in 2023-24
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, SUM(person_days) FROM curated.v_employment WHERE TRUE AND lgd_district IS NOT NULL AND year_key
+        = 2023 GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: top 3
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, SUM(person_days) FROM curated.v_employment WHERE TRUE AND lgd_district IS NOT NULL AND year_key
+        = 2023 GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: 3
+- id: K20-PMAY-G
+  kind: K20
+  scheme: PMAY-G
+  district: WEST GARO HILLS
+  turns:
+  - q: Compare PMAY-G houses completed in West Garo Hills and Ri Bhoi
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, COUNT(*) FROM curated.v_pmay WHERE is_completed AND lgd_district IN ('WEST GARO HILLS', 'RI
+        BHOI') GROUP BY 1 ORDER BY 2 DESC
+      unit: count
+      take: all
+  - q: break it down by block
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_block, lgd_district, COUNT(*) FROM curated.v_pmay WHERE is_completed AND lgd_block IS NOT NULL AND lgd_district
+        IN ('WEST GARO HILLS', 'RI BHOI') GROUP BY 1, 2 ORDER BY 2, 3 DESC
+      unit: count
+      take: all
+  - q: which block has the most
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_pmay WHERE is_completed AND lgd_block IS NOT NULL AND lgd_district IN
+        ('WEST GARO HILLS', 'RI BHOI') GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: 1
+- id: K21-PMAY-G
+  kind: K21
+  scheme: PMAY-G
+  district: NORTH GARO HILLS
+  turns:
+  - q: PMAY-G houses completed in North Garo Hills in 2022-23
+    pause: false
+    place: North Garo Hills
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_pmay WHERE is_completed AND lgd_district = 'NORTH GARO HILLS' AND year_key = 2022
+      unit: count
+  - q: and the year before?
+    pause: false
+    place: North Garo Hills
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_pmay WHERE is_completed AND lgd_district = 'NORTH GARO HILLS' AND year_key = 2021
+      unit: count
+- id: K22-PMAY-G
+  kind: K22
+  scheme: PMAY-G
+  district: ''
+  turns:
+  - q: PMAY-G houses completed by district in 2022-23
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, COUNT(*) FROM curated.v_pmay WHERE is_completed AND lgd_district IS NOT NULL AND year_key
+        = 2022 GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: top 3
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, COUNT(*) FROM curated.v_pmay WHERE is_completed AND lgd_district IS NOT NULL AND year_key
+        = 2022 GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: 3
+- id: K20-FocusPlus
+  kind: K20
+  scheme: Focus Plus
+  district: RI BHOI
+  turns:
+  - q: Compare Focus Plus beneficiaries in Ri Bhoi and North Garo Hills
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE TRUE AND lgd_district IN ('RI
+        BHOI', 'NORTH GARO HILLS') GROUP BY 1 ORDER BY 2 DESC
+      unit: count
+      take: all
+  - q: break it down by block
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT UPPER(block_name_raw), lgd_district, COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE TRUE
+        AND UPPER(block_name_raw) IS NOT NULL AND lgd_district IN ('RI BHOI', 'NORTH GARO HILLS') GROUP BY 1, 2 ORDER BY 2,
+        3 DESC
+      unit: count
+      take: all
+  - q: which block has the most
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT UPPER(block_name_raw), COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE TRUE AND UPPER(block_name_raw)
+        IS NOT NULL AND lgd_district IN ('RI BHOI', 'NORTH GARO HILLS') GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: 1
+- id: K22-FocusPlus
+  kind: K22
+  scheme: Focus Plus
+  district: ''
+  turns:
+  - q: Focus Plus beneficiaries by district in 2025-26
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE TRUE AND lgd_district IS NOT
+        NULL AND year_key = 2025 GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: top 3
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE TRUE AND lgd_district IS NOT
+        NULL AND year_key = 2025 GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: 3
+- id: K20-FocusLegacy
+  kind: K20
+  scheme: Focus Legacy
+  district: NORTH GARO HILLS
+  turns:
+  - q: Compare Focus Legacy amount disbursed in North Garo Hills and West Jaintia Hills
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE TRUE AND lgd_district IN ('NORTH GARO
+        HILLS', 'WEST JAINTIA HILLS') GROUP BY 1 ORDER BY 2 DESC
+      unit: rupees
+      take: all
+  - q: break it down by block
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_block, lgd_district, SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE TRUE AND lgd_block IS NOT
+        NULL AND lgd_district IN ('NORTH GARO HILLS', 'WEST JAINTIA HILLS') GROUP BY 1, 2 ORDER BY 2, 3 DESC
+      unit: rupees
+      take: all
+  - q: which block has the most
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_block, SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district
+        IN ('NORTH GARO HILLS', 'WEST JAINTIA HILLS') GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: rupees
+      take: 1
+- id: K22-FocusLegacy
+  kind: K22
+  scheme: Focus Legacy
+  district: ''
+  turns:
+  - q: Focus Legacy amount disbursed by district in 2024-25
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE TRUE AND lgd_district IS NOT NULL
+        AND year_key = 2024 GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: rupees
+      take: all
+  - q: top 3
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE TRUE AND lgd_district IS NOT NULL
+        AND year_key = 2024 GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: rupees
+      take: 3
+- id: K20-CMElevate
+  kind: K20
+  scheme: CM Elevate
+  district: WEST JAINTIA HILLS
+  turns:
+  - q: Compare CM Elevate applications in West Jaintia Hills and South West Garo Hills
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, COUNT(DISTINCT request_id) FROM curated.v_cm_elevate WHERE data_verified = 'Valid' AND lgd_district
+        IN ('WEST JAINTIA HILLS', 'SOUTH WEST GARO HILLS') GROUP BY 1 ORDER BY 2 DESC
+      unit: count
+      take: all
+  - q: break it down by block
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_block, lgd_district, COUNT(DISTINCT request_id) FROM curated.v_cm_elevate WHERE data_verified = 'Valid'
+        AND lgd_block IS NOT NULL AND lgd_district IN ('WEST JAINTIA HILLS', 'SOUTH WEST GARO HILLS') GROUP BY 1, 2 ORDER
+        BY 2, 3 DESC
+      unit: count
+      take: all
+  - q: which block has the most
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_block, COUNT(DISTINCT request_id) FROM curated.v_cm_elevate WHERE data_verified = 'Valid' AND lgd_block
+        IS NOT NULL AND lgd_district IN ('WEST JAINTIA HILLS', 'SOUTH WEST GARO HILLS') GROUP BY 1 ORDER BY 2 DESC NULLS LAST,
+        1
+      unit: count
+      take: 1
+- id: K20-CMElevateLegacy
+  kind: K20
+  scheme: CM Elevate Legacy
+  district: SOUTH WEST GARO HILLS
+  turns:
+  - q: Compare CM Elevate Legacy total disbursed in South West Garo Hills and East Garo Hills
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, SUM(total_disbursement) FROM curated.v_cm_elevate_disbursement WHERE TRUE AND lgd_district
+        IN ('SOUTH WEST GARO HILLS', 'EAST GARO HILLS') GROUP BY 1 ORDER BY 2 DESC
+      unit: rupees
+      take: all
+  - q: break it down by block
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_block, lgd_district, SUM(total_disbursement) FROM curated.v_cm_elevate_disbursement WHERE TRUE AND lgd_block
+        IS NOT NULL AND lgd_district IN ('SOUTH WEST GARO HILLS', 'EAST GARO HILLS') GROUP BY 1, 2 ORDER BY 2, 3 DESC
+      unit: rupees
+      take: all
+  - q: which block has the most
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_block, SUM(total_disbursement) FROM curated.v_cm_elevate_disbursement WHERE TRUE AND lgd_block IS NOT
+        NULL AND lgd_district IN ('SOUTH WEST GARO HILLS', 'EAST GARO HILLS') GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: rupees
+      take: 1
+- id: K22-CMElevateLegacy
+  kind: K22
+  scheme: CM Elevate Legacy
+  district: ''
+  turns:
+  - q: CM Elevate Legacy total disbursed by district in 2024-25
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, SUM(total_disbursement) FROM curated.v_cm_elevate_disbursement WHERE TRUE AND lgd_district
+        IS NOT NULL AND year_key = 2024 GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: rupees
+      take: all
+  - q: top 3
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, SUM(total_disbursement) FROM curated.v_cm_elevate_disbursement WHERE TRUE AND lgd_district
+        IS NOT NULL AND year_key = 2024 GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: rupees
+      take: 3
+- id: K20-CMSS
+  kind: K20
+  scheme: CMSS
+  district: EAST GARO HILLS
+  turns:
+  - q: Compare CMSS students paid in East Garo Hills and West Khasi Hills
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, COUNT(*) FROM curated.v_cmss WHERE is_disbursed AND lgd_district IN ('EAST GARO HILLS', 'WEST
+        KHASI HILLS') GROUP BY 1 ORDER BY 2 DESC
+      unit: count
+      take: all
+  - q: break it down by block
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_block, lgd_district, COUNT(*) FROM curated.v_cmss WHERE is_disbursed AND lgd_block IS NOT NULL AND lgd_district
+        IN ('EAST GARO HILLS', 'WEST KHASI HILLS') GROUP BY 1, 2 ORDER BY 2, 3 DESC
+      unit: count
+      take: all
+  - q: which block has the most
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_cmss WHERE is_disbursed AND lgd_block IS NOT NULL AND lgd_district IN
+        ('EAST GARO HILLS', 'WEST KHASI HILLS') GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: 1
+- id: K20-Homestay
+  kind: K20
+  scheme: Homestay
+  district: WEST KHASI HILLS
+  turns:
+  - q: Compare Homestay applications in West Khasi Hills and South Garo Hills
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, COUNT(*) FROM curated.v_homestay_api WHERE TRUE AND lgd_district IN ('WEST KHASI HILLS', 'SOUTH
+        GARO HILLS') GROUP BY 1 ORDER BY 2 DESC
+      unit: count
+      take: all
+  - q: break it down by block
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_block, lgd_district, COUNT(*) FROM curated.v_homestay_api WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district
+        IN ('WEST KHASI HILLS', 'SOUTH GARO HILLS') GROUP BY 1, 2 ORDER BY 2, 3 DESC
+      unit: count
+      take: all
+  - q: which block has the most
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_homestay_api WHERE TRUE AND lgd_block IS NOT NULL AND lgd_district IN
+        ('WEST KHASI HILLS', 'SOUTH GARO HILLS') GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: 1
+- id: K22-Homestay
+  kind: K22
+  scheme: Homestay
+  district: ''
+  turns:
+  - q: Homestay applications by district in 2025-26
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, COUNT(*) FROM curated.v_homestay_api WHERE TRUE AND lgd_district IS NOT NULL AND year_key
+        = 2025 GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: all
+  - q: top 3
+    pause: false
+    place: '-'
+    rows:
+    - sql: SELECT lgd_district, COUNT(*) FROM curated.v_homestay_api WHERE TRUE AND lgd_district IS NOT NULL AND year_key
+        = 2025 GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1
+      unit: count
+      take: 3

@@ -2499,6 +2499,11 @@ async def _turn_route_stage(t: dict, session: "Session | None" = None,
     if intent == "KNOWLEDGE" and not _DEFINITION_ASK_MATCH.search(raw_question) \
             and not _is_entitlement_question(raw_question) and _cross_figures_question(raw_question):
         intent = "DATA"
+    # 2026-11-16 (log bank RNK): a follow-up read as ONE edit of the last data answer's frame (c18: "what is the top
+    # block in Ri Bhoi" after a by-district answer) is that answer's data, re-cut: never the reference documents
+    if intent == "KNOWLEDGE" and session is not None and (session.turn_context or {}).get("frame_edit")             and not _DEFINITION_ASK_MATCH.search(raw_question):
+        intent = "DATA"
+        context_budget.log_decision("intent", override="frame-edit-is-data")
     # User decision 2026-11-03: a chat on one CM Elevate dataset keeps it; a DATA question
     # only the other dataset holds asks to switch (the context stage left it unpinned).
     # Here, after routing, so a how-it-works question is never asked.
