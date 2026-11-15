@@ -185,7 +185,7 @@ words:
   - total
   - remitted
   - remittance
-  - spent
+  # 'spent' was here until 2026-11-15: too short, real words one edit away (sent, spend, spelt)
   - generated
   - received
   - students
@@ -202,6 +202,16 @@ words:
 # Real English words one or two edits from a word above: never "corrected" (2026-11-14; "distinct values" had
 # become "district values", "vintage" -> "village", "tonal" -> "total"). Add the look-alikes with every new word.
 not_typos:
+  # 2026-11-15: 'applications were sent back' became 'spent back' (one edit from 'spent') and was asked as
+  # money (model-on gold bank W2-CE-SB-01). Real words one or two edits from the measure words:
+  - sent
+  - spend
+  - spends
+  - relieved
+  - villas
+  - lowers
+  - spelt
+  - stent
   - tonal
   - refitted
   - distinct

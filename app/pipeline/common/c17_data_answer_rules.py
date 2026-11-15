@@ -270,11 +270,22 @@ _C17_COUNT_PARTS = ("count", "number", "houses", "records", "applications", "app
                     "_no", "no_of", "num_")
 
 
+_C17_EVENT_PLURALS = frozenset(("disbursements", "remittances", "releases", "sanctions", "transfers", "transactions"))
+# whole name parts (a substring test read "rs" inside "disbursements")
+_C17_AMOUNT_WORDS = frozenset(("amount", "total", "sum", "value", "rs", "rupee", "rupees", "lakh", "crore",
+                               "cr", "money", "inr"))
+
+
 def _c17_unit_by_name(col: str, scheme: "str | None") -> "str | None":
     low = str(col).lower()
     if not any(p in low for p in _C17_MONEY_PARTS) and low not in ("exp", "total_exp", "released"):
         return None
     if any(p in low for p in _C17_COUNT_PARTS):
+        return None
+    # 2026-11-15 (model-on gold bank RAG-D10): COUNT(*) AS disbursements was read as money by its name and written
+    # "₹3,85,671 (≈ ₹3.86 lakh)". A plural event noun counts events unless the name also says it is an amount.
+    parts = low.split("_")
+    if parts and parts[-1] in _C17_EVENT_PLURALS and not any(w in parts for w in _C17_AMOUNT_WORDS):
         return None
     facts = scheme_registry.DATASETS.get(scheme or "")
     if facts is None or facts.money_unit is None:

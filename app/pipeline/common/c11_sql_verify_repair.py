@@ -912,6 +912,12 @@ _VERIFIER_MISSING_GEO_COMPLAINT = Matcher(Alt(
     _c11_lit("not present"), _c11_lit("no filter"),
     Seq(_c11_lit("does not"), _C1xGapIs(W("include", "filter", "contain"), _c11_sp1)),
     Seq(_c11_lit("fails to"), _C1xGapIs(W("include", "filter"), _c11_sp1)),
+    # 2026-11-15 (model-on gold bank W3-RT-03, "What share of all PMAY-G houses are in West Garo Hills?"): "the SQL
+    # does not EXPLICITLY filter on this resolved entity in the WHERE clause. Instead, it uses a FILTER clause" was
+    # not read as this complaint, the repair moved the district into the WHERE clause and the share became 100.0%
+    # (truth 19.4%). An adverb between "does not" and the verb is the same complaint.
+    Seq(_c11_lit("does not"), _C1xGapIs(W("explicitly", "directly", "actually", "properly", "correctly"), _c11_sp1),
+        _C1xGapIs(W("include", "filter", "contain", "restrict", "apply"), _c11_sp1)),
 ))
 
 # resolved-entity key -> the SQL column prompt_builder._entities_block renders

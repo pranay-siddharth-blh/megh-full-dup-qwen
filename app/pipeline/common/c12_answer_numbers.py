@@ -859,6 +859,21 @@ def _c12_bracket_end(answer: str, at: int) -> int:
     return at
 
 
+def _c12_is_count_cell(rows: list[dict], val: float, money: list) -> bool:
+    """`val` equals a numeric result cell and NO money cell: a count written with a ₹ by mistake."""
+    if any(abs(m[0] - val) < 0.005 for m in money):
+        return False
+    for r in rows or []:
+        if not isinstance(r, dict):
+            continue
+        for v in r.values():
+            if isinstance(v, bool) or not isinstance(v, (int, float, Decimal)):
+                continue
+            if abs(float(v) - val) < 0.005:
+                return True
+    return False
+
+
 def _c12_normalise_figures(answer: str, rows: list[dict], schemes: "list[str] | None" = None) -> str:
     """Money and big counts in the answer written the way the dashboard cards write them.
     Money is every result cell _c17_money_cols knows (by suffix, else by name with the
@@ -915,6 +930,11 @@ def _c12_normalise_figures(answer: str, rows: list[dict], schemes: "list[str] | 
             # "480.91 rupees" -> "₹480.91": the word goes with the ₹
             if nxt and nxt[0].start == 0 and nxt[0].low in ("rupee", "rupees", "rs", "inr"):
                 stop = end + (len(answer[end:]) - len(after)) + nxt[0].end
+        elif rupee_at is not None and _c12_is_count_cell(rows, val, money):
+            # 2026-11-15 (model-on gold bank RAG-D10): the composer wrote "₹3,85,671" for COUNT(*) AS disbursements
+            # (the word made it money) and the line above formatted it as rupees. A figure whose only result cell is
+            # NOT money is a count: the ₹ (and any size bracket) goes, the number stays.
+            new = _c12_indian(val) if float(val).is_integer() else tok
         elif rupee_at is not None and val >= 1e5:
             new = _c12_money(val, "rupees")
         if new is not None:
