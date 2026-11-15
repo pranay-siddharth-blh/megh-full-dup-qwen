@@ -167,7 +167,11 @@ async def main():
         judge("an answer after a barge-in", seen3, *(real_lines(r3) if REAL else (["One moment, sir.", r3["speak"]], r3["speak"])))
 
         # 4b. two holding lines (the engine's later filler comes after the answer has reached the page), then the answer
-        if not REAL:
+        if REAL:      # a long cross-scheme answer: the engine says its 9 s filler ("Still working on it, sir.") as well
+            r5, seen5 = await reading(b, "Which scheme leads in each district?")
+            print("      said:", r5["said"], flush=True)
+            judge("a long answer with its fillers", seen5, *real_lines(r5))
+        else:
             r5, seen5 = await reading(b, "!!realtime3 Which scheme leads in each district?")
             print("   5:", seen5[:3], "...", seen5[-1:], flush=True)
             judge("two holding lines, then the answer", seen5, ["One moment, sir.", "Still working on it, sir.", r5["speak"]], r5["speak"])
