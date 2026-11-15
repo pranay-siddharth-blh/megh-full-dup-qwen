@@ -664,9 +664,11 @@ def _c19_spoken_shape(shape, rows: list, question: str, schemes, entities) -> "s
                    f"well ahead of {lab(r2)}, second with {s2v}" if r and r >= 1.15 else
                    f"ahead of {lab(r2)}, second with {s2v}" if r and r >= 1.05 else
                    f"with {lab(r2)} close behind at {s2v}")
-            s1 = f"{lab(r1)} is out in front{where} with {s1v} {_c19_spoken_noun(m, noun)} — {rel}."
+            # a SHORT first sentence naming the leader (2026-11-15): the relay releases captions a checked sentence at a
+            # time and the picture lights a place when its name is captioned (D-115), so a long opening held both back
+            s1 = f"{lab(r1)} is out in front{where}. It has {s1v} {_c19_spoken_noun(m, noun)} — {rel}."
         else:
-            s1 = (f"{lab(r1)} has the {_c19_more_word(m, low=True)}{where}, {s1v} {_c19_spoken_noun(m, noun)}, "
+            s1 = (f"{lab(r1)} has the {_c19_more_word(m, low=True)}{where}. It has {s1v} {_c19_spoken_noun(m, noun)}, "
                   f"followed by {lab(r2)} with {s2v}.")
         rest = pairs[2:]
         s2 = ""
@@ -693,9 +695,10 @@ def _c19_spoken_shape(shape, rows: list, question: str, schemes, entities) -> "s
                     tot = "about " + tot[len(qual):]          # "the state's total of about 1.7 lakh"
             whole = (f"the state's total of {tot}" if statewide and _c19_one_is(shape, "district") and n == 12
                      else f"the total of {tot}")
-            s1 = f"{lab(hr)} has the {_c19_more_word(m)}, {sh} {_c19_spoken_noun(m, noun)} — {frac} of {whole}."
+            s1 = (f"{lab(hr)} has the {_c19_more_word(m)}. That is {sh} {_c19_spoken_noun(m, noun)} — {frac} of "
+                  f"{whole}.")
         else:
-            s1 = f"{lab(hr)} has the {_c19_more_word(m)}, {sh} {_c19_spoken_noun(m, noun)}{where}."
+            s1 = f"{lab(hr)} has the {_c19_more_word(m)}{where}. That is {sh} {_c19_spoken_noun(m, noun)}."
         r = hv / lv if lv > 0 else None
         times = _c19_times(r) if r and r >= 2.95 else None
         s2 = f" {lab(lr)} has the {_c19_more_word(m, low=True)}, {sl}" + \

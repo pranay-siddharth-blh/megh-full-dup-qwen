@@ -241,7 +241,8 @@ def test_spoken_form_is_short_conversational_and_every_number_honest(kind, q, sq
     spoken = p._c19_spoken_for_result(res)
     assert spoken, res["answer"]
     assert len(spoken) <= 320
-    assert spoken.count(".") <= 5 and "\n" not in spoken and "**" not in spoken
+    assert spoken.count(".") <= 6   # + the short naming opening (2026-11-15)
+    assert "\n" not in spoken and "**" not in spoken
     assert not any(v in spoken for r in rows for k, v in r.items() if isinstance(v, str) and v.isupper()
                    and len(v) > 3 and p._c19_is_place_col(k))
     # every number is a row value, a figure computed from the rows, or an honest marked rounding of one
@@ -255,7 +256,7 @@ def test_spoken_form_is_short_conversational_and_every_number_honest(kind, q, sq
 
 def test_spoken_form_never_reads_the_whole_list():
     spoken = p._c19_spoken_for_result(_result(PMAY_Q, PMAY_SQL, PMAY_ROWS, ["PMAY-G"]))
-    assert spoken == ("West Garo Hills has the most, just over 33,000 PMAY-G houses sanctioned — about a fifth of the "
+    assert spoken == ("West Garo Hills has the most. That is just over 33,000 PMAY-G houses sanctioned — about a fifth of the "
                       "state's total of about 1.7 lakh. Eastern West Khasi Hills has the fewest, about 5,500, so West "
                       "Garo Hills has about six times as many. All 12 districts are on your screen.")
     named = [d for d, _v in PMAY_BY_DISTRICT if p._place_title(d) in spoken]
@@ -264,7 +265,7 @@ def test_spoken_form_never_reads_the_whole_list():
 
 def test_spoken_ranking_names_the_top_two_and_points_to_the_screen():
     spoken = p._c19_spoken_for_result(_result(FP_Q, FP_SQL, FP_ROWS, ["Focus Plus"]))
-    assert spoken.startswith("West Garo Hills is out in front with about 35,000 Focus Plus beneficiaries")
+    assert spoken.startswith("West Garo Hills is out in front. It has about 35,000 Focus Plus beneficiaries")
     assert "more than twice as many as South West Garo Hills, which is second with just over 15,000" in spoken
     assert spoken.endswith("The full ranking is on your screen.")
     assert "35,039" not in spoken and "13,608" not in spoken

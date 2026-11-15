@@ -173,7 +173,10 @@ async def list_my_conversations(user_id: int, limit: int = 30,
     # for audit but are not the user's chats: one per call would flood this list.
     # K-7 (chat UI audit 2026-10-29): a chat stopped on its first question has 0 turns;
     # listed, it opened as "Could not open that conversation" — it is not a chat yet.
-    where = "user_id = $1 AND left(session_id, 4) <> 'api-' AND turn_count > 0"
+    # voice_explain_*: the voice stage's throwaway breakdown sessions (VoiceStage.jsx) never show, even when the page
+    # closed before its delete ran (2026-11-15); the turns stay for the audit like every deleted thread
+    where = ("user_id = $1 AND left(session_id, 4) <> 'api-' AND left(session_id, 14) <> 'voice_explain_' "
+             "AND turn_count > 0")
     params: list = [user_id]
     if archived is not None:
         params.append(archived)
@@ -358,7 +361,8 @@ async def search_my_conversations(*, user_id: int, q: str, limit: int = 30,
                                   archived: bool | None = None) -> list[dict]:
     """Title or turn-text search across the caller's own conversations.
     archived=None searches both shelves, so a search can find an archived chat."""
-    where = "c.user_id = $1 AND left(c.session_id, 4) <> 'api-' AND c.turn_count > 0"   # see list_my_conversations
+    where = ("c.user_id = $1 AND left(c.session_id, 4) <> 'api-' AND left(c.session_id, 14) <> 'voice_explain_' "
+             "AND c.turn_count > 0")   # see list_my_conversations
     params: list = [user_id, q.strip()[:200]]
     if archived is not None:
         params.append(archived)

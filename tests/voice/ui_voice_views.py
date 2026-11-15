@@ -229,9 +229,11 @@ async def main():
             # the newest wins: a third call while the second waits replaces it
             t0 = await b.eval("performance.now()")
             await b.eval("""window.__meghVoice.inject({ type: 'tool_call', id: 'test-q3', key: 'k3', question: 'PMAY-G houses completed by district' });""")
-            await b.eval("(async () => { await until(() => window.__meghVoice.pending(), 5000); await sleep(500); })()")
-            await b.eval("""window.__meghVoice.inject({ type: 'tool_call', id: 'test-q4', key: 'k4', question: 'CM Elevate applications by district' });""")
-            await b.eval("sleep(300)")
+            # answers are fast since D-114 (no composer call on a catalogue breakdown: ~0.2 s), so q4 and q5 follow q3
+            # at once, while q3 is still pending
+            await b.eval("""(async () => { await until(() => window.__meghVoice.pending(), 5000);
+                window.__meghVoice.inject({ type: 'tool_call', id: 'test-q4', key: 'k4', question: 'CM Elevate applications by district' }); })()""")
+            await b.eval("sleep(30)")
             await b.eval("""window.__meghVoice.inject({ type: 'tool_call', id: 'test-q5', key: 'k5', question: 'MGNREGA expenditure by district' });""")
             n = await b.eval(f"""(async () => {{ await until(() => vlog().find(e => e.type === 'reply' && e.id === 'test-q5'), 200000); await sleep(1500);
                 const ev = vlog().filter(e => e.t > {t0});
