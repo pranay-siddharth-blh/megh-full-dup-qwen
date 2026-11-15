@@ -658,7 +658,18 @@ def _c12s_e9_what(col: str) -> str:
     """What a measure counts, without its unit (the figure carries it): 'total expenditure'."""
     unit = _unit_suffix(str(col).lower())
     name = unit[0] if unit else _human_metric(str(col))
-    return " ".join(_C12S_E9_ALIAS_WORDS.get(w, w) for w in name.split(" "))
+    words = [_C12S_E9_ALIAS_WORDS.get(w, w) for w in name.split(" ")]
+    # "person_days_2022_23" read "person days 2022 23" (caption log 2026-11-16): the year said as FY 2022-23
+    out, i = [], 0
+    while i < len(words):
+        w = words[i]
+        if i + 1 < len(words) and _c19_fy_pair(w, words[i + 1]):
+            out.append(f"in FY {w}-{words[i + 1]}")
+            i += 2
+            continue
+        out.append(w)
+        i += 1
+    return " ".join(out)
 
 
 def _c12s_e9_same_amount(a: str, b: str, rows: list) -> bool:

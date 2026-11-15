@@ -572,6 +572,18 @@ def _c12_row_split(r: dict) -> "tuple[list, list, list]":
               if v is not None and _as_number(v) is None and not _c12_is_code_col(str(k))]
     codes = [(k, v) for k, v in r.items() if v is not None and _c12_is_code_col(str(k))]
     metrics = [(k, v) for k, v in _row_metrics(r) if not _c12_is_code_col(str(k))]
+    if bool(getattr(settings, "ANSWER_NATURAL_ENABLED", False)):
+        # 2026-11-16 (caption log): "West Garo Hills — year key: 2022, total expenditure …" — a year_key cell is the
+        # row's financial year, a label ("FY 2022-23"), never a figure
+        def _yk(k, v) -> bool:
+            n = _as_number(v)
+            return str(k).lower() in ("year_key", "fy_start") and n is not None and float(n).is_integer() \
+                and 1990 <= int(n) <= 2100
+        yk = [(k, v) for k, v in metrics + codes if _yk(k, v)]
+        if yk:
+            metrics = [(k, v) for k, v in metrics if not _yk(k, v)]
+            codes = [(k, v) for k, v in codes if not _yk(k, v)]
+            labels = labels + [(k, f"FY {int(_as_number(v))}-{(int(_as_number(v)) + 1) % 100:02d}") for k, v in yk]
     return labels, codes, metrics
 
 

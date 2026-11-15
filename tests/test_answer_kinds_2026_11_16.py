@@ -355,3 +355,14 @@ def test_polite_request_answer_does_not_open_with_yes(natural_on):
 def test_a_measure_counted_in_a_place_is_not_a_geography_count():
     assert p._c15_geography_count("How many persons received employment in Amlarem constituency during 2022-23?") is None
     assert p._c15_geography_count("What is the number of blocks in Ri Bhoi?") == ("block", "RI BHOI", None)
+
+
+def test_spoken_notation_in_words():
+    assert p._c19_speakable("East Garo Hills: Focus Plus 11,379 / ₹12.62 crore | CM Elevate Legacy 199 / ₹4.49 crore "
+                            "→ Focus Plus") == ("East Garo Hills: Focus Plus 11,379 and ₹12.62 crore, CM Elevate Legacy "
+                                                "199 and ₹4.49 crore, with Focus Plus ahead")
+    assert p._c19_speakable("36 in 2021-12-01.") == "36 in December 2021."
+    assert p._c19_speakable("MGNREGA person days 2022 23 and FY 2023 24") == \
+        "MGNREGA person days FY 2022-23 and FY 2023-24"
+    assert p._c12s_e9_what("person_days_2022_23") == "person-days in FY 2022-23" or \
+        p._c12s_e9_what("person_days_2022_23").endswith("in FY 2022-23")

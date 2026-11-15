@@ -915,12 +915,12 @@ def _c19_spoken_from_text(answer: str, rows: list, single: bool) -> "str | None"
     shown_items = 0
     if items and (not take or take[-1].endswith(":")):
         shown_items = min(2, len(items))
-        lead_items = [_c19_drop_brackets(i).rstrip(".") for i in items[:shown_items]]
+        lead_items = [_c19_speakable(_c19_drop_brackets(i)).rstrip(".") for i in items[:shown_items]]
         intro = said.rstrip().rstrip(":").rstrip()
         said = (intro + (": " if intro else "") + "; ".join(lead_items) + ".").strip()
     if not said:
         return None
-    said = said.replace(" :", ":").replace(":.", ".").replace("..", ".")
+    said = _c19_speakable(said.replace(" :", ":").replace(":.", ".").replace("..", "."))
     tol, floor = (_C19_SINGLE_TOL, 1e5) if single else (_C19_TOL, 1e4)
     spoken = _c19_round_text(said, rows, tol, floor)
     spoken = spoken[:1].upper() + spoken[1:]
@@ -929,6 +929,48 @@ def _c19_spoken_from_text(answer: str, rows: list, single: bool) -> "str | None"
     elif len(sentences) > len(take):
         spoken += " The rest is on your screen."
     return spoken if len(spoken) <= _C19_SPOKEN_MAX + 120 else None
+
+
+def _c19_fy_pair(first: str, second: str) -> bool:
+    """'2022' then '23' (a financial year written as two words by a column name)."""
+    nxt = second.rstrip(".,;:)")
+    return (first.isdecimal() and len(first) == 4 and 1990 <= int(first) <= 2100 and nxt.isdecimal()
+            and len(nxt) == 2 and int(nxt) == (int(first) + 1) % 100)
+
+
+def _c19_speakable(text: str) -> str:
+    """Screen notation said in words (the visual agent's caption log 2026-11-16): "461 / ₹6.12 crore" -> "461 and
+    ₹6.12 crore", "… | …" -> "…, …", "… → Focus Plus" -> "…, with Focus Plus ahead", an ISO date "2021-12-01" ->
+    "December 2021", a column-name year "2022 23" -> "FY 2022-23"."""
+    t = text or ""
+    t = t.replace(" | ", ", ").replace(" / ", " and ")
+    while " → " in t:
+        head, _, rest = t.partition(" → ")
+        name, cut = rest, len(rest)
+        for stop in (";", ",", ".", " - ", " — "):
+            k = rest.find(stop)
+            if 0 <= k < cut:
+                cut = k
+        name = rest[:cut].strip()
+        t = f"{head}, with {name} ahead" + rest[cut:]
+    words = t.split(" ")
+    out = []
+    i = 0
+    while i < len(words):
+        w = words[i]
+        core = w.rstrip(".,;:)")
+        tail = w[len(core):]
+        ymd = _c12s_iso_date(core) if len(core) == 10 else None
+        if ymd:
+            out.append(_c12s_date_words("month" if ymd[2] == 1 else "date", core) + tail)
+        elif _c19_fy_pair(core, words[i + 1] if i + 1 < len(words) else ""):
+            nxt = words[i + 1]
+            out.append(f"FY {core}-{nxt}" if not (i and words[i - 1] == "FY") else f"{core}-{nxt}")
+            i += 1
+        else:
+            out.append(w)
+        i += 1
+    return " ".join(out)
 
 
 def _c19_drop_brackets(text: str) -> str:
