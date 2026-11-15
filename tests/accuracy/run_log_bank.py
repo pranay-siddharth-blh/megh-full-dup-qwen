@@ -38,7 +38,7 @@ def _take_arg(name: str):
 
 # --root <checkout>: run the bank against ANOTHER checkout's code (e.g. the merged arch branch at a gate):
 # its app/ and its run_gold.py are imported (run_gold chdirs to that root, so its .env is used); the bank
-# file stays this one unless the target has its own copy.
+# file is always the one beside this runner.
 ROOT_ARG = _take_arg("--root")
 POST_ARG = _take_arg("--post")
 TARGET_TESTS = os.path.join(os.path.abspath(ROOT_ARG), "tests", "accuracy") if ROOT_ARG else HERE
@@ -49,7 +49,8 @@ import yaml  # noqa: E402
 # results always land in THIS worktree (never dirty the checkout under test)
 run_gold.RESULTS = os.path.join(HERE, "results")
 _bank_name = "log_bank_2026_11_16.yaml"
-run_gold.BANK = os.path.join(TARGET_TESTS, _bank_name) if os.path.exists(os.path.join(TARGET_TESTS, _bank_name))     else os.path.join(HERE, _bank_name)
+# the bank is ALWAYS this runner's own copy (the newest); a target's copy may be an older merge
+run_gold.BANK = os.path.join(HERE, _bank_name)
 
 
 # the report's groups: one line each (pass / total cases)
