@@ -393,7 +393,9 @@ export const barValueLabels = {
         ctx.fillText(text, x, el.y);
       } else {
         ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-        ctx.fillText(text, el.x, Math.max(el.y - 5, area.top + 12));
+        // the tallest bar's label may sit in the 28 px of padding above the plot (2026-11-16: clamped inside the plot, a
+        // bar near the axis' top was drawn through its own figure, "48|1.93")
+        ctx.fillText(text, el.x, Math.max(el.y - 5, area.top - 14, 13));
       }
     };
     if (opts.stackTotals) {

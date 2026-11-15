@@ -176,8 +176,8 @@ test('a row that names its measure: the tile says it, and a second figure equal 
   const p = plan({ data, route: 'data' }, "For Williamnagar constituency, give me every scheme's figure.");
   const t = p.cards[0].items;
   assert.equal(t.filter((x) => x.label === 'PMAY-G').length, 1);
-  assert.equal(t.find((x) => x.label === 'MGNREGA').sub, 'person-days');
-  assert.equal(t.find((x) => x.label === 'Focus Legacy').sub, 'producer groups');
+  assert.ok(t.find((x) => x.label === 'MGNREGA').sub.startsWith('person-days'));
+  assert.ok(t.find((x) => x.label === 'Focus Legacy').sub.startsWith('producer groups'));
   assert.ok(t.every((x) => x.sub !== 'value'));
   const seen = new Set(t.map((x) => `${x.label}=${x.value}`));
   assert.equal(seen.size, t.length);
@@ -198,4 +198,24 @@ test('two schemes compared over the same districts: both are drawn, the map afte
   // the same card drawn another way still replaces its twin (the map promoted: no second ranking of the same figures)
   const m = plan({ data: data.slice(0, 3), route: 'data' }, 'Focus Plus beneficiaries in the Garo Hills', 'map');
   assert.equal(m.cards.filter((c) => c.kind === 'map').length, 1);
+});
+
+test('the headline of every scheme: ONE tile per scheme, the second figure on its line in the answer words', () => {
+  const data = [
+    { scheme: 'MGNREGA', measure: 'Person-days', value: 90915181, beneficiaries: 1494437 },
+    { scheme: 'PMAY-G', measure: 'Houses sanctioned', value: 171107, beneficiaries: 171107 },
+    { scheme: 'Focus Plus', measure: 'Disbursements', value: 385671, beneficiaries: 105813 },
+  ];
+  const answer = ['Each scheme headline figure:',
+    '- **MGNREGA**: **9,09,15,181** person-days (**14,94,437** households given work, counted once per year worked)',
+    '- **PMAY-G**: **1,71,107** houses sanctioned',
+    '- **Focus Plus**: **3,85,671** disbursements (**1,05,813** beneficiaries)'].join(String.fromCharCode(10));
+  const p = plan({ data, route: 'data', answer }, 'Give me the headline figure of every scheme');
+  const t = p.cards[0].items;
+  assert.deepEqual(t.map((x) => x.label), ['MGNREGA', 'PMAY-G', 'Focus Plus']);
+  assert.equal(t[0].value, 90915181);
+  assert.equal(t[0].sub, 'person-days · 14,94,437 households given work');
+  assert.ok(!t[0].sub.includes('beneficiaries'));
+  assert.equal(t[1].sub, 'houses sanctioned');
+  assert.equal(t[2].sub, 'disbursements · 1,05,813 beneficiaries');
 });

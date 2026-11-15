@@ -84,6 +84,12 @@ def special(name, cards):
         pairs = [(x["label"], x["value"]) for x in t]
         check("williamnagar: no scheme tile repeats a figure, no tile says just 'value'",
               len(pairs) == len(set(pairs)) and all((x["sub"] or "").lower() != "value" for x in t), t)
+    if name in ("cross_headline", "williamnagar"):
+        t = next((c for c in cards if c["kind"] == "tiles"), {"items": []})["items"]
+        labels = [x["label"] for x in t]
+        mg = next((x for x in t if x["label"] == "MGNREGA"), {"sub": ""})
+        check(f"{name}: ONE tile per scheme (its second figure on the tile's line), MGNREGA's never called beneficiaries",
+              len(labels) == len(set(labels)) and "beneficiar" not in (mg["sub"] or "").lower(), t)
     if name == "two_schemes":
         titles = [c["title"] for c in cards if c["kind"] in ("bars", "race")]
         check("two schemes over the same districts: both schemes drawn",

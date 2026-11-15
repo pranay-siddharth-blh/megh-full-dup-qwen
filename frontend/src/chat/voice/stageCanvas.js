@@ -688,7 +688,8 @@ function Tiles(card) {
       const G = tileGrid(n, W - 4, H - 4, gap); const y0 = Math.max(2, (H - (G.th * G.rows + gap * (G.rows - 1))) / 2);
       const padX = Math.min(16, G.tw * .09); const inner = G.tw - padX * 2;
       const vs = Math.max(16, Math.min(34, G.th * .3, G.tw * .19));
-      const subLines = G.th >= 104 ? 2 : G.th >= 78 ? 1 : 0;
+      // one line of what it counts from 64 px (2026-11-16: the 2 x 2 side-by-side tiles at 1366 x 768 were 75 px and showed bare numbers)
+      const subLines = G.th >= 104 ? 2 : G.th >= 64 ? 1 : 0;
       const key = `${W | 0}x${H | 0}|${typeof document !== 'undefined' && document.fonts ? document.fonts.status : ''}`;   // re-fit once the font has loaded
       if (sized.key !== key) {
         const finals = items.map((it) => (isNum(it.value) ? splitUnit(sayItem(card, it, it.value)) : ['no data', '']));

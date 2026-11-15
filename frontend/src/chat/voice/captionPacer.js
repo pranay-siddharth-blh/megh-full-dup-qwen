@@ -185,3 +185,37 @@ export function cut(p, now) {
   const heard = now != null && p.audioQ > 0 && played(p, now) >= p.audioQ - 0.02;
   return newPacer(heard ? p.words.slice(0, p.complete).join(' ') : shownText(p));
 }
+
+/* The engine's holding lines (2026-11-16, the user's live test on the sovereign engine: "Still working on it, sir.
+   MGNREGA is highest in all 12 districts."): the fixed lines it says while an answer is worked out (D:/Full Duplex
+   Architecture/megh/fixed_lines.py LEAD_FIRST / LEAD_LATER, fdx settings lead_phrases). Whatever their position, they
+   are never part of an answer's caption: the answer's caption starts at its first word. */
+export const HOLDING_LINES = ['One moment, sir.', 'Let me pull that up, sir.', 'Sure, give me a second.', 'Let me check that for you, sir.',
+  'Still working on it, sir.', 'Almost there, sir.', 'Just a little longer, sir.',
+  'One moment.', 'Let me check.', 'Just a second.', 'Let me look that up.'];
+const plainKey = (s) => {
+  let out = '';
+  for (const ch of String(s || '').toLowerCase()) {
+    if ((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9')) out += ch; else if (out && !out.endsWith(' ')) out += ' ';
+  }
+  return out.trim();
+};
+const HOLD = new Set(HOLDING_LINES.map(plainKey));
+const HOLD_LIST = [...HOLD];
+
+/** The words of an answer's caption without the engine's holding lines: a whole holding sentence is dropped wherever it
+    is; a sentence still coming in that so far reads like the start of one is held back until it is known (so it never
+    flashes up and goes). */
+export function withoutHolding(words) {
+  const out = [];
+  let cur = [];
+  const flush = (done) => {
+    if (!cur.length) return;
+    const k = plainKey(cur.join(' '));
+    if (done ? !HOLD.has(k) : !HOLD_LIST.some((h) => h === k || h.startsWith(k + ' ') || (h.startsWith(k) && k.length >= 3))) out.push(...cur);
+    cur = [];
+  };
+  words.forEach((w) => { cur.push(w); if (closes(w)) flush(true); });
+  flush(false);
+  return out;
+}

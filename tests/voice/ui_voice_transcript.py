@@ -29,6 +29,8 @@ from ui_voice import JS, RESULTS, check, mint, silent_wav  # noqa: E402
 
 ARGS = sys.argv[1:]
 BASE = ARGS[ARGS.index("--base") + 1] if "--base" in ARGS else "http://127.0.0.1:8401"
+REAL = "--real" in ARGS     # the real engine (its own holding lines): the test directives are dropped, what was said is
+                            # the relay's own record of the turn (turn_complete `said`)
 
 REC = JS + """
 window.__capSeen = []; window.__capRec = false;
@@ -45,6 +47,9 @@ window.__capPoll = () => {
 requestAnimationFrame(window.__capPoll);
 window.wordsOf = (s) => String(s || '').split(' ').filter(Boolean);
 """
+
+
+PREV = {"last": ""}
 
 
 def words(s):
@@ -64,7 +69,11 @@ def prefix_of(shown, line):
 async def reading(b, said, wait_end=True):
     """Say it; return every caption text seen, and the voice's answer (`speak`) for this turn."""
     t0 = await b.eval("performance.now()")
+    # what the band shows before the question (the greeting, the answer before) may stay until the new reading begins
+    PREV["last"] = await b.eval("(() => { const m = document.querySelector('.vs-megh'); return m ? m.textContent.split(' ').filter(Boolean).join(' ') : ''; })()")
     await b.eval("window.__capSeen = []; window.__capRec = true;")
+    if REAL:
+        said = said.split(" ", 1)[1] if said.startswith("!!") else said
     await b.eval(f"window.__meghVoice.say({json.dumps(said)})")
     r = await b.eval(f"""(async () => {{
         const rep = await until(() => vlog().filter(e => e.type === 'reply' && e.t > {t0} && e.kind !== 'superseded').pop(), 170000);
@@ -73,12 +82,28 @@ async def reading(b, said, wait_end=True):
           await until(() => !window.__meghVoice.playing(), 60000);
           await sleep(1500);
         }}
-        return {{ speak: rep ? (rep.speak || '') : '', kind: rep ? rep.kind : null }}; }})()""", timeout=260)
+        const tcs = vlog().filter(e => e.type === 'turn_complete' && e.t > {t0} && (e.said || '').trim());
+        return {{ speak: rep ? (rep.speak || '') : '', kind: rep ? rep.kind : null, said: tcs.map(e => e.said) }}; }})()""", timeout=260)
     seen = await b.eval("(() => { window.__capRec = false; return window.__capSeen.map(x => x.text); })()")
     return r, [s for s in seen if s]
 
 
-PREV = {"last": ""}
+def real_lines(r):
+    """On the real engine: the parts it said, split at its sentences (the holding line is a sentence of its own), and
+    the answer = the said text from the first sentence that starts the answer the page asked it to read."""
+    said = " ".join(r.get("said") or [])
+    sents, cur = [], []
+    for w in words(said):                      # no regex (D-046 / D-047): a sentence ends at a word ending . ? !
+        cur.append(w)
+        if w[-1] in ".?!":
+            sents.append(" ".join(cur))
+            cur = []
+    if cur:
+        sents.append(" ".join(cur))
+    head = words(r.get("speak"))[:2]
+    at = next((i for i, x in enumerate(sents) if head and words(x)[:2] == head), 0)
+    lines = [" ".join(sents[:at])] if at else []
+    return [ln for ln in lines if ln] + [" ".join(sents[at:])], " ".join(sents[at:])
 
 
 def judge(label, seen, lines, final_line):
@@ -100,7 +125,7 @@ async def main():
     init = (f"try{{localStorage.setItem('megh_jwt',{json.dumps(token)});sessionStorage.removeItem('focusSessionId');}}catch(e){{}}"
             "window.__errs=[];window.addEventListener('error',e=>window.__errs.push(String(e.message)));"
             "window.addEventListener('unhandledrejection',e=>window.__errs.push(String(e.reason)));")
-    print(f"voice transcript test on {BASE} (fake Live, real-time lines)", flush=True)
+    print(f"voice transcript test on {BASE} ({'the REAL engine' if REAL else 'fake Live, real-time lines'})", flush=True)
     async with Browser(port=9379, mic_wav=silent_wav(), init_js=init, size=(1536, 864)) as b:
         await b.goto(BASE + "/megh-chat?voicetest=1", wait=4)
         await b.eval(REC)
@@ -114,29 +139,50 @@ async def main():
         # 1. a holding line, then the answer (each word in real time)
         r, seen = await reading(b, "!!realtime PMAY-G houses sanctioned by district")
         print("   1:", seen[:3], "...", seen[-1:], flush=True)
-        judge("holding line + answer", seen, ["One moment, sir.", r["speak"]], r["speak"])
-        lead_seen = [s for s in seen if prefix_of(s, "One moment, sir.")]
-        check("holding line + answer: the holding line is shown on its own while the answer is worked out",
-              any(words(s) == words("One moment, sir.") for s in lead_seen), seen[:6])
+        if REAL:
+            print("      said:", r["said"], flush=True)
+            judge("holding line + answer", seen, *real_lines(r))
+        else:
+            judge("holding line + answer", seen, ["One moment, sir.", r["speak"]], r["speak"])
+            lead_seen = [s for s in seen if prefix_of(s, "One moment, sir.")]
+            check("holding line + answer: the holding line is shown on its own while the answer is worked out",
+                  any(words(s) == words("One moment, sir.") for s in lead_seen), seen[:6])
 
         # 2. a second answer right after (the previous answer's words never lead the new caption)
         r2, seen2 = await reading(b, "!!realtime2 MGNREGA person-days by district")
         print("   2:", seen2[:3], "...", seen2[-1:], flush=True)
-        judge("two answers in a row", seen2, ["Sure, sir.", r2["speak"]], r2["speak"])
+        if REAL:
+            print("      said:", r2["said"], flush=True)
+        judge("two answers in a row", seen2, *(real_lines(r2) if REAL else (["Sure, sir.", r2["speak"]], r2["speak"])))
 
         # 3. a barge-in: a new question while the answer is being read
         t0 = await b.eval("performance.now()")
-        await b.eval("window.__meghVoice.say('!!realtime Focus Plus beneficiaries by district')")
+        await b.eval("window.__meghVoice.say(" + json.dumps(("" if REAL else "!!realtime ") + "Focus Plus beneficiaries by district") + ")")
         await b.eval(f"(async () => {{ await until(() => vlog().some(e => e.type === 'reply' && e.t > {t0}), 170000); "
                      f"await until(() => window.__meghVoice.playing(), 30000); await sleep(1800); }})()", timeout=220)
         r3, seen3 = await reading(b, "!!realtime PMAY-G houses completed by district")
         print("   3:", seen3[:3], "...", seen3[-1:], flush=True)
-        judge("an answer after a barge-in", seen3, ["One moment, sir.", r3["speak"]], r3["speak"])
+        if REAL:
+            print("      said:", r3["said"], flush=True)
+        judge("an answer after a barge-in", seen3, *(real_lines(r3) if REAL else (["One moment, sir.", r3["speak"]], r3["speak"])))
+
+        # 4b. two holding lines (the engine's later filler comes after the answer has reached the page), then the answer
+        if not REAL:
+            r5, seen5 = await reading(b, "!!realtime3 Which scheme leads in each district?")
+            print("   5:", seen5[:3], "...", seen5[-1:], flush=True)
+            judge("two holding lines, then the answer", seen5, ["One moment, sir.", "Still working on it, sir.", r5["speak"]], r5["speak"])
+            check("two holding lines: the answer's caption never starts with a holding line",
+                  not any(words(x)[:2] in (["Still", "working"], ["One", "moment,"]) and len(words(x)) > 4 for x in seen5), seen5[:8])
 
         # 4. a chart switch: the stage's own line
         r4, seen4 = await reading(b, "show it on the map")
         print("   4:", seen4[:3], "...", seen4[-1:], flush=True)
-        judge("a chart switch's line", seen4, [r4["speak"]], r4["speak"])
+        if REAL:      # no new answer takes the stage: the reading is shown whole, exactly as the engine said it
+            print("      said:", r4["said"], flush=True)
+            sw = " ".join(r4["said"])
+            judge("a chart switch's line", seen4, [sw], sw)
+        else:
+            judge("a chart switch's line", seen4, [r4["speak"]], r4["speak"])
 
         errs = await b.eval("window.__errs")
         check("no page errors", not errs and not [e for e in b.events if e[0] == "exception"], (errs, b.events[:5]))

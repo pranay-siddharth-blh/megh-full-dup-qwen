@@ -157,3 +157,13 @@ test('an answer that takes the stage mid-sentence starts after that sentence (th
   P.markBreak(q);
   assert.equal(P.segmentStart(q, q.complete), q.complete);
 });
+
+test('an answer caption never holds the engine holding lines, wherever they come', async () => {
+  const P = await import('../src/chat/voice/captionPacer.js');
+  const w = (s) => s.split(' ');
+  assert.deepEqual(P.withoutHolding(w('Still working on it, sir. MGNREGA is highest in all 12 districts.')), w('MGNREGA is highest in all 12 districts.'));
+  assert.deepEqual(P.withoutHolding(w('MGNREGA leads. Almost there, sir. The full list is on your screen.')), w('MGNREGA leads. The full list is on your screen.'));
+  assert.deepEqual(P.withoutHolding(w('Still working')), []);                 // held until it is known
+  assert.deepEqual(P.withoutHolding(w('One district leads')), w('One district leads'));
+  assert.deepEqual(P.withoutHolding(w('Sure. Here it is on the map, sir.')), w('Sure. Here it is on the map, sir.'));
+});

@@ -203,7 +203,24 @@ const mapCard = (items, title, unit, extra = {}) => card('map', title, unit, { i
 
 // ── the shapes ────────────────────────────────────────────────────────────
 // one row (or a few) per scheme, each with its own measures: tiles, one per scheme figure, never added up
-function perScheme(rows, sh, notes) {
+/** The words the answer itself puts after a figure ("(14,94,437 households given work, counted once ...)" ->
+    "households given work"), on the scheme's own line; else the measure's note, else its name. Never a generic word
+    the answer does not use. */
+function extraWords(answer, scheme, col, value, notes) {
+  const shown = fmtFor(unitFor(col))(value);
+  const lines = String(answer || '').split('**').join('').split('__').join('').split(String.fromCharCode(10));
+  const line = lines.find((l) => l.includes(scheme) && l.includes(shown)) || lines.find((l) => l.includes(shown)) || '';
+  const at = line.indexOf(shown);
+  if (at >= 0) {
+    let t = line.slice(at + shown.length);
+    for (const stop of [')', ',', ';', ' (', ' —', ' - ', '.']) { const k = t.indexOf(stop); if (k >= 0) t = t.slice(0, k); }
+    t = t.trim().split(' ').filter(Boolean).slice(0, 5).join(' ');
+    if (t && Array.from(t).some((c) => (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'))) return t;
+  }
+  return plainCount(noteFor(notes, scheme, col)) || lowerFirst(measureTitle(col));
+}
+
+function perScheme(rows, sh, notes, answer = '') {
   const groups = new Map();
   rows.forEach((r) => { const s = schemeOf(r[sh.scheme]); if (s) { if (!groups.has(s)) groups.set(s, []); groups.get(s).push(r); } });
   const tiles = [];
@@ -222,22 +239,25 @@ function perScheme(rows, sh, notes) {
       sub: plainCount(note) || rowSays(r, m) || lowerFirst(measureTitle(m)), note: `${rowSays(r, m) || measureTitle(m)}${note ? ' · ' + note : ''}`,
       say: SCHEME_SAY[s], notBefore: SAY_NOT_BEFORE[s] };
   };
-  const rounds = [[], [], []];
+  // ONE tile per scheme (2026-11-16, the user: nothing shown twice; the headline answer drew MGNREGA and Focus Plus twice,
+  // their bracketed second figure as a tile of its own): the scheme's first figure big, its further figures on the
+  // tile's line in the answer's own words ("14,94,437 households given work"), a figure equal to the first left out
+  const tiles0 = [];
   groups.forEach((rs, s) => {
     const ms = sh.measures.filter((m) => rs.some((r) => !isBlank(r[m])));
     if (rs.length === 1) {
-      // a scheme's further figures only when they say something new (2026-11-16: "PMAY-G 3,862 houses" and "PMAY-G
-      // 3,862 beneficiaries" were two tiles of the same number, read as the scheme shown twice)
-      const seen = new Set();
-      ms.forEach((m) => {
+      if (!ms.length) return;
+      const t = tile(s, rs[0], ms[0]);
+      const v0 = num(rs[0][ms[0]]);
+      const more = [];
+      ms.slice(1).forEach((m) => {
         const v = num(rs[0][m]);
-        if (seen.has(v)) return;
-        seen.add(v);
-        const k = seen.size - 1;
-        if (k < rounds.length) rounds[k].push(tile(s, rs[0], m));
+        if (v === null || v === v0) return;
+        more.push(`${fmtFor(unitFor(m))(v)} ${extraWords(answer, s, m, v, notes)}`.trim());
       });
-    }
-    else if (ms.length) {                          // a scheme broken down (CM Elevate by its sub-schemes): its own card
+      if (more.length) { t.sub = [t.sub, ...more].filter(Boolean).join(' · '); t.note = `${t.note} · ${more.join(' · ')}`; }
+      tiles0.push(t);
+    } else if (ms.length) {                        // a scheme broken down (CM Elevate by its sub-schemes): its own card
       const m = ms[0];
       const by = sh.labels.find((c) => rs.every((r) => !isBlank(r[c])));
       if (!by) return;
@@ -245,9 +265,9 @@ function perScheme(rows, sh, notes) {
         unitFor(m), { color: hueOf(s), measureCol: m }));
     }
   });
-  // eight tiles as before; more only so that every scheme keeps its first figure (a ninth scheme, 2026-11-14)
-  const cap = Math.min(TILE_CAP, Math.max(8, rounds[0].length));
-  rounds.forEach((r) => r.forEach((x) => { if (tiles.length < cap) tiles.push(x); }));
+  // every scheme keeps its figure, up to 12 (stageCanvas.TILE_MAX)
+  const cap = TILE_CAP;
+  tiles0.forEach((x) => { if (tiles.length < cap) tiles.push(x); });
 
   const out = [];
   if (tiles.length) {
@@ -300,8 +320,12 @@ function byDistrict(rows, sh, notes, q) {
       if (!mm) return;
       const unit = unitFor(mm);
       const items = itemsBy(rs, sh.district, mm, { color: hueOf(s) }).map((x) => ({ ...x, color: hueOf(s) }));
-      if (!out.length) out.push(mapCard(items, `${schemeTitle(s, mm)} by district`, unit, { note: noteFor(notes, s, mm) }));
-      out.push(rankCards(items, schemeTitle(s, mm), unit, { color: hueOf(s), low, measureCol: mm }));
+      // the scheme's own words for what it counts ("MGNREGA · Households given work"), never a generic "Beneficiaries"
+      // that the scheme does not count (2026-11-16); the measure's name when the answer gives no note
+      const said = plainCount(noteFor(notes, s, mm));
+      const ttl = said ? `${s} · ${said.charAt(0).toUpperCase()}${said.slice(1)}` : schemeTitle(s, mm);
+      if (!out.length) out.push(mapCard(items, `${ttl} by district`, unit, { note: noteFor(notes, s, mm) }));
+      out.push(rankCards(items, ttl, unit, { color: hueOf(s), low, measureCol: mm }));
     });
     return out;
   }
@@ -614,7 +638,7 @@ export function plan(response, question = '', view = null) {
   if (sh.district && sh.period) cards = districtByPeriod(rows, sh, q);
   else if (sh.district) cards = byDistrict(rows, sh, notes, q);
   else if (sh.period) cards = byPeriod(rows, sh);
-  else if (sh.scheme) cards = perScheme(rows, sh, notes);
+  else if (sh.scheme) cards = perScheme(rows, sh, notes, response.answer || '');
   else if (rows.length === 1) cards = single(rows, sh);   // one row (the state, one place): its figures as tiles
   else if (sh.other) {
     cards = sh.measures.slice(0, 2).map((m) => rankCards(itemsBy(rows, sh.other, m), `${measureTitle(m)} by ${colTitle(sh.other).toLowerCase()}`,
