@@ -3,6 +3,13 @@
 *For the next Claude session or account. Keep this short and overwrite it at the end of every
 significant session.*
 
+**2026-11-15 (voice stage captions, D-115 / KI-730): branch `wt/voiceui-2026-11-15` (worktree `D:\megwt\voiceui`, from
+f987086), NOT merged, NOT pushed.** Captions on the voice stage are paced by the audio that plays
+(`frontend/src/chat/voice/captionPacer.js`, wired in `useLiveVoice.js`), so they stream word by word in time with the
+voice and the picture's items (revealed from the captions) land with their names; words fade in place, no bobble.
+Frontend only (+ `tests/voice/fake_live.py` `!!burst`, new `tests/voice/ui_voice_captions.py`, two stale checks fixed in
+`ui_voice_stage.py` / `ui_voice.py`). Next: a person on the real Gemini Live; if captions should also lead on the
+sovereign engine, decide on releasing clauses (':' / ';') in the relay's guard (D-108 owner).
 **2026-11-15 (streaming, D-112): branch `wt/stream-2026-11-15` (worktree `D:\megwt\stream`), NOT merged, NOT
 pushed.** The answer and its picture show as soon as they are final: an `answer` SSE event before the bookkeeping,
 charts drawn with (not after) the text reveal, the voice stage's frame up with the answer, the waits taken off the path

@@ -5,6 +5,7 @@ import { AI_DISCLOSURE, greetingHeading, greetingLine, spokenForm, spokenNote } 
 import { plan } from './voice/vizPlan.js';
 import { canonicalNav, canonicalView, CHAT_VIEWS, isRedraw, NAV_SPEECH, NO_PICTURE, viewSpeech } from './voice/voiceViews.js';
 import { readVoice, saveVoice, SWITCH_LINE, VOICES } from './voice/voices.js';
+import { addAudio, addText, cut as cutCaptions, finish as finishCaptions, newPacer, pending as captionsPending, shownText, step as stepCaptions } from './voice/captionPacer.js';
 import workletUrl from './voiceWorklet.js?url&no-inline';   // a same-origin file: the CSP refuses data: scripts
 
 /* Full-duplex voice (2026-11-02), the browser half. Ported from Mitra's live
@@ -51,7 +52,9 @@ const isFinal = (m) => m && (m.kind === 'rich' || m.kind === 'bot');
 
 export function useLiveVoice({ submit, stop, isRunning, onNotice }) {
   const [phase, setPhase] = useState('off');
-  const [captions, setCaptions] = useState({ you: '', megh: '' });
+  // megh = the voice's words shown so far (paced by the audio that plays, voice/captionPacer.js); flow = a reading is
+  // under way on screen (steady across the short gaps between audio chunks, so the captions' styling never flickers)
+  const [captions, setCaptions] = useState({ you: '', megh: '', flow: false });
   const [speaking, setSpeaking] = useState(false);
   const [latencyMs, setLatencyMs] = useState(null);
   const [muted, setMutedState] = useState(false);     // the microphone track is off; the session and the answer go on
@@ -64,7 +67,7 @@ export function useLiveVoice({ submit, stop, isRunning, onNotice }) {
   const S = useRef({
     ws: null, ctx: null, stream: null, node: null, src: null, outGain: null, an: null, nextT: 0, srcs: [],
     playing: false, cut: false, loud: 0, lastVoice: 0, idleT: 0, idleMs: 25000, fallbackUntil: 0,
-    pending: null, msgs: [], seenId: 0, userEnd: 0, firstAudio: 0, inTx: '', outTx: '', raf: 0, micRms: 0,
+    pending: null, msgs: [], seenId: 0, userEnd: 0, firstAudio: 0, inTx: '', cap: newPacer(), capTimer: 0, capFlow: false, raf: 0, micRms: 0,
     readQueue: [], muted: false, micAn: null, openedAt: 0,
     stage: null, queued: null, qT: 0, bargeAt: 0, skipStop: false,
   }).current;
@@ -95,7 +98,14 @@ export function useLiveVoice({ submit, stop, isRunning, onNotice }) {
   const cutAudio = useCallback(() => {
     for (const s of S.srcs) { try { s.stop(); } catch (e) { /* ended */ } }
     S.srcs = []; S.nextT = 0; S.lastStart = 0; S.playing = false; setSpeaking(false);
-    (S.capT || []).forEach(clearTimeout); S.capT = [];            // words not yet heard are not shown
+    // words not yet heard are not shown; what the voice says next starts a new reading
+    const kept = S.cap.shown;
+    S.cap = cutCaptions(S.cap, S.ctx ? S.ctx.currentTime : null); clearInterval(S.capTimer); S.capTimer = 0;
+    if (S.capFlow || S.cap.shown !== kept) {
+      S.capFlow = false;
+      const megh = shownText(S.cap);
+      setCaptions((c) => ({ ...c, megh, flow: false }));
+    }
     if (S.outGain && S.ctx) S.outGain.gain.setTargetAtTime(1, S.ctx.currentTime, 0.05);
   }, [S]);
   const duck = (on) => { if (S.outGain && S.ctx) S.outGain.gain.setTargetAtTime(on ? 0.18 : 1, S.ctx.currentTime, 0.04); };
@@ -110,6 +120,7 @@ export function useLiveVoice({ submit, stop, isRunning, onNotice }) {
     src.buffer = b; src.connect(S.outGain);
     const t = Math.max(S.ctx.currentTime + 0.03, S.nextT);
     src.start(t); S.nextT = t + b.duration; S.lastStart = t; S.srcs.push(src);
+    addAudio(S.cap, t, b.duration);
     src.onended = () => {
       S.srcs = S.srcs.filter((x) => x !== src);
       if (!S.srcs.length) { S.playing = false; setSpeaking(false); duck(false); S.lastVoice = performance.now(); armIdle(); }
@@ -121,6 +132,26 @@ export function useLiveVoice({ submit, stop, isRunning, onNotice }) {
         if (S.userEnd) { const ms = S.firstAudio - S.userEnd; if (ms > 0 && ms < 60000) setLatencyMs(Math.round(ms)); }
       }
     }
+  };
+  // ── captions: the words shown follow the audio that plays (voice/captionPacer.js; 2026-11-15) ──
+  // 20 ticks a second while a reading is on screen; a state update only when a word is added (or the flow changes)
+  const capTick = () => {
+    const p = S.cap;
+    const nowMs = performance.now();
+    const before = p.shown;
+    stepCaptions(p, S.ctx ? S.ctx.currentTime : 0, nowMs);
+    const idle = !captionsPending(p) || (p.shown >= p.words.length && !S.playing && nowMs - p.textAt > 1500);
+    const flow = !idle || S.playing;
+    if (p.shown !== before || flow !== S.capFlow) {
+      S.capFlow = flow;
+      const megh = shownText(p);
+      setCaptions((c) => (c.megh === megh && c.flow === flow ? c : { ...c, megh, flow }));
+    }
+    if (idle && !S.playing) { clearInterval(S.capTimer); S.capTimer = 0; }
+  };
+  const capKick = () => {
+    if (!S.capTimer) S.capTimer = setInterval(capTick, 50);
+    capTick();
   };
   const outLevel = () => {
     if (!S.an || !S.playing) return 0;
@@ -342,27 +373,20 @@ export function useLiveVoice({ submit, stop, isRunning, onNotice }) {
       case 'in':
         if (S.playing) cutAudio();                    // the officer is talking: barge-in, whatever turn it is
         if (S.firstAsk) { clearTimeout(S.firstT); S.firstAsk = ''; log({ type: 'first_ask_dropped' }); }   // they asked their own
-        (S.capT || []).forEach(clearTimeout); S.capT = [];
         if (!S.inTx) { S.cut = false; S.firstAudio = 0; }
         S.inTx += e.text; S.userEnd = performance.now(); S.lastVoice = performance.now();
-        setCaptions({ you: S.inTx.trim(), megh: '' }); S.outTx = '';
+        S.cap = newPacer(); S.capFlow = false;
+        setCaptions({ you: S.inTx.trim(), megh: '', flow: false });
         break;
-      case 'out': {
+      case 'out':
         quietModel();
-        // two spoken lines meet without a space ("... with 5,494.Hello, sir"): a sentence end and a new word get one
-        const _last = S.outTx ? S.outTx[S.outTx.length - 1] : '';
-        const _first = (e.text || '')[0] || '';
-        const _letter = (_first >= 'A' && _first <= 'Z') || (_first >= 'a' && _first <= 'z');
-        S.outTx += ('.?!'.includes(_last) && _last !== '' && _letter ? ' ' : '') + e.text;
         // the transcript runs ahead of the audio (measured 2026-11-02 on the real voice: the whole answer's text in
-        // under 5 s, its audio 25 s), so the caption, and the speech-synced reveal that reads it, are held until the
-        // audio chunk this text came with is actually playing
-        const shown = S.outTx.trim();
-        const wait = S.ctx && S.lastStart ? Math.max(0, S.lastStart - S.ctx.currentTime) * 1000 : 0;
-        if (wait < 40) setCaptions((c) => ({ ...c, megh: shown }));
-        else { S.capT = S.capT || []; S.capT.push(setTimeout(() => setCaptions((c) => ({ ...c, megh: shown })), wait)); }
+        // under 5 s, its audio 25 s) and, since 14 Nov, comes a checked sentence at a time; the caption, and the
+        // speech-synced reveal of the picture that reads it, show each word when the audio reaches it
+        // (voice/captionPacer.js; 2026-11-15: they used to wait for the last chunk queued, i.e. the end of the burst)
+        addText(S.cap, e.text || '', performance.now());
+        capKick();
         break;
-      }
       case 'tool_call':
         quietModel();
         // the model's own reading of the officer's words (it is told to pass them exactly as said). Measured on real
@@ -403,6 +427,7 @@ export function useLiveVoice({ submit, stop, isRunning, onNotice }) {
         }
         if (e.called) S.corrected = false;
         setTurnsDone((n) => n + 1);
+        finishCaptions(S.cap, performance.now()); capKick();
         S.inTx = ''; S.firstAudio = 0;
         armIdle();
         if (S.firstAsk) askFirst();                  // the hello has been said: now the question tapped on the panel
@@ -485,7 +510,7 @@ export function useLiveVoice({ submit, stop, isRunning, onNotice }) {
 
   const start = useCallback(async () => {
     if (phaseRef.current !== 'off' || !available()) return false;
-    setPh('connecting'); setCaptions({ you: '', megh: '' }); setLatencyMs(null);
+    setPh('connecting'); S.cap = newPacer(); S.capFlow = false; setCaptions({ you: '', megh: '', flow: false }); setLatencyMs(null);
     try {
       const AC = window.AudioContext || window.webkitAudioContext;
       S.ctx = new AC();
@@ -550,7 +575,7 @@ export function useLiveVoice({ submit, stop, isRunning, onNotice }) {
     if (S.stream) S.stream.getTracks().forEach((t) => t.stop());
     if (S.ctx) S.ctx.close().catch(() => {});
     S.node = S.src = S.stream = S.ctx = S.an = S.outGain = S.micAn = null; S.ob = null;
-    S.inTx = S.outTx = ''; S.readQueue = [];
+    S.inTx = ''; S.cap = newPacer(); clearInterval(S.capTimer); S.capTimer = 0; S.readQueue = [];
     setThinking(false);
     setPh('off');
     log({ type: 'end', why, quiet });

@@ -185,14 +185,16 @@ body.vstage-in .vstage.board-ready.desk:not(.cols-done) .vs-col-r { animation-de
 /* Megh's words (2026-11-10): what the voice says, as it says it. The block is centred, its lines are left-aligned, so a
    line never shifts sideways while words are added to it (centred text jitters by half a word on every word). */
 .vs-captions { scroll-behavior: smooth; }
-.vs-megh { width: fit-content; max-width: 100%; margin: 8px auto 0; text-align: left; text-wrap: pretty;
+.vs-megh { width: fit-content; max-width: 100%; margin: 8px auto 0; text-align: left; text-wrap: wrap;
   font-size: clamp(17px, 2.45vh, 23px); line-height: 1.5; font-weight: 500; letter-spacing: -.017em; color: var(--m-tx); }
-.vs-captions.streaming .vs-megh { text-wrap: wrap; }
-/* each word fades up as it arrives; only opacity and transform animate (no filters), colour eases as it settles */
-.vs-megh .w { display: inline-block; margin-right: .27em; opacity: 0; transform: translateY(.34em);
-  animation: wordin2 .34s cubic-bezier(.2, .8, .2, 1) forwards; transition: color .8s cubic-bezier(.2, .8, .2, 1), text-shadow .8s ease; }
-.vs-megh .w:last-child { margin-right: 0; }
-@keyframes wordin2 { to { opacity: 1; transform: none; } }
+/* balanced line breaks only for a text shown whole (an answer seen another way): a text that grows keeps plain wrapping,
+   so a line once laid out is never re-broken when the next word or the end of the reading comes (2026-11-15) */
+.vs-captions.own .vs-megh { text-wrap: pretty; }
+/* each word fades in where it stands (opacity only: no rise, no filter, 2026-11-15: the rise made every line bob and
+   the box's scroll height shrink under it, so the band went up and down); colour eases as it settles */
+.vs-megh .w { opacity: 0;
+  animation: wordin2 .3s cubic-bezier(.2, .8, .2, 1) forwards; transition: color .8s cubic-bezier(.2, .8, .2, 1), text-shadow .8s ease; }
+@keyframes wordin2 { to { opacity: 1; } }
 /* streaming: the sentence being said is bright, what was said settles, the newest word glows and hands the glow on */
 .vs-captions.streaming .w.past { color: var(--m-said); }
 .vs-captions.streaming .w.cur { color: var(--m-tx); }
@@ -589,7 +591,7 @@ body.vstage-in .vstage.board-ready.desk:not(.cols-done) .vs-col-r { animation-de
   .vs-bg .au, .vs-beam, .vc-sheen, .vc-scan, .vs-insight > span, .vs-feed .pulse, .vstage.live .vs-orb::before { animation: none !important; }
   .vs-cards > .vc, .vs-anscard, .vs-col { animation-duration: .2s !important; animation-delay: 0s !important; }
   .vs-orb, .vs-captions, .vs-col, .vs-composer { transition-duration: .2s; }
-  .vs-megh .w { animation-duration: .01s; transform: none; }
+  .vs-megh .w { animation-duration: .01s; }
   .vs-captions { scroll-behavior: auto; }
   .vstage.voicing .vs-cards > .vc .vc-h h3::before { animation: none; }
 }

@@ -5,6 +5,17 @@
 **Branch / commit:** `main` @ `f38ea1b` (2026-10-02 session start). Uncommitted at session start: `docs/HANDOFF.md`, `docs/KNOWN_ISSUES.md` (KI-182) and untracked QA files; the LangGraph session added the changes listed below on top, all uncommitted.
 
 **Port: 8401 only, everywhere (user rule 2026-10-19). Start from the repo venv.**
+## Latest: voice stage captions and picture in time with the voice (2026-11-15, D-115, KI-730), branch `wt/voiceui-2026-11-15`
+- The user's live test (real Gemini Live): captions at the top of the stage missing / late, lines bobbing, the picture
+  late and out of step. Cause: since 14 Nov the relay sends captions a checked sentence at a time and the page held each
+  piece until the end of Gemini's audio burst; the picture's items follow the captions. Not caused by D-112 / D-113
+  (the pre-merge build measures the same). Fixed in the page only: captions paced by the audio that plays
+  (`voice/captionPacer.js`), words fade in place, stable wrapping. Relay and guard unchanged.
+- VERIFIED (fake Live, real pipeline, app on a test port): `tests/voice/ui_voice_captions.py` 20/20 (10/20 before);
+  details and the other suites in TESTING.md (2026-11-15, voice stage captions).
+- NOT verified: on the real Gemini Live with a person listening; the sovereign engine (captions there still follow a
+  sentence behind: the guard holds a sentence until it is complete).
+
 ## Latest: streaming, faster and smoother, no figure changed (2026-11-15, D-112), branch `wt/stream-2026-11-15`
 - Chat: the chart / table of an answer draws at once (no wait for the word reveal), at its final size, the text laid
   out underneath so nothing moves; a fresh tall answer starts at its question. Voice stage: the picture's frame comes

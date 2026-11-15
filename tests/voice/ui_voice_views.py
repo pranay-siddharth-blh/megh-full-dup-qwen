@@ -46,7 +46,8 @@ window.waitReply = async (t0, ms) => {
   await until(() => vlog().some(e => e.type === 'turn_complete' && e.t > (r ? r.t : t0)), 30000);
   await until(() => !window.__meghVoice.playing(), 30000);
   return r; };
-window.userBubbles = () => [...document.querySelectorAll('.msg.user .bubble')].map(x => x.innerText);
+// textContent: the chat under the voice view is visibility:hidden once it has sunk (05208c5), so innerText reads ''
+window.userBubbles = () => [...document.querySelectorAll('.msg.user .bubble')].map(x => x.textContent);
 """
 
 

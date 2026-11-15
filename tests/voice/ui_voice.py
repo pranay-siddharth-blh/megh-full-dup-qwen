@@ -89,7 +89,8 @@ window.until = async (f, ms) => { const t = Date.now(); while (Date.now() - t < 
 window.vlog = () => (window.__meghVoice ? window.__meghVoice.log() : []);
 window.lastReply = (after) => vlog().filter(e => e.type === 'reply' && e.t > after).pop();
 window.lastBot = () => { const b = [...document.querySelectorAll('.msg.bot')]; return b.length ? b[b.length - 1].innerText : ''; };
-window.lastUser = () => { const b = [...document.querySelectorAll('.msg.user .bubble')]; return b.length ? b[b.length - 1].innerText : ''; };
+// textContent: the chat under the voice view is visibility:hidden once it has sunk (05208c5), so innerText reads ''
+window.lastUser = () => { const b = [...document.querySelectorAll('.msg.user .bubble')]; return b.length ? b[b.length - 1].textContent : ''; };
 """
 
 

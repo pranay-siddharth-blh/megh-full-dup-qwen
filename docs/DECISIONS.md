@@ -1232,6 +1232,32 @@ not recorded.*
   optimistic; the two misses left are the ASR hearing "West Jaintia" as "East Jaintia".
   `tests/accuracy/results/dictation_bank_qwen3-run1.json`.
 - **Status:** Active (worktree branch `wt/dictate-2026-11-15`). Open: KI-725 (limits), KI-726 (typed word rewrites).
+### D-115 — Voice stage captions paced by the audio that plays; words fade in place (2026-11-15)
+
+- **Context:** the user's live test of the merged build on the real Gemini Live (KI-728): Megh's captions on the stage
+  missing or late, the caption lines bobbing as words streamed, the picture late and out of step with the voice. Since
+  14 Nov (D-108, VOICE_BLOCK_UNSOURCED) the relay sends captions a checked sentence at a time; the page held each piece
+  until the last audio chunk queued began to play, which on Gemini's burst is the end of everything received. The
+  stage reveals its items from the captions, so the picture waited with them.
+- **Decision:** the page paces the captions by the audio that PLAYS (`frontend/src/chat/voice/captionPacer.js`, pure,
+  tested in `frontend/tests/captionPacer.test.js`): each piece of text is an anchor "these words end at about the audio
+  queued now" (bounded by 4.5 words per audio second), words between anchors are spread evenly, a word shows when the
+  audio played reaches it; text with no audio left to wait for is typed in (14 words/s, 28 once the audio is over, at
+  most one tick's worth per tick), never dropped in; a cut keeps only the words heard. `useLiveVoice.js` ticks it at
+  20 Hz while a reading is on screen and exposes `captions.flow` (a reading under way, steady across the gaps between
+  audio chunks). The stage: words are plain inline spans with real spaces that fade in place (opacity only: no rise),
+  plain wrapping while streaming (`text-wrap: pretty` only for a text shown whole), the streaming styling follows
+  `voicing = speaking || captions.flow`. The relay and its guard are unchanged (no unchecked word reaches the screen);
+  D-112's early frame is kept.
+- **Measured** (`tests/voice/ui_voice_captions.py`, fake Live `!!burst`, real pipeline): first caption 8.7 s -> 1.8 s
+  after the voice started on a ranking answer (its first sentence's text arrives 1.8 s in; shown 20 ms after it),
+  2.9 s -> 0.8 s on a single figure; caption steps 1-2 per answer (21-32 words each) -> one word per step; words moving
+  down 2-5 times per answer -> 0; first district on the map 1.8 s after its name -> 0.4 s.
+- **Limits:** with an engine that sends audio at real time (the sovereign engine) the guard still holds a sentence's
+  words until it has been said, so captions there follow a sentence behind (typed in, not dropped in). Releasing a
+  clause at ':' / ';' in the relay, or tentative words shown only as their audio plays, would shorten that; both touch
+  the guard (D-108) and are left to the owner.
+
 ### D-113 — Voice orb and panel: the orb opens the live voice, the mic dictates (2026-11-15)
 
 - **Context:** the composer had one mic that opened the live voice when it could and dictated otherwise, so the
