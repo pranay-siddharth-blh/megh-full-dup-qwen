@@ -344,3 +344,14 @@ def test_polite_request_is_not_a_yes_no_shape():
     assert not p._c12s_yes_no("Could you show me MGNREGA person-days by district?")
     assert p._c12s_yes_no("Is Ri Bhoi above the state average?")
     assert p._c12s_yes_no("Can Ri Bhoi be ranked first?")
+
+
+def test_polite_request_answer_does_not_open_with_yes(natural_on):
+    q = "Can you tell me how many PMAY-G houses were sanctioned in Dalu block?"
+    assert p._c13_drop_polite_yes("Yes, 15 houses were sanctioned in Dalu.", q) == "15 houses were sanctioned in Dalu."
+    assert p._c13_drop_polite_yes("Yes, Ri Bhoi is above.", "Is Ri Bhoi above the average?") == "Yes, Ri Bhoi is above."
+
+
+def test_a_measure_counted_in_a_place_is_not_a_geography_count():
+    assert p._c15_geography_count("How many persons received employment in Amlarem constituency during 2022-23?") is None
+    assert p._c15_geography_count("What is the number of blocks in Ri Bhoi?") == ("block", "RI BHOI", None)

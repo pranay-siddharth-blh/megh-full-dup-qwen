@@ -250,6 +250,7 @@ Answer:"""
         context_budget.log_decision("compose", fallback="deterministic", error=type(e).__name__)
         answer = (_shaped_fallback(shape, _shape_rows, schemes, entities, question)
                   or _framed_fallback(rows if len(rows) > 1 else preview, schemes, entities, sql=sql))
+    answer = _c13_drop_polite_yes(answer, question)
 
     data_nums = _data_numbers(preview) | digest_nums | facts_nums | set(extra_numbers or ())
     # A note may ask the composer to name the figure the question wrongly assumed
@@ -3728,3 +3729,20 @@ def _attach_followups(result: dict, question: str) -> None:
         result["follow_up_options"] = opts
         result["follow_ups"] = [o["question"] for o in opts]
         result["follow_up"] = opts[0]["question"]
+
+
+def _c13_drop_polite_yes(answer: str, question: str) -> str:
+    """A polite request ("Can you tell me how many houses …") answered "Yes, 15 houses were sanctioned …" (log bank
+    2026-11-16: 38 answers): the request is not a yes / no question, so the "Yes," goes and the figure leads."""
+    if not answer or not bool(getattr(settings, "ANSWER_NATURAL_ENABLED", False)):
+        return answer
+    words = _c12s_words(question or "")
+    polite = len(words) >= 2 and words[0] in ("can", "could", "will", "would") and words[1] in ("you", "u") \
+        and any(w in _C12S_POLITE_VERBS for w in words[2:8])
+    if not polite:
+        return answer
+    for lead in ("Yes, ", "Yes — ", "Yes - ", "Yes. ", "Yes! "):
+        if answer.startswith(lead):
+            rest = answer[len(lead):].lstrip()
+            return rest[:1].upper() + rest[1:] if rest else answer
+    return answer

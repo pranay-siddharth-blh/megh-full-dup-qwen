@@ -631,7 +631,8 @@ def _c15_bare_scheme_year(question: str) -> "tuple[str, str] | None":
         if lw in allowed or lw.isdecimal() or lw.startswith("fy") and lw[2:].isdecimal():
             continue
         return None
-    if _measure_labels(question) or context_policy.metric_families(question) or _c15_asks_a_shape(question):
+    if _measure_labels(question) or context_policy.metric_families(question) or _c15_asks_a_shape(question) \
+            or _c13_fixed_data_answer_claims(question):          # "overall Focus Plus summary" has its own answer
         return None
     if not years:
         return schemes[0], ""
@@ -1310,10 +1311,15 @@ def _c15_geography_count(question: str) -> "tuple[str, str | None, str | None] |
     """(what, district, block) for "how many <districts|blocks|villages|constituencies> (are there) in <Meghalaya |
     a district | a block>", with no scheme and no measure named; else None."""
     words = [w.lower() for w in _c15_words(question)]
-    counting = any(words[i:i + 2] in (["how", "many"], ["number", "of"], ["count", "of"], ["total", "number"])
-                   for i in range(len(words)))
-    nouns = [_C15_GEO_NOUNS[w] for w in words if w in _C15_GEO_NOUNS]
-    if not counting or not nouns:
+    # the thing counted is the place noun right after "how many" / "number of" ("how many blocks …"), never a
+    # measure counted IN a place ("how many persons received employment in Amlarem constituency")
+    nouns = []
+    for i in range(len(words) - 1):
+        if words[i:i + 2] in (["how", "many"], ["number", "of"], ["count", "of"]):
+            nxt = [w for w in words[i + 2:i + 5] if w not in ("total", "the", "all", "different", "distinct")][:1]
+            if nxt and nxt[0] in _C15_GEO_NOUNS:
+                nouns.append(_C15_GEO_NOUNS[nxt[0]])
+    if not nouns:
         return None
     if _named_schemes(question) or _mentions_scheme(question) or context_policy.metric_families(question) - {"count"}:
         return None
@@ -1368,7 +1374,8 @@ async def _geography_count_answer(question: str) -> "dict | None":
     if what == "block":
         answer = f"{scope} has {n:,} {noun if n != 1 else 'community and rural development block'}."
     else:
-        answer = f"{scope} has {_c12_indian(n)} {noun if n != 1 else noun[:-1]}."
+        one = {"districts": "district", "villages": "village", "assembly constituencies": "assembly constituency"}
+        answer = f"{scope} has {_c12_indian(n)} {noun if n != 1 else one.get(noun, noun)}."
     answer += " (From the state's geography master, not from any one scheme's records.)"
     context_budget.log_decision("deterministic", answer="geography-count", what=what, district=district, block=block)
     return {"route": "data", "intent": "DATA", "confidence": "high", "schemes": [],
