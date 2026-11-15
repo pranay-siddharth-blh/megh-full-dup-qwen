@@ -66,6 +66,8 @@ KINDS = {
     "scheme + place, no measure (headline)": ["headline-no-measure"],
     "grouping words (per FY / district wise)": ["grouping-words"],
     "every district drilled (block, top 3, lowest, only, year)": ["district-drill"],
+    "one-breath combos (two blocks / years, chart, villages)": ["one-breath-combos"],
+    "polite 'Can you / Could you' versions of passing questions": ["polite-can-you"],
 }
 
 

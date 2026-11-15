@@ -675,10 +675,87 @@ async def drill_cases() -> list[dict]:
     return C
 
 
+def combo_cases() -> list[dict]:
+    """(i) everything in one breath, combined shapes: two blocks, two districts, two years, a breakdown with a
+    chart, villages of a block, top N blocks statewide in a year."""
+    C = []
+    pdq = f"SUM(person_days) FROM {EMP}"
+    exq = f"ROUND(SUM(total_exp), 2) FROM {EXP}"
+    pmq = f"COUNT(*) FROM {PM}"
+    specs = [
+        ("Compare MGNREGA person-days in Tikrikilla and Rongram blocks in FY 2023-24",
+         [rows(f"SELECT lgd_block, {pdq} WHERE lgd_block IN ('TIKRIKILLA', 'RONGRAM') AND year_key = 2023 GROUP BY 1 "
+               "ORDER BY 2 DESC")], None),
+        ("Compare PMAY-G houses sanctioned in Mawphlang and Mylliem blocks",
+         [rows(f"SELECT lgd_block, {pmq} WHERE lgd_block IN ('MAWPHLANG', 'MYLLIEM') GROUP BY 1 ORDER BY 2 DESC")], None),
+        ("Compare MGNREGA expenditure in Ri Bhoi and West Jaintia Hills for 2024-25",
+         [rows(f"SELECT lgd_district, {exq} WHERE lgd_district IN ('RI BHOI', 'WEST JAINTIA HILLS') AND year_key = 2024 "
+               "GROUP BY 1 ORDER BY 2 DESC", "lakh")], None),
+        ("MGNREGA person-days in Resubelpara block in 2022-23 and 2023-24",
+         [rows(f"SELECT financial_year_short, {pdq} WHERE lgd_block = 'RESUBELPARA' AND year_key IN (2022, 2023) "
+               "GROUP BY 1 ORDER BY 1")], None),
+        ("Show me MGNREGA expenditure by block in West Khasi Hills for FY 2025-26 as a bar chart",
+         [rows(f"SELECT lgd_block, {exq} WHERE lgd_district = 'WEST KHASI HILLS' AND year_key = 2025 GROUP BY 1 "
+               "ORDER BY 2 DESC", "lakh")], "bar"),
+        ("PMAY-G houses completed by block in Ri Bhoi as a pie chart",
+         [rows(f"SELECT lgd_block, {pmq} WHERE is_completed AND lgd_district = 'RI BHOI' GROUP BY 1 ORDER BY 2 DESC")],
+         "pie"),
+        ("Top 5 blocks in Meghalaya by MGNREGA person-days in FY 2024-25",
+         [rows(f"SELECT lgd_block, {pdq} WHERE year_key = 2024 GROUP BY 1 ORDER BY 2 DESC", take=5)], None),
+        ("Which block had the lowest PMAY-G houses sanctioned in East Khasi Hills in FY 2023-24?",
+         [rows(f"SELECT lgd_block, {pmq} WHERE lgd_district = 'EAST KHASI HILLS' AND year_key = 2023 GROUP BY 1 "
+               "ORDER BY 2 ASC", take=1)], None),
+        ("Top 3 villages in Mawkyrwat block by PMAY-G houses completed",
+         [rows(f"SELECT lgd_village_name, {pmq} WHERE is_completed AND lgd_block = 'MAWKYRWAT' GROUP BY 1 "
+               "ORDER BY 2 DESC", take=3)], None),
+        ("MGNREGA person-days trend in Songsak block by financial year as a line chart",
+         [rows(f"SELECT financial_year_short, {pdq} WHERE lgd_block = 'SONGSAK' GROUP BY 1 ORDER BY 1")], "line"),
+        ("How many PMAY-G houses were sanctioned and completed in Dadenggiri block in FY 2020-21?",
+         None, None),
+        ("Focus Legacy producer groups by block in South West Khasi Hills for FY 2025-26",
+         [rows(f"SELECT lgd_block, COUNT(DISTINCT pg_id) FROM {FL} WHERE lgd_district = 'SOUTH WEST KHASI HILLS' AND "
+               "year_key = 2025 GROUP BY 1 ORDER BY 2 DESC")], None),
+    ]
+    for i, (qq, rr, chart) in enumerate(specs):
+        t = turn(qq, pause=False, max_s=25)
+        if rr:
+            t["rows"] = rr
+        else:
+            t["figures"] = [fig(f"SELECT {pmq} WHERE lgd_block = 'DADENGGIRI' AND year_key = 2020", "count"),
+                            fig(f"SELECT {pmq} WHERE is_completed AND lgd_block = 'DADENGGIRI' AND year_key = 2020",
+                                "count")]
+        if chart:
+            t["chart"] = chart
+        C.append(case(f"CMB-{i:02d}", "one-breath-combos", "combo", [t]))
+    return C
+
+
+def polite_cases(base: list[dict]) -> list[dict]:
+    """(j) KIND 1 blast radius: questions that pass as typed, asked the polite way the user speaks
+    ("Can you show me ...", "Could you please give me ...", "Okay, can you tell me ...")."""
+    C = []
+    leads = ["Can you show me {x}?", "Could you please give me {x}?", "Okay, can you tell me {x}?", "Can you {x}?"]
+    pick = [c for c in base if c["cat"] in ("block-oneshot", "one-breath-combos") and len(c["turns"]) == 1][::5][:24]
+    for i, c in enumerate(pick):
+        t = dict(c["turns"][0])
+        x = t["q"].rstrip("?.")
+        if x.lower().startswith(("what were", "in 20", "how many", "which", "can you", "okay")):
+            continue
+        if len(x) > 1 and x[1].islower():
+            x = x[0].lower() + x[1:]
+        if x.startswith(("show me ", "compare ")):
+            t["q"] = leads[3].format(x=x) if x.startswith("compare") else "Can you " + x + "?"
+        else:
+            t["q"] = leads[i % 3].format(x=x)
+        C.append(case(c["id"].replace("BLK-", "POL-").replace("CMB-", "POLC-"), "polite-can-you", c["shape"], [t]))
+    return C
+
+
 async def main():
     blk = await block_cases()
     cases = log_cases() + blk + vague_cases() + chain_cases() + voice_cases(blk) + headline_cases() + grouping_cases()
-    cases += await drill_cases()
+    cases += await drill_cases() + combo_cases()
+    cases += polite_cases(cases)
     bank = {"bank": "Megh One AI LOG BANK (the user's own questions, every block, vague starts, spoken follow-ups)",
             "built_by": "tests/accuracy/build_log_bank.py", "truth_recorded": "2026-11-16", "cases": cases}
     with open(OUT, "w", encoding="utf-8") as fh:

@@ -961,11 +961,11 @@ cases:
   src: 'block list from curated.v_pmay (LGD); one breath: scheme, measure, FY, district, block'
   turns:
   - q: Focus Legacy producer groups for FY 2022-23 in South Garo Hills, Baghmara block
-    figures:
+    figures: &id126
     - sql: SELECT COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_block = 'BAGHMARA' AND year_key = 2022
       unit: count
     pause: false
-    schemes:
+    schemes: &id127
     - Focus Legacy
     place: BAGHMARA
     year: 2022
@@ -1113,11 +1113,11 @@ cases:
   src: 'block list from curated.v_pmay (LGD); one breath: scheme, measure, FY, district, block'
   turns:
   - q: Focus Legacy producer groups for FY 2025-26 in South Garo Hills, Chokpot block
-    figures:
+    figures: &id128
     - sql: SELECT COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_block = 'CHOKPOT' AND year_key = 2025
       unit: count
     pause: false
-    schemes:
+    schemes: &id129
     - Focus Legacy
     place: CHOKPOT
     year: 2025
@@ -1267,11 +1267,11 @@ cases:
   src: 'block list from curated.v_pmay (LGD); one breath: scheme, measure, FY, district, block'
   turns:
   - q: Focus Legacy producer groups for FY 2024-25 in West Garo Hills, Gambegre block
-    figures:
+    figures: &id130
     - sql: SELECT COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_block = 'GAMBEGRE' AND year_key = 2024
       unit: count
     pause: false
-    schemes:
+    schemes: &id131
     - Focus Legacy
     place: GAMBEGRE
     year: 2024
@@ -1420,11 +1420,11 @@ cases:
   src: 'block list from curated.v_pmay (LGD); one breath: scheme, measure, FY, district, block'
   turns:
   - q: Focus Legacy producer groups for FY 2022-23 in West Jaintia Hills, Laskein block
-    figures:
+    figures: &id132
     - sql: SELECT COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_block = 'LASKEIN' AND year_key = 2022
       unit: count
     pause: false
-    schemes:
+    schemes: &id133
     - Focus Legacy
     place: LASKEIN
     year: 2022
@@ -1571,11 +1571,11 @@ cases:
   src: 'block list from curated.v_pmay (LGD); one breath: scheme, measure, FY, district, block'
   turns:
   - q: Focus Legacy producer groups for FY 2025-26 in South West Khasi Hills, Mawkyrwat block
-    figures:
+    figures: &id134
     - sql: SELECT COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_block = 'MAWKYRWAT' AND year_key = 2025
       unit: count
     pause: false
-    schemes:
+    schemes: &id135
     - Focus Legacy
     place: MAWKYRWAT
     year: 2025
@@ -1726,11 +1726,11 @@ cases:
   src: 'block list from curated.v_pmay (LGD); one breath: scheme, measure, FY, district, block'
   turns:
   - q: Focus Legacy producer groups for FY 2024-25 in West Khasi Hills, Mawshynrut block
-    figures:
+    figures: &id136
     - sql: SELECT COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_block = 'MAWSHYNRUT' AND year_key = 2024
       unit: count
     pause: false
-    schemes:
+    schemes: &id137
     - Focus Legacy
     place: MAWSHYNRUT
     year: 2024
@@ -1878,11 +1878,11 @@ cases:
   src: 'block list from curated.v_pmay (LGD); one breath: scheme, measure, FY, district, block'
   turns:
   - q: Focus Legacy producer groups for FY 2022-23 in West Khasi Hills, Nongstoin block
-    figures:
+    figures: &id138
     - sql: SELECT COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_block = 'NONGSTOIN' AND year_key = 2022
       unit: count
     pause: false
-    schemes:
+    schemes: &id139
     - Focus Legacy
     place: NONGSTOIN
     year: 2022
@@ -2030,11 +2030,11 @@ cases:
   src: 'block list from curated.v_pmay (LGD); one breath: scheme, measure, FY, district, block'
   turns:
   - q: Focus Legacy producer groups for FY 2025-26 in South West Garo Hills, Rerapara block
-    figures:
+    figures: &id140
     - sql: SELECT COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_block = 'RERAPARA' AND year_key = 2025
       unit: count
     pause: false
-    schemes:
+    schemes: &id141
     - Focus Legacy
     place: RERAPARA
     year: 2025
@@ -2182,11 +2182,11 @@ cases:
   src: 'block list from curated.v_pmay (LGD); one breath: scheme, measure, FY, district, block'
   turns:
   - q: Focus Legacy producer groups for FY 2024-25 in East Jaintia Hills, Saipung block
-    figures:
+    figures: &id142
     - sql: SELECT COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_block = 'SAIPUNG' AND year_key = 2024
       unit: count
     pause: false
-    schemes:
+    schemes: &id143
     - Focus Legacy
     place: SAIPUNG
     year: 2024
@@ -2334,11 +2334,11 @@ cases:
   src: 'block list from curated.v_pmay (LGD); one breath: scheme, measure, FY, district, block'
   turns:
   - q: Focus Legacy producer groups for FY 2022-23 in South Garo Hills, Siju block
-    figures:
+    figures: &id144
     - sql: SELECT COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_block = 'SIJU' AND year_key = 2022
       unit: count
     pause: false
-    schemes:
+    schemes: &id145
     - Focus Legacy
     place: SIJU
     year: 2022
@@ -2485,11 +2485,11 @@ cases:
   src: 'block list from curated.v_pmay (LGD); one breath: scheme, measure, FY, district, block'
   turns:
   - q: Focus Legacy producer groups for FY 2025-26 in Ri Bhoi, Umling block
-    figures:
+    figures: &id146
     - sql: SELECT COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_block = 'UMLING' AND year_key = 2025
       unit: count
     pause: false
-    schemes:
+    schemes: &id147
     - Focus Legacy
     place: UMLING
     year: 2025
@@ -5155,3 +5155,438 @@ cases:
     place: NONGSTOIN
     year: 2022
     max_s: 25
+- id: CMB-00
+  cat: one-breath-combos
+  shape: combo
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Compare MGNREGA person-days in Tikrikilla and Rongram blocks in FY 2023-24
+    pause: false
+    max_s: 25
+    rows:
+    - sql: SELECT lgd_block, SUM(person_days) FROM curated.v_employment WHERE lgd_block IN ('TIKRIKILLA', 'RONGRAM') AND year_key
+        = 2023 GROUP BY 1 ORDER BY 2 DESC
+      unit: count
+- id: CMB-01
+  cat: one-breath-combos
+  shape: combo
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Compare PMAY-G houses sanctioned in Mawphlang and Mylliem blocks
+    pause: false
+    max_s: 25
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_pmay WHERE lgd_block IN ('MAWPHLANG', 'MYLLIEM') GROUP BY 1 ORDER BY
+        2 DESC
+      unit: count
+- id: CMB-02
+  cat: one-breath-combos
+  shape: combo
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Compare MGNREGA expenditure in Ri Bhoi and West Jaintia Hills for 2024-25
+    pause: false
+    max_s: 25
+    rows:
+    - sql: SELECT lgd_district, ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE lgd_district IN ('RI BHOI', 'WEST
+        JAINTIA HILLS') AND year_key = 2024 GROUP BY 1 ORDER BY 2 DESC
+      unit: lakh
+- id: CMB-03
+  cat: one-breath-combos
+  shape: combo
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: MGNREGA person-days in Resubelpara block in 2022-23 and 2023-24
+    pause: false
+    max_s: 25
+    rows: &id148
+    - sql: SELECT financial_year_short, SUM(person_days) FROM curated.v_employment WHERE lgd_block = 'RESUBELPARA' AND year_key
+        IN (2022, 2023) GROUP BY 1 ORDER BY 1
+      unit: count
+- id: CMB-04
+  cat: one-breath-combos
+  shape: combo
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Show me MGNREGA expenditure by block in West Khasi Hills for FY 2025-26 as a bar chart
+    pause: false
+    max_s: 25
+    rows:
+    - sql: SELECT lgd_block, ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE lgd_district = 'WEST KHASI HILLS' AND
+        year_key = 2025 GROUP BY 1 ORDER BY 2 DESC
+      unit: lakh
+    chart: bar
+- id: CMB-05
+  cat: one-breath-combos
+  shape: combo
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: PMAY-G houses completed by block in Ri Bhoi as a pie chart
+    pause: false
+    max_s: 25
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_pmay WHERE is_completed AND lgd_district = 'RI BHOI' GROUP BY 1 ORDER
+        BY 2 DESC
+      unit: count
+    chart: pie
+- id: CMB-06
+  cat: one-breath-combos
+  shape: combo
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Top 5 blocks in Meghalaya by MGNREGA person-days in FY 2024-25
+    pause: false
+    max_s: 25
+    rows:
+    - sql: SELECT lgd_block, SUM(person_days) FROM curated.v_employment WHERE year_key = 2024 GROUP BY 1 ORDER BY 2 DESC
+      unit: count
+      take: 5
+- id: CMB-07
+  cat: one-breath-combos
+  shape: combo
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Which block had the lowest PMAY-G houses sanctioned in East Khasi Hills in FY 2023-24?
+    pause: false
+    max_s: 25
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_pmay WHERE lgd_district = 'EAST KHASI HILLS' AND year_key = 2023 GROUP
+        BY 1 ORDER BY 2 ASC
+      unit: count
+      take: 1
+- id: CMB-08
+  cat: one-breath-combos
+  shape: combo
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Top 3 villages in Mawkyrwat block by PMAY-G houses completed
+    pause: false
+    max_s: 25
+    rows:
+    - sql: SELECT lgd_village_name, COUNT(*) FROM curated.v_pmay WHERE is_completed AND lgd_block = 'MAWKYRWAT' GROUP BY 1
+        ORDER BY 2 DESC
+      unit: count
+      take: 3
+- id: CMB-09
+  cat: one-breath-combos
+  shape: combo
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: MGNREGA person-days trend in Songsak block by financial year as a line chart
+    pause: false
+    max_s: 25
+    rows:
+    - sql: SELECT financial_year_short, SUM(person_days) FROM curated.v_employment WHERE lgd_block = 'SONGSAK' GROUP BY 1
+        ORDER BY 1
+      unit: count
+    chart: line
+- id: CMB-10
+  cat: one-breath-combos
+  shape: combo
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: How many PMAY-G houses were sanctioned and completed in Dadenggiri block in FY 2020-21?
+    pause: false
+    max_s: 25
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_pmay WHERE lgd_block = 'DADENGGIRI' AND year_key = 2020
+      unit: count
+    - sql: SELECT COUNT(*) FROM curated.v_pmay WHERE is_completed AND lgd_block = 'DADENGGIRI' AND year_key = 2020
+      unit: count
+- id: CMB-11
+  cat: one-breath-combos
+  shape: combo
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Focus Legacy producer groups by block in South West Khasi Hills for FY 2025-26
+    pause: false
+    max_s: 25
+    rows:
+    - sql: SELECT lgd_block, COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_district = 'SOUTH WEST KHASI HILLS'
+        AND year_key = 2025 GROUP BY 1 ORDER BY 2 DESC
+      unit: count
+- id: POL-ADOKGRE-0
+  cat: polite-can-you
+  shape: MGNREGA/person-days generated
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Can you show me MGNREGA person-days generated for FY 2022-23 in North Garo Hills, Adokgre block?
+    figures: *id014
+    pause: false
+    schemes: *id015
+    place: ADOKGRE
+    year: 2022
+    max_s: 25
+- id: POL-BAGHMARA-1
+  cat: polite-can-you
+  shape: Focus Legacy/producer groups
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Could you please give me focus Legacy producer groups for FY 2022-23 in South Garo Hills, Baghmara block?
+    figures: *id126
+    pause: false
+    schemes: *id127
+    place: BAGHMARA
+    year: 2022
+    max_s: 25
+- id: POL-BETASING-0
+  cat: polite-can-you
+  shape: MGNREGA/person-days generated
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Okay, can you tell me MGNREGA person-days generated for FY 2023-24 in South West Garo Hills, Betasing block?
+    figures: *id024
+    pause: false
+    schemes: *id025
+    place: BETASING
+    year: 2023
+    max_s: 25
+- id: POL-CHOKPOT-1
+  cat: polite-can-you
+  shape: Focus Legacy/producer groups
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Can you show me focus Legacy producer groups for FY 2025-26 in South Garo Hills, Chokpot block?
+    figures: *id128
+    pause: false
+    schemes: *id129
+    place: CHOKPOT
+    year: 2025
+    max_s: 25
+- id: POL-DAMBO_RONGJENG-0
+  cat: polite-can-you
+  shape: MGNREGA/person-days generated
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Could you please give me MGNREGA person-days generated for FY 2024-25 in East Garo Hills, Dambo Rongjeng block?
+    figures: *id034
+    pause: false
+    schemes: *id035
+    place: DAMBO RONGJENG
+    year: 2024
+    max_s: 25
+- id: POL-GAMBEGRE-1
+  cat: polite-can-you
+  shape: Focus Legacy/producer groups
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Okay, can you tell me focus Legacy producer groups for FY 2024-25 in West Garo Hills, Gambegre block?
+    figures: *id130
+    pause: false
+    schemes: *id131
+    place: GAMBEGRE
+    year: 2024
+    max_s: 25
+- id: POL-KHARKUTTA-0
+  cat: polite-can-you
+  shape: MGNREGA/person-days generated
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Can you show me MGNREGA person-days generated for FY 2025-26 in North Garo Hills, Kharkutta block?
+    figures: *id044
+    pause: false
+    schemes: *id045
+    place: KHARKUTTA
+    year: 2025
+    max_s: 25
+- id: POL-LASKEIN-1
+  cat: polite-can-you
+  shape: Focus Legacy/producer groups
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Could you please give me focus Legacy producer groups for FY 2022-23 in West Jaintia Hills, Laskein block?
+    figures: *id132
+    pause: false
+    schemes: *id133
+    place: LASKEIN
+    year: 2022
+    max_s: 25
+- id: POL-MAWHATI-0
+  cat: polite-can-you
+  shape: MGNREGA/person-days generated
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Okay, can you tell me MGNREGA person-days generated for FY 2022-23 in Ri Bhoi, Mawhati block?
+    figures: *id054
+    pause: false
+    schemes: *id055
+    place: MAWHATI
+    year: 2022
+    max_s: 25
+- id: POL-MAWKYRWAT-1
+  cat: polite-can-you
+  shape: Focus Legacy/producer groups
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Can you show me focus Legacy producer groups for FY 2025-26 in South West Khasi Hills, Mawkyrwat block?
+    figures: *id134
+    pause: false
+    schemes: *id135
+    place: MAWKYRWAT
+    year: 2025
+    max_s: 25
+- id: POL-MAWPHLANG-0
+  cat: polite-can-you
+  shape: MGNREGA/person-days generated
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Could you please give me MGNREGA person-days generated for FY 2023-24 in East Khasi Hills, Mawphlang block?
+    figures: *id064
+    pause: false
+    schemes: *id065
+    place: MAWPHLANG
+    year: 2023
+    max_s: 25
+- id: POL-MAWSHYNRUT-1
+  cat: polite-can-you
+  shape: Focus Legacy/producer groups
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Okay, can you tell me focus Legacy producer groups for FY 2024-25 in West Khasi Hills, Mawshynrut block?
+    figures: *id136
+    pause: false
+    schemes: *id137
+    place: MAWSHYNRUT
+    year: 2024
+    max_s: 25
+- id: POL-MYLLIEM-0
+  cat: polite-can-you
+  shape: MGNREGA/person-days generated
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Can you show me MGNREGA person-days generated for FY 2024-25 in East Khasi Hills, Mylliem block?
+    figures: *id074
+    pause: false
+    schemes: *id075
+    place: MYLLIEM
+    year: 2024
+    max_s: 25
+- id: POL-NONGSTOIN-1
+  cat: polite-can-you
+  shape: Focus Legacy/producer groups
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Could you please give me focus Legacy producer groups for FY 2022-23 in West Khasi Hills, Nongstoin block?
+    figures: *id138
+    pause: false
+    schemes: *id139
+    place: NONGSTOIN
+    year: 2022
+    max_s: 25
+- id: POL-RAMBRAI-0
+  cat: polite-can-you
+  shape: MGNREGA/person-days generated
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Okay, can you tell me MGNREGA person-days generated for FY 2025-26 in West Khasi Hills, Rambrai block?
+    figures: *id084
+    pause: false
+    schemes: *id085
+    place: RAMBRAI
+    year: 2025
+    max_s: 25
+- id: POL-RERAPARA-1
+  cat: polite-can-you
+  shape: Focus Legacy/producer groups
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Can you show me focus Legacy producer groups for FY 2025-26 in South West Garo Hills, Rerapara block?
+    figures: *id140
+    pause: false
+    schemes: *id141
+    place: RERAPARA
+    year: 2025
+    max_s: 25
+- id: POL-RONGARA-0
+  cat: polite-can-you
+  shape: MGNREGA/person-days generated
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Could you please give me MGNREGA person-days generated for FY 2022-23 in South Garo Hills, Rongara block?
+    figures: *id094
+    pause: false
+    schemes: *id095
+    place: RONGARA
+    year: 2022
+    max_s: 25
+- id: POL-SAIPUNG-1
+  cat: polite-can-you
+  shape: Focus Legacy/producer groups
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Okay, can you tell me focus Legacy producer groups for FY 2024-25 in East Jaintia Hills, Saipung block?
+    figures: *id142
+    pause: false
+    schemes: *id143
+    place: SAIPUNG
+    year: 2024
+    max_s: 25
+- id: POL-SHALLANG-0
+  cat: polite-can-you
+  shape: MGNREGA/person-days generated
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Can you show me MGNREGA person-days generated for FY 2023-24 in West Khasi Hills, Shallang block?
+    figures: *id104
+    pause: false
+    schemes: *id105
+    place: SHALLANG
+    year: 2023
+    max_s: 25
+- id: POL-SIJU-1
+  cat: polite-can-you
+  shape: Focus Legacy/producer groups
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Could you please give me focus Legacy producer groups for FY 2022-23 in South Garo Hills, Siju block?
+    figures: *id144
+    pause: false
+    schemes: *id145
+    place: SIJU
+    year: 2022
+    max_s: 25
+- id: POL-THADLASKEIN-0
+  cat: polite-can-you
+  shape: MGNREGA/person-days generated
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Okay, can you tell me MGNREGA person-days generated for FY 2024-25 in West Jaintia Hills, Thadlaskein block?
+    figures: *id114
+    pause: false
+    schemes: *id115
+    place: THADLASKEIN
+    year: 2024
+    max_s: 25
+- id: POL-UMLING-1
+  cat: polite-can-you
+  shape: Focus Legacy/producer groups
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Can you show me focus Legacy producer groups for FY 2025-26 in Ri Bhoi, Umling block?
+    figures: *id146
+    pause: false
+    schemes: *id147
+    place: UMLING
+    year: 2025
+    max_s: 25
+- id: POL-ZIKZAK-0
+  cat: polite-can-you
+  shape: MGNREGA/person-days generated
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Could you please give me MGNREGA person-days generated for FY 2025-26 in South West Garo Hills, Zikzak block?
+    figures: *id124
+    pause: false
+    schemes: *id125
+    place: ZIKZAK
+    year: 2025
+    max_s: 25
+- id: POLC-03
+  cat: polite-can-you
+  shape: combo
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Okay, can you tell me MGNREGA person-days in Resubelpara block in 2022-23 and 2023-24?
+    pause: false
+    max_s: 25
+    rows: *id148
