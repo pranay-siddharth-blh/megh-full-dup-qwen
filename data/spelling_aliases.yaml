@@ -205,6 +205,13 @@ not_typos:
   # 2026-11-15: 'applications were sent back' became 'spent back' (one edit from 'spent') and was asked as
   # money (model-on gold bank W2-CE-SB-01). Real words one or two edits from the measure words:
   - sent
+  # 2026-11-15 (dictation agent, KI-726): 'higher' was corrected to 'highest' (two edits), 'lower' likewise
+  - higher
+  - lower
+  - highs
+  - lows
+  - lowered
+  - totals
   - spend
   - spends
   - relieved
