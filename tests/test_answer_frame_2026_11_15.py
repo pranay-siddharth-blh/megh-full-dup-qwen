@@ -765,3 +765,32 @@ def test_the_chain_matrix(first, msg, fresh):
 def test_what_the_frame_leaves_to_the_other_paths(msg):
     for shape in FIRSTS:
         assert p._c18_frame_followup(msg, _first_turn(shape)) is None, (shape, msg)
+
+
+# ── review 2026-11-15: the durable-frames fallback does not assume the newest frame is the aside's ─────────────────
+
+def _rehydrated(frames, prev):
+    from types import SimpleNamespace
+    return SimpleNamespace(turns=[prev], frames=frames)
+
+
+def _data_frame(fid, turn):
+    from app import answer_frame as af
+    return {"id": fid, "route": "data", "schemes": ["PMAY-G"], "af": af.from_turn(turn).to_dict()}
+
+
+def test_frames_fallback_reaches_the_data_frame_when_the_aside_wrote_none():
+    """A clarified aside writes no frame: the newest frame is then the data answer itself, and must be used."""
+    data = _all_districts_turn()
+    aside = _turn("What is PMAY-G?", ["PMAY-G"], {}, None, route="knowledge")
+    got = p._c18_followup_base(aside, _rehydrated([_data_frame(1, data)], aside))
+    assert got is not None and got[0].group == p._c18_followup_base(data, None)[0].group
+
+
+def test_frames_fallback_walks_back_over_knowledge_frames_only():
+    data = _all_districts_turn()
+    aside = _turn("What is PMAY-G?", ["PMAY-G"], {}, None, route="knowledge")
+    k = {"id": 2, "route": "knowledge", "schemes": ["PMAY-G"]}
+    assert p._c18_followup_base(aside, _rehydrated([_data_frame(1, data), dict(k), dict(k, id=3)], aside))
+    assert p._c18_followup_base(aside, _rehydrated([_data_frame(1, data), {"id": 2, "route": "other"}, k], aside)) \
+        is None

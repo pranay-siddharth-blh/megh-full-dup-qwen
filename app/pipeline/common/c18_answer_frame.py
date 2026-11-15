@@ -483,9 +483,15 @@ def _c18_followup_base(prev, session) -> "tuple[_c18_af.AnswerFrame, object] | N
         if getattr(t, "route", None) not in ("knowledge", "history"):
             return None                                   # something else came between
     if not candidates and session is not None:
-        for fr in reversed(list(getattr(session, "frames", None) or [])[:-1]):
-            if fr.get("route") == "data" and fr.get("af"):
-                candidates.append((_c18_af.AnswerFrame.from_dict(fr["af"]), None))
+        # Walk back over the knowledge frames (the aside's own among them, when it wrote one: a clarified aside does
+        # not, so the newest frame is not assumed to be the aside's; review 2026-11-15) to the newest data frame.
+        for fr in reversed(list(getattr(session, "frames", None) or [])):
+            r = fr.get("route")
+            if r == "data":
+                if fr.get("af"):
+                    candidates.append((_c18_af.AnswerFrame.from_dict(fr["af"]), None))
+                break
+            if r != "knowledge":
                 break
     if not candidates:
         return None
