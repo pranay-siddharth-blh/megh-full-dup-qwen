@@ -139,15 +139,19 @@ BANK = QUESTIONS + [k[1] for k in KNOWN] + LEFT_ALONE
 # The typed pipeline's own word rewrites ("sent" -> "spent", "higher" -> "highest", KI-724) still run on a
 # dictated question exactly as on a typed one; dictation adds nothing for them to undo.
 TYPED_WORD_REWRITES = {"CM Elevate applications sent back in East Khasi Hills", "Which one is higher?"}
+# 2026-11-16 (voice audit): the typed pipeline writes "East and West Khasi Hills" out as both districts (spelling, how
+# "elided": a reading, not a spelling fix); dictation still types it as said
+TYPED_READINGS = {"East and West Khasi Hills"}
 
 
 @pytest.mark.parametrize("x", BANK)
 def test_typed_pipeline_does_not_rewrite_cleaned_text(x):
     once = text(x)
     n = spelling.normalise(once)
-    names = [c for c in n.corrections if c.kind in C.SPELLING_KINDS and C.letters(c.typed) != C.letters(c.canonical)]
+    names = [c for c in n.corrections if c.kind in C.SPELLING_KINDS and C.letters(c.typed) != C.letters(c.canonical)
+             and c.how != "elided"]
     assert names == []
-    if once not in TYPED_WORD_REWRITES:
+    if once not in TYPED_WORD_REWRITES and once not in TYPED_READINGS:
         assert n.text == once
     assert text(once) == once                           # idempotent
 
