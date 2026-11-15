@@ -155,11 +155,11 @@ async def main() -> int:
             final = await b.eval("(async () => { await until(() => !document.querySelector('.dict-bar'), 10000); return ta().value; })()")
             check("final inserted at the caret, cleaned", final == "Show me how many houses were completed in Ri Bhoi district please",
                   final)
+            await b.shot(str(SHOTS / "02_inserted.png"))
             toast = await b.eval("(async () => { const t = await until(() => document.querySelector('.undo-toast, .toast'), 3000); return t ? t.innerText : ''; })()")
             check("one undo offered, the correction named", "Dictation inserted" in toast and "Ri Bhoi" in toast, toast)
             undone = await b.eval("(async () => { const btn = [...document.querySelectorAll('button')].find(x => x.innerText.trim() === 'Undo'); if (!btn) return null; btn.click(); await sleep(200); return ta().value; })()")
             check("undo puts the box back", undone == "Show me  please", undone)
-            await b.shot(str(SHOTS / "02_inserted.png"))
 
             # 2) Esc cancels and restores exactly
             await b.eval("typeIn('keep this', 4)")
