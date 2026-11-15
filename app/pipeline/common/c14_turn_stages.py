@@ -302,6 +302,12 @@ async def _turn_context_stage(t: dict, session: "Session | None" = None,
     else:
         _pinned = _pin_cm_elevate_dataset(question, _cm_thread)
     _cm_pinned = _pinned != question
+    # 2026-11-15: the reply as typed, before the dataset pin. A typed "CM Elevate" at the D-099 pause ("CM Elevate or
+    # CM Elevate Legacy?") was pinned to "CM Elevate (applications)" above (the pending question names CM Elevate),
+    # so the pause resume below did not read it as a pick ("(applications)" left over), the paused question was
+    # dropped and "CM Elevate applications WGH" -> "CM Elevate" answered STATEWIDE (7,375, not 1,625). A tapped chip
+    # sends the full question and never hit this; a typed or SPOKEN pick did. The resumes read this first.
+    _reply_as_typed = question
     question = _pinned
     scope_resumed = False
     _each_q = _each_scheme_in_cm_thread(question, session)
@@ -385,7 +391,9 @@ async def _turn_context_stage(t: dict, session: "Session | None" = None,
         session.pending_village_hint = None
         session.pending_scope_rule = None
         session.pending_scope_options = None
-        _picked = (_resume_scheme_pause(question, _pending_options)
+        _picked = (_resume_scheme_pause(_reply_as_typed, _pending_options)
+                   or _resume_scheme_pause(question, _pending_options)
+                   or _resume_scheme_pause_typed(_reply_as_typed, pending, _pending_options)
                    or _resume_scheme_pause_typed(question, pending, _pending_options))   # D-098
         if _picked:
             logger.info("scheme clarification resumed from typed reply %r -> %r", question, _picked)
@@ -405,7 +413,8 @@ async def _turn_context_stage(t: dict, session: "Session | None" = None,
         session.pending_village_hint = None
         session.pending_scope_rule = None
         session.pending_scope_options = None
-        _picked = _resume_option_pause(question, _pending_options)
+        _picked = (_resume_option_pause(_reply_as_typed, _pending_options)
+                   or _resume_option_pause(question, _pending_options))
         if _picked:
             logger.info("option clarification (%s) resumed from typed reply %r -> %r",
                         _pending_rule, question, _picked)
