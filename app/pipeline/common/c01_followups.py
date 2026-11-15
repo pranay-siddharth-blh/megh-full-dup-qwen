@@ -2585,7 +2585,7 @@ def _rest_of_schemes_rewrite(prev: "object", followup: str) -> "str | None":
 
 
 async def rewrite_followup(question: str, prev: "object", extra_context: str = "",
-                          kind: "str | None" = None, cleared: "dict | None" = None) -> str:
+                          kind: "str | None" = None, cleared: "dict | None" = None, session=None) -> str:
     """Turn a fragment into a standalone question using the previous turn.
     Falls back to the original question on any failure — never raises.
 
@@ -2663,6 +2663,14 @@ async def rewrite_followup(question: str, prev: "object", extra_context: str = "
         # Anything else goes on as typed, as before. The ctx07 rules (c14) normally run before any model call; they
         # are tried here too for a caller that reaches the rewrite without them: another measure, a regroup with a
         # year, one place of a comparison.
+        # D-110: the answer frame first (c18): the follow-up as one edit of the last data answer, with the merge plan
+        # and the inherited filters handed to the later stages through the session.
+        _framed = _c18_frame_followup(question, prev, session)
+        if _framed is not None:
+            _c18_record_followup(session, _framed)
+            guard = "model-failed:answer-frame"
+            logger.warning("follow-up rewrite: the model call failed — answer frame %s %r", _framed[0], _framed[1])
+            return _framed[1]
         _forced = (_place_swap_rewrite(prev, question, force=True, district=True)
                    or _c01_year_swap_rewrite(prev, question)
                    or _c01_measure_swap_question(question, prev)

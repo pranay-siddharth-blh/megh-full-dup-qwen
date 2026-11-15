@@ -1558,6 +1558,24 @@ async def _turn_followup_stage(t: dict, session: "Session | None" = None,
             question = _there
             _meta_rewrite = True
             context_budget.log_decision("followup", rewrite="other-scheme-there", question=question)
+    # 0h'''-frame. D-110: the follow-up as ONE edit of the last data answer's frame (c18 _c18_frame_followup):
+    #       regroup / roll-up, rank, one place, another measure, another year. FIRST, before the string rules below
+    #       (which stay as fallbacks); also after a knowledge aside on the same scheme(s). Its merge plan and inherited
+    #       filters are exactly the edited frame's. Not for a reply to a pause (that pause's chip, resumed at the
+    #       turn's start).
+    if (not _meta_rewrite and not scope_resumed and prev is not None
+            and getattr(prev, "route", None) in _ANTECEDENT_ROUTES
+            and not (session is not None and (getattr(session, "pending_scope_q", None)
+                                              or (session.turn_context or {}).get("resumed_question")
+                                              or (session.turn_context or {}).get("clarification_reply")))):
+        _c14_framed = _c18_frame_followup(raw_question, prev, session)
+        if _c14_framed is not None:
+            _c14_fkind, question, _c14_fdict, _rollup_plan = _c14_framed
+            _meta_rewrite = True
+            _c18_record_followup(session, _c14_framed)
+            context_budget.log_decision("followup", rewrite=f"frame-{_c14_fkind}", question=question,
+                                        actions={k: v for k, v in _rollup_plan.actions.items()
+                                                 if v != context_policy.KEEP})
     # 0h'''. CTX-07 (KI-363, KI-364): "Break it down by district" after a statewide
     #       answer, and "Compare ... with <place>" after another place's answer, run
     #       as the previous question by that dimension / for both places
@@ -1816,7 +1834,11 @@ async def _turn_followup_stage(t: dict, session: "Session | None" = None,
                 _before_rw = question
                 question = await rewrite_followup(question, prev, extra_context=_extra_ctx,
                                                   kind=_plan.kind if _plan else None,
-                                                  cleared=_cleared_filters(_plan, prev, _thread_state))
+                                                  cleared=_cleared_filters(_plan, prev, _thread_state),
+                                                  session=session)
+                if session is not None and (session.turn_context or {}).get("frame_plan_obj") is not None:
+                    # D-110: the model call failed and the answer frame resolved it: the frame's plan
+                    _plan = session.turn_context["frame_plan_obj"]
                 if question == _before_rw:
                     # D-100: the rewrite gave up (failed, or its provenance check
                     # rejected it against the PREVIOUS turn only) — "i mean compare
@@ -2692,6 +2714,11 @@ async def _turn_data_context_stage(t: dict, session: "Session | None" = None,
         # district in "...by district"), and "what about South Garo Hills?"
         # after a Dalu turn kept block DALU under the new district.
         _prior_resolved = context_policy.apply_merge_plan(_prior_resolved, _plan)
+    _frame_prior = (session.turn_context or {}).get("frame_prior") if session is not None else None
+    if is_followup_rewrite and isinstance(_frame_prior, dict):
+        # D-110: a follow-up the answer frame resolved inherits exactly the edited frame's places and years
+        # (c18 _c18_prior_from_frame): nothing the frame cleared comes back from the previous turn or the state.
+        _prior_resolved = _c18_prior_from_frame(_prior_resolved, _frame_prior)
     if _prior_resolved and t["raw_question"] and _WHICH_YEAR_CUE.search(t["raw_question"]) \
             and not context_policy.extract_year_keys(t["raw_question"]):
         # "Which year was the highest?" ranks the years — the previous turn's
