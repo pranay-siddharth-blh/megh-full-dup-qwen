@@ -1492,6 +1492,12 @@ One spoken question is one pipeline question (D-105): the relay answers the mode
 from its first call and holds a call it makes on its own after the answer was read. The Secretary view draws the
 answer's own rows (`frontend/src/chat/voice/vizPlan.js`); its desk figures come from `GET /api/voice/board`, fixed
 read-only SQL beside the pipeline (like `/api/scheme-stats`), never through it.
+Captions and the picture's reveal (D-114, 2026-11-15): the relay sends the voice's words a checked sentence at a time
+(VOICE_BLOCK_UNSOURCED) and the audio as it comes (on Gemini Live a burst well ahead of real time). The page shows each
+word when the audio PLAYING reaches it (`frontend/src/chat/voice/captionPacer.js`: each piece of text is anchored to the
+audio queued when it arrived, words spread evenly between anchors, text with no audio left to wait for typed in
+quickly), and the stage's cards reveal their items from those captions, so the picture follows the voice. VERIFIED by
+`tests/voice/ui_voice_captions.py` (fake Live, `!!burst`).
 
 ### 3.4 Exception handling around DATA (in `_run_pipeline`)
 

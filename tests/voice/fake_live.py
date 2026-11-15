@@ -23,6 +23,9 @@ Directives (imitate the real model's bad days):
                    same turn and reads the new answer (the relay must forward only the new answer; real voice 2026-11-03)
   !!mixed <q>      calls, reads the answer, then adds a sentence with a figure of its own and one more plain sentence
                    (the relay must cut the turn at that sentence: VOICE_BLOCK_UNSOURCED, 2026-11-14)
+  !!burst <q>      calls, then reads the answer the way the real Gemini Live does: the transcript and the audio arrive in
+                   a burst well ahead of real time (~6x), the audio at a natural pace (~2.8 words a second), so the
+                   page must pace the captions and the reveal by what is actually PLAYING (2026-11-15)
   read "!!garble <text>"   misreads a read the page asked for with a figure of its own (the relay ends it with
                    the safe line)
 
@@ -61,21 +64,23 @@ async def handler(ws):
     async def send(obj):
         await ws.send(json.dumps(obj))
 
-    async def speak(text: str, end: bool = True):
+    async def speak(text: str, end: bool = True, burst: bool = False):
         try:
             words = text.split()
             for i in range(0, len(words), 4):        # ~10 words a second: slower than this, tests drag; faster, nothing is "as it speaks"
-                await send({"serverContent": {"outputTranscription": {"text": " ".join(words[i:i + 4]) + " "}}})
+                chunk = words[i:i + 4]
+                await send({"serverContent": {"outputTranscription": {"text": " ".join(chunk) + " "}}})
                 await send({"serverContent": {"modelTurn": {"parts": [{"inlineData": {
-                    "mimeType": "audio/pcm;rate=24000", "data": base64.b64encode(pcm(0.3)).decode()}}]}}})
-                await asyncio.sleep(0.38)
+                    "mimeType": "audio/pcm;rate=24000",
+                    "data": base64.b64encode(pcm(len(chunk) / 2.8 if burst else 0.3)).decode()}}]}}})
+                await asyncio.sleep(len(chunk) / 2.8 / 6 if burst else 0.38)
             if end:
                 await send({"serverContent": {"turnComplete": True}})
         except asyncio.CancelledError:
             pass
 
-    def say(text: str):
-        st["speaking"] = asyncio.create_task(speak(text))
+    def say(text: str, burst: bool = False):
+        st["speaking"] = asyncio.create_task(speak(text, burst=burst))
 
     async def interrupt():
         if st["speaking"] and not st["speaking"].done():
@@ -116,7 +121,7 @@ async def handler(ws):
             return
         if spoken:                                   # what was "heard": the words without any test directive
             heard = text
-            for d in ("!!silent ", "!!memory ", "!!quiet ", "!!cancel ", "!!lag ", "!!wrong ", "!!nothing ", "!!again ", "!!echo ", "!!reread ", "!!mixed "):
+            for d in ("!!silent ", "!!memory ", "!!quiet ", "!!cancel ", "!!lag ", "!!wrong ", "!!nothing ", "!!again ", "!!echo ", "!!reread ", "!!mixed ", "!!burst "):
                 if heard.startswith(d):
                     heard = heard[len(d):]
             for d in ("!!repeat ", "!!reword "):
@@ -170,6 +175,9 @@ async def handler(ws):
         mixed = text.startswith("!!mixed ")
         if mixed:
             question = text[len("!!mixed "):]
+        burst = text.startswith("!!burst ")
+        if burst:
+            question = text[len("!!burst "):]
         if cancel:
             st["n"] += 1
             cid = f"fc{st['n']}"
@@ -190,7 +198,7 @@ async def handler(ws):
         if mixed:
             say(st["last_speak"] + " Last year it was 77,77,777 in total. That is all I have.")
             return
-        say("About 99,99,999 of them, roughly." if wrong else st["last_speak"])
+        say("About 99,99,999 of them, roughly." if wrong else st["last_speak"], burst=burst)
         if echo:                                     # after reading, it says the same answer again, unprompted
             try:
                 await st["speaking"]

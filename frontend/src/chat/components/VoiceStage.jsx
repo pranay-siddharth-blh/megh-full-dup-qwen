@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createOrb } from '../voiceOrb.js';
 import { AI_VOICE_LABEL, greetingHeading, spokenForm } from '../voiceSpeech.js';
 import { deleteConversationApi, fetchNLPResponse, fetchVoiceBoard, peekVoiceBoard } from '../api.js';
@@ -430,10 +430,12 @@ function VoicePicker({ live }) {
   );
 }
 
-/* The captions: what the voice is saying, word by word in time with the audio (the hook holds each piece of the
-   transcript until its audio plays). While it streams, the sentence being said is bright, the words already said
+/* The captions: what the voice is saying, word by word in time with the audio (the hook shows each word when the audio
+   reaches it, voice/captionPacer.js). While it streams, the sentence being said is bright, the words already said
    settle to a quieter ink, and the newest word carries a soft glow that hands over to the next one. Static text
-   (an answer seen another way) is plain ink. Each word fades up as it arrives; the box keeps the newest in view. */
+   (an answer seen another way) is plain ink. Each word fades in IN PLACE (opacity only, 2026-11-15: a word that rose
+   into its line made the lines bob, and the box's scroll height shrank under it); a word already shown keeps its key,
+   so it is never re-mounted; the box keeps the newest line in view, scrolling up only when it is full. */
 function Words({ text, streaming = false }) {
   const ws = words(text);
   let start = 0;
@@ -442,8 +444,10 @@ function Words({ text, streaming = false }) {
     start = Math.max(start, ws.length - CUR_MAX);
   }
   const last = ws.length - 1;
+  // plain inline words with a real space between them (2026-11-15): with inline-block words and a margin dropped on the
+  // last one, the word that ended a full line was pushed down to the next line when a new word came after it
   return ws.map((w, i) => (
-    <span key={i} className={'w' + (streaming ? (i >= start ? ' cur' : ' past') + (i === last ? ' tip' : '') : '')}>{w}</span>
+    <Fragment key={i}>{i > 0 ? ' ' : null}<span className={'w' + (streaming ? (i >= start ? ' cur' : ' past') + (i === last ? ' tip' : '') : '')}>{w}</span></Fragment>
   ));
 }
 
@@ -835,10 +839,13 @@ export function VoiceStage({ live, messages, renderMessage, onType, onClose }) {
   // THE text on the stage: for an answer the voice reads, its natural words as they are said (never the pipeline's
   // formal text, which stays in the chat, in the cards' own figures and, for assistive technology, in .vs-answer);
   // an answer seen another way (pinned from the dock, typed while the voice is off) shows its own text
-  let meghShown = megh; let capLive = live.speaking; let capOwn = false;
+  // the reading is under way: the audio plays, or words are still coming in time with it (2026-11-15: `speaking` alone
+  // dropped for a moment between audio chunks, and the captions' streaming styling and wrapping flickered with it)
+  const voicing = live.speaking || !!live.captions.flow;
+  let meghShown = megh; let capLive = voicing; let capOwn = false;
   if (!current) meghShown = greetingOnly && megh.startsWith(heading) ? afterGreeting(megh.slice(heading.length)) : megh;
   else if (working) meghShown = spokenLive;
-  else if (ownSpoken) { meghShown = ownSpoken; capLive = live.speaking && fresh; }
+  else if (ownSpoken) { meghShown = ownSpoken; capLive = voicing && fresh; }
   else if (fresh && !turnOver) { meghShown = ''; capLive = false; }                  // the voice is about to read it
   else { meghShown = answerText; capLive = false; capOwn = true; }
   capStatic.current = capOwn;

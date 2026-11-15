@@ -185,15 +185,18 @@ async def main():
             return {{ r, text: document.querySelector('.vs-stagearea').innerText.slice(0, 400) }}; }})()""", timeout=220)
         check("a question typed on the stage is answered there and read aloud", typed["r"] and "CM Elevate" in typed["text"], typed)
 
-        # the dock: earlier answers come back on a click; the desk comes back
-        chips = await b.eval("document.querySelectorAll('.vs-chip:not(.home)').length")
-        check("earlier answers wait in the dock", chips >= 3, chips)
-        await b.eval("document.querySelector('.vs-chip:not(.home)').click()")
-        back = await b.eval("(async () => { await sleep(1200); return { on: !!document.querySelector('.vs-chip.on'), cards: document.querySelectorAll('.vs-grid > .vc, .vs-grid > .vs-card').length }; })()")
-        check("a dock chip brings that answer back on stage", back["on"] and back["cards"] > 0, back)
+        # earlier answers (2026-11-15: the dock chips went on 12 Nov, replaced by the scheme strip; earlier answers are
+        # listed on the desk's right column): Dashboard brings the desk back, an earlier answer there comes back on stage
         await b.eval("document.querySelector('.vs-chip.home').click()")
         home = await b.eval("(async () => { const op = () => +getComputedStyle(document.querySelector('.vs-col-l')).opacity; await until(() => op() > 0.95, 3000); const s = stage(); return { desk: s.classList.contains('desk'), op: op() }; })()")
-        check("'The desk' brings the desk back", home["desk"] and home["op"] > 0.9, home)
+        check("'Dashboard' brings the desk back", home["desk"] and home["op"] > 0.9, home)
+        chips = await b.eval("document.querySelectorAll('.vs-col-r .sdk-ex').length")
+        check("earlier answers wait on the desk", chips >= 3, chips)
+        await b.eval("document.querySelector('.vs-col-r .sdk-ex').click()")
+        back = await b.eval("(async () => { await sleep(1200); return { parked: stage().classList.contains('parked'), cards: document.querySelectorAll('.vs-grid > .vc, .vs-grid > .vs-card').length }; })()")
+        check("an earlier answer on the desk comes back on stage", back["parked"] and back["cards"] > 0, back)
+        await b.eval("document.querySelector('.vs-chip.home').click()")
+        await b.eval("(async () => { await until(() => stage().classList.contains('desk'), 3000); await sleep(600); })()")
         t0 = await b.eval("performance.now()")
         await b.eval("document.querySelector('.sd-tile:not(.sk)').click()")
         tile = await b.eval(f"""(async () => {{ const r = await until(() => vlog().find(e => e.type === 'reply' && e.t > {t0}), 150000);

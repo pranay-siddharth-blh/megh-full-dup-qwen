@@ -6,6 +6,14 @@ gateway outage of 2–3 Nov). **Voice layer updated 10–11 Nov 2026 (§0); `doc
 
 ## 0. Current state of the live voice (10–11 Nov 2026) — read before touching anything voice
 
+### 0a''''''. 15 Nov 2026 (night) — voice stage captions + picture timing (D-114, KI-728), branch `wt/voiceui-2026-11-15`
+- The user's live test (real Gemini Live): captions at the top of the stage missing / flickering, lines bobbing, the
+  picture late and out of step. Root cause: since 14 Nov the relay sends captions a checked sentence at a time
+  (VOICE_BLOCK_UNSOURCED) and the page held each piece until the end of Gemini's audio burst; the picture's items are
+  revealed from the captions. NOT the D-112 / D-113 merges (the pre-merge build measures the same). Fix, page only:
+  `frontend/src/chat/voice/captionPacer.js` (words shown as the playing audio reaches them), words fade in place,
+  stable wrapping. Test: `tests/voice/ui_voice_captions.py` (fake Live `!!burst`). Details: DECISIONS D-114.
+
 ### 0a'''''. 15 Nov 2026 (evening) — EVERYTHING MERGED on `arch/step1-2026-11-14` (read first; the two 0a'''' notes below say "not merged yet": they are)
 - Merged in order: answer frame (D-110), streaming (D-112), dictation (D-111), orb + AI-mode panel (D-113), the
   independent review's fixes (2d27ef9), more deterministic answers (`wt/nomodel2`, cad3ae6), Focus Legacy list units
