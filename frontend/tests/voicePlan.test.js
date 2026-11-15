@@ -32,7 +32,7 @@ test('money by scheme also gets a bar (money is the one unit schemes share)', ()
     { scheme: 'Focus Plus', amount_crore: 119.74 }, { scheme: 'Focus Legacy', amount_crore: 51.01 }];
   const p = plan({ data }, 'How much money has each scheme disbursed?');
   assert.deepEqual(kinds(p), ['tiles', 'bars']);
-  assert.equal(p.cards[1].unitLabel, '₹ crore');
+  assert.equal(p.cards[1].unitLabel, '₹');           // the figures carry crore / lakh themselves (2026-11-16)
   assert.equal(p.cards[1].fmt(3628.67), '₹3,628.67 crore');
 });
 
@@ -218,4 +218,16 @@ test('the headline of every scheme: ONE tile per scheme, the second figure on it
   assert.ok(!t[0].sub.includes('beneficiaries'));
   assert.equal(t[1].sub, 'houses sanctioned');
   assert.equal(t[2].sub, 'disbursements · 1,05,813 beneficiaries');
+});
+
+test('a money label never names a unit the figure is not shown in (2026-11-16: "Sanctioned amount (Rs)" beside "₹310.97 crore")', () => {
+  const data = [
+    { district: 'East Khasi Hills', houses: 23952, 'sanctioned amount (Rs)': 3109730000 },
+    { district: 'West Garo Hills', houses: 33147, 'sanctioned amount (Rs)': 4308590000 },
+  ];
+  const p = plan({ data, route: 'data' }, 'Compare PMAY-G houses sanctioned in West Garo Hills and East Khasi Hills');
+  const t = p.cards.find((c) => c.kind === 'tiles').items.find((x) => x.col === 'sanctioned amount (Rs)');
+  assert.equal(t.sub, 'Sanctioned amount');
+  assert.equal(t.fmt(t.value), '₹310.97 crore');
+  p.cards.forEach((c) => assert.ok(!['₹ crore', '₹ lakh'].includes(c.unitLabel)));
 });

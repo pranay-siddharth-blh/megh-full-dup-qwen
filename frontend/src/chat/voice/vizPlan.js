@@ -104,11 +104,17 @@ export function fmtFor(unit) {
   if (unit === 'crore' || unit === 'lakh' || unit === 'rupees' || unit === 'pct') return (v) => fmtUnit(v, unit);
   return (v) => (v === null || v === undefined ? '—' : fmtFull(v));
 }
-const unitLabel = (unit) => ({ crore: '₹ crore', lakh: '₹ lakh', rupees: '₹', pct: '%' }[unit] || '');
+// the card's unit badge: money figures are shown in lakh or crore as their size needs ("₹52 lakh" in a crore column,
+// "₹89.96 crore" in a lakh one), so the badge says only ₹ (2026-11-16: "₹ CRORE" over "₹52 lakh")
+const unitLabel = (unit) => ({ crore: '₹', lakh: '₹', rupees: '₹', pct: '%' }[unit] || '');
 const TITLE_WORDS = VOICE_PACK.title_words;
 const measureTitle = (col) => {
-  const t = colTitle(measureName(col)).split(' ').map((w) => TITLE_WORDS[w.toLowerCase()] || w)
+  let t = colTitle(measureName(col)).split(' ').map((w) => TITLE_WORDS[w.toLowerCase()] || w)
     .filter((w, i, a) => !(w === 'G' && a[i - 1] === 'PMAY-G')).join(' ');
+  // a money or % figure is shown with its own unit ("₹310.97 crore", "45%"): the label never names another one
+  // (2026-11-16: "Sanctioned amount (Rs)" beside "₹310.97 crore")
+  const at = t.lastIndexOf(' (');
+  if (unitFor(col) && at > 0 && t.endsWith(')')) t = t.slice(0, at);
   return t.charAt(0).toUpperCase() + t.slice(1);
 };
 // "MGNREGA · Person days", never "MGNREGA · MGNREGA person days"

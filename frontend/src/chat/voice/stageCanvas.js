@@ -239,6 +239,9 @@ function drawTip(ctx, card, x, y, title, rows, foot) {
   if (foot) label(ctx, fitText(ctx, foot, w - 24, 10.5, 700), tx + 12, ty + h - 13, { size: 10.5, weight: 700, color: T.brand, align: 'left' });
   ctx.restore();
 }
+// the unit word drawn beside a card's figures: none for money and %, whose figures carry their own ("₹89.96 crore",
+// "45%"; 2026-11-16: a lakh column's map said "lakh" over figures shown in crore)
+const unitWordOf = (card) => (['rupees', 'lakh', 'crore', 'pct'].includes(card.unit) ? '' : (card.unit || ''));
 const colorOf = (it, i) => it.color || TONE[it.tone] || CATEGORICAL[i % CATEGORICAL.length];
 const say = (card, v) => { try { return String(card.fmt(v)); } catch (e) { return String(v); } };
 // 2026-11-14: a figure tile of a cross-scheme card carries its own unit (the planner's item.fmt: rupees in ₹ crore, a
@@ -416,10 +419,10 @@ function Line(card) {
       // the legend (several series) and the unit share the top rows
       const leg = []; let lx = 0; let ly = 11;
       if (legend) S.forEach((s) => { const t = fitText(ctx, s.name, 150, 11, 700); const w = textW(ctx, t, 11, 700) + 26; if (lx + w > W - 12 && lx > 0) { lx = 0; ly += 17; } leg.push({ s, t, x: lx, y: ly }); lx += w; });
-      const uw = card.unit ? textW(ctx, card.unit, 10, 700) + 8 : 0;
+      const uw = unitWordOf(card) ? textW(ctx, unitWordOf(card), 10, 700) + 8 : 0;
       let unitAt = null;
-      if (card.unit) { if (!legend) unitAt = { y: 10 }; else if (lx + uw < W - 16) unitAt = { y: ly, right: true }; else { ly += 16; unitAt = { y: ly }; } }
-      const padT = (legend || card.unit ? ly + 14 : 14) + 6; const padR = 22; const padB = 36;
+      if (unitWordOf(card)) { if (!legend) unitAt = { y: 10 }; else if (lx + uw < W - 16) unitAt = { y: ly, right: true }; else { ly += 16; unitAt = { y: ly }; } }
+      const padT = (legend || unitWordOf(card) ? ly + 14 : 14) + 6; const padR = 22; const padB = 36;
       const hi = all.length ? Math.max(...all) : 1; const lo = all.length ? Math.min(...all) : 0;
       const ax = niceAxis(Math.max(1e-9, hi - (lo >= 0 && lo < hi * .5 ? 0 : lo)) * 1.08);
       const min = lo >= 0 && lo < hi * .5 ? 0 : Math.floor(lo * .95 / ax.step) * ax.step; const max = min + ax.top;
@@ -439,7 +442,7 @@ function Line(card) {
         ctx.fillStyle = em ? s.color : alpha(s.color, .4); rrect(ctx, lx0 + x, y - 2, 12, 4, 2); ctx.fill();
         label(ctx, t, lx0 + x + 17, y, { size: 11, weight: 700, color: em ? T.ink2 : T.mute, align: 'left' });
       });
-      if (unitAt) label(ctx, fitText(ctx, card.unit, W - 24, 10, 700), unitAt.right ? W - padR : lx0, unitAt.y, { size: 10, weight: 700, color: T.mute, align: unitAt.right ? 'right' : 'left' });
+      if (unitAt) label(ctx, fitText(ctx, unitWordOf(card), W - 24, 10, 700), unitAt.right ? W - padR : lx0, unitAt.y, { size: 10, weight: 700, color: T.mute, align: unitAt.right ? 'right' : 'left' });
       const head = L.head; const upto = Math.max(0, Math.min(n - 1, head));
       const single = S.length === 1; const depth = 12 + cam.y * 5; const px = -6 - cam.x * 8;
       S.forEach((s, si) => {
@@ -638,7 +641,7 @@ function Donut(card) {
         const tv = isNum(card.total) ? say(card, grow(card.total, card.reduced ? 1 : pAvg)) : String(card.total);
         const fs = fitSize(ctx, tv, inner * .86, Math.max(14, Math.min(30, R * .24)), 800, 11);
         label(ctx, tv, cx, cy - 5, { size: fs, weight: 800, color: T.ink });
-        label(ctx, fitText(ctx, card.unit || 'total', inner, 10, 700), cx, cy + fs * .55 + 4, { size: 10, weight: 700, color: T.mute });
+        label(ctx, fitText(ctx, unitWordOf(card) || 'total', inner, 10, 700), cx, cy + fs * .55 + 4, { size: 10, weight: 700, color: T.mute });
       }
       // the legend, drawn here
       card.hits = [];
@@ -985,7 +988,7 @@ function MapR(card) {
       const px = P.x + (wide ? 16 : 4); const pw = P.w - (wide ? 32 : 8); let y = P.y + (wide ? 22 : 8);
       const rows = (ranked.length ? ranked : card.items).filter((it) => byKey.has(it.key) || itemOf.has(it.key)).slice(0, Lo.nrows);
       label(ctx, ranked.length ? (rows.length < ranked.length ? `Top ${rows.length} of ${ranked.length}` : 'Ranked') : 'Districts', px, y, { size: 10, weight: 800, color: T.mute, align: 'left' });
-      if (card.unit) label(ctx, fitText(ctx, card.unit, pw * .55, 10, 700), px + pw, y, { size: 10, weight: 700, color: T.mute, align: 'right' });
+      if (unitWordOf(card)) label(ctx, fitText(ctx, unitWordOf(card), pw * .55, 10, 700), px + pw, y, { size: 10, weight: 700, color: T.mute, align: 'right' });
       y += wide ? 22 : 16;
       const cw = pw / Lo.cols; const rh = wide ? Math.min(40, Math.max(30, (P.h - 120) / Math.max(1, rows.length))) : 22;
       rows.forEach((it, i) => {
@@ -1051,7 +1054,7 @@ function MapR(card) {
       else if (!it.on) rows.push({ label: 'Not shown yet', value: '', muted: true });
       else {
         if (leader && leaders[k]) rows.push({ color: leaders[k].color || T.brand, label: 'Leads', value: leaders[k].label });
-        if (isNum(it.value) || !leader) rows.push({ color: fillOf(k, it) || T.mute, label: card.unit || 'Value', value: isNum(it.value) ? say(card, it.value) : 'no data', muted: !isNum(it.value) });
+        if (isNum(it.value) || !leader) rows.push({ color: fillOf(k, it) || T.mute, label: unitWordOf(card) || 'Value', value: isNum(it.value) ? say(card, it.value) : 'no data', muted: !isNum(it.value) });
         if (it.sub) rows.push({ label: it.sub, value: '' });
       }
       const r = it && it.on ? rankOf.get(k) : 0;
@@ -1091,7 +1094,7 @@ export function createStageCard(canvas, spec, opts = {}) {
     card.columns = Array.isArray(spec.columns) ? spec.columns : [];
   }
   // the unit word over a bar chart / ranking ("crore"): only when the figures do not say it themselves ("₹3,628.67 crore")
-  card.unitWord = card.unit && !(card.items || []).some((it) => isNum(it.value) && say(card, it.value).includes(card.unit)) ? card.unit : '';
+  card.unitWord = unitWordOf(card) && !(card.items || []).some((it) => isNum(it.value) && say(card, it.value).includes(card.unit)) ? card.unit : '';
   card.pOf = (it, now) => (!it.on ? 0 : reduced ? 1 : ease(((now ?? now_()) - it.t0) / (GROW[kind] || 1500)));
   // the spotlight: 0..1 for the item being named now (see SPOT); the ring's age in ms, or -1
   card.spots = [];
