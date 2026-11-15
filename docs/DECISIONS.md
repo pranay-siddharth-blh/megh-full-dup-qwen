@@ -1338,6 +1338,38 @@ not recorded.*
      same day — and a CM Elevate dashboard question with the dataset chip's marker (no D-099 pause from a strip tap).
 - **Measured:** no-model gold bank 154/394 -> 268/394 (nomodel-11), never a newly failing case
   (`tests/accuracy/results/*_nomodel-*.json`). Full suite unchanged apart from the 4 known failures.
+- **2026-11-15 additions** (worktree branch `wt/nomodel2-2026-11-15`; each a no-model gold-bank failure whose truth is
+  the measure's own figure, equal row by row to the bank's independent truth SQL; tests
+  `test_catalog_grouped_measures_2026_11_15.py`, `test_catalog_no_model_round2_2026_11_15.py`):
+  1. Two or three measures BY one grouping (district / block / year / sub-scheme) are ONE grouped query, one value
+     column per measure (`metric_catalog.build_several`, `_c16_plan_several_grouped`): only measures of the SAME
+     view, each verified for a breakdown and passing the year rules alone; different views decline ("MGNREGA
+     expenditure and person-days by district": v_expenditure vs v_employment). A shared noun left out is written out
+     before matching (`expand_elision`: "houses sanctioned vs completed"). "compare / vs / versus" between measures
+     and "grouped / stacked / clustered" bar words are not more to compute.
+  2. Shapes: "which / what (N) [financial] year" ranks the years (every year, largest first, or among the named
+     years); "which N <scheme> schemes" ranks the sub-schemes (a plural with no N declines, as for districts); two
+     years joined by "and" / "vs" are compared; "trend" (no year named) is the figure per year; "each <scheme name>
+     scheme" is the breakdown by sub-scheme; "year by year", "over the years" with a per-year grouping; an "and"
+     before another chart kind and an undrawn chart kind before "chart" (c13 notes it) are drawing words; with ONE
+     village pinned, the word "village" names it (not the villages-covered count); `block_list_districts` is the
+     resolver's note, not a filter (no block name spans two districts in any curated view, checked that day).
+  3. Places: a Focus Plus block FILTER reads `UPPER(block_name_raw)` (`metric_catalog.source_block_column`, from
+     `data/cross_scheme.yaml`), only for a block the source column names (loaded at start; Siju, Batabari … decline);
+     a grouping by block there still declines.
+  4. A count per a count ("average person-days per employment household") is `ROUND(SUM / SUM, 2)` of two verified
+     totals, the measure before "per" over the one after it; never a rate.
+  5. Wordings (`data/metric_catalog_synonyms.yaml`, evidence in the file): households (that) completed 100 days;
+     producer groups registered. NOT added: a bare "loan" (the view also holds the bank-sanctioned loan), "subsidy
+     plus loan" for the total disbursed (a phrase holding "loan" makes "and the loan?" name two measures), "paid" /
+     "total disbursement" for Focus Plus (count or money), MGNREGA "persons".
+  6. Grammar: received / got are neutral verbs; "MGNREGA work" is the scheme. Spelling: a long word missing only its
+     final "e" is a typo ("expenditur"); "2023 24" with only spaces between consecutive years is FY 2023-24.
+  7. A catalogue list is ranked on the measure's raw value, not its rounded column (two CM Elevate Legacy schemes
+     both read ₹6.77 crore; the wrong one came third).
+  8. Answer frame (D-110): "which year had the most?" / "which year was higher?" after an answer by year is the
+     same figures ranked by year (`_c18_edit_rank_year`, rendered "Which financial year has the highest: …").
+- **Measured (2026-11-15):** see TESTING.md (no-model gold bank vs nomodel-17, 0 newly failing).
 - **Status:** Active (branch `arch/step1-2026-11-14` of the merge workspace).
 
 ### D-108 — Guardrails: personal data masked in every log, unsourced spoken numbers blocked, voice sessions bounded (2026-11-14)
