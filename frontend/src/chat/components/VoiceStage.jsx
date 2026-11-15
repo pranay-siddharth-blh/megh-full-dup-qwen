@@ -10,7 +10,7 @@ import { VOICES, voiceOf } from '../voice/voices.js';
 import { SCHEME_HUES } from '../chartTheme.js';
 import VOICE_PACK from '../voice/meghVoicePack.js';
 import { levelText, parkOffset, parkTransform, spokenSentences } from '../voice/stageMotion.js';
-import { useLiveTurn } from '../liveTurn.js';
+import { useLiveSelect } from '../liveTurn.js';
 import { liveLabel } from './Messages.jsx';
 import '../../styles/voice-stage.css';
 import '../../styles/voice-desk.css';
@@ -521,8 +521,9 @@ export function VoiceStage({ live, messages, renderMessage, onType, onClose }) {
   // still come in as the voice names them (useCardReveal), so the picture still lands with the voice
   const cardsUp = !!vplan;
   // what the pipeline is doing while the answer is worked out (the chat's own step events, liveTurn.js)
-  const liveNow = useLiveTurn(working ? current.id : null);
-  const stepNow = working ? liveLabel(liveNow) : '';
+  // (only the label is read: the stage re-renders when the step changes, never on a streamed token)
+  const stepLabel = useLiveSelect(working ? current.id : null, liveLabel);
+  const stepNow = working ? stepLabel : '';
 
   // what the stage shows: the last picture that came up stays while the next question is worked out (Mitra keeps the
   // stage up and crossfades the next picture over it), and for its exit (vcardOut, 750 ms) when the desk comes back

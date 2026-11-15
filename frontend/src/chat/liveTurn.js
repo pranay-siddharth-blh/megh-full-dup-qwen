@@ -64,3 +64,11 @@ export function useLiveTurn(id) {
   const get = useCallback(() => getLive(id), [id]);
   return useSyncExternalStore(sub, get, get);
 }
+
+/** One value derived from the live state (`select` must be a stable function returning a
+    primitive): its reader re-renders only when that value changes, not on every token. */
+export function useLiveSelect(id, select) {
+  const sub = useCallback((fn) => subscribe(id, fn), [id]);
+  const get = useCallback(() => select(getLive(id)), [id, select]);
+  return useSyncExternalStore(sub, get, get);
+}
