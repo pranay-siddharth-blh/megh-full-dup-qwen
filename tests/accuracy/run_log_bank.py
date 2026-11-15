@@ -10,7 +10,7 @@ then adds the log bank's own checks the gold judge does not know:
     .venv/Scripts/python.exe tests/accuracy/run_log_bank.py --only LOG-A1,BLK --label part
     .venv/Scripts/python.exe tests/accuracy/run_log_bank.py --post tests/accuracy/results/<run>.json   # re-judge only
     .venv/Scripts/python.exe tests/accuracy/run_log_bank.py --root "D:/meg one clone/meghoneai" --label gate1
-        (the code of another checkout; results land in THAT checkout's tests/accuracy/results)
+        (the code of another checkout; results land in THIS worktree's tests/accuracy/results)
 
 Writes the gold runner's results JSON and <same>_log.json with the extra checks and the failure KINDS.
 """
@@ -46,6 +46,8 @@ sys.path.insert(0, TARGET_TESTS)
 import run_gold  # noqa: E402  (chdirs to the target repo root, sets sys.path)
 import yaml  # noqa: E402
 
+# results always land in THIS worktree (never dirty the checkout under test)
+run_gold.RESULTS = os.path.join(HERE, "results")
 _bank_name = "log_bank_2026_11_16.yaml"
 run_gold.BANK = os.path.join(TARGET_TESTS, _bank_name) if os.path.exists(os.path.join(TARGET_TESTS, _bank_name))     else os.path.join(HERE, _bank_name)
 
