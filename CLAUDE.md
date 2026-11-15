@@ -6,6 +6,15 @@ gateway outage of 2–3 Nov). **Voice layer updated 10–11 Nov 2026 (§0); `doc
 
 ## 0. Current state of the live voice (10–11 Nov 2026) — read before touching anything voice
 
+### 0d. 16 Nov 2026 04:35 — DEMO VERSION frozen: tag `demo-final-2026-11-16` (read first)
+- Overnight run for the user's meeting (four Opus agents + lead; full record in `D:\Full Duplex Architecture\CLAUDE.md`
+  §0 top). Code 222171b, results commit 811c9ef. Final verification on exactly this code: full suite 7,202 passed 0 failed,
+  scripts 14/14; gold 413/413; log bank (`tests/accuracy/run_log_bank.py`, 367 cases from the user's real questions)
+  366/367; permutation bank (`tests/accuracy/run_perms.py`, 472 voice + typed) 471/472 at Gate 2, the 1 fixed after;
+  live browser run on the real engine + maya voice 111/111.
+- Runs sovereign: VOICE_LIVE_URL=ws://127.0.0.1:8170 (engine), voice 8144 = maya2-native (Female Jahnavi default, Male
+  Akshat). The VPN dropped ~04:20: a watcher restarts engine + app when it is back (log %TEMP%\megh_vis\vpn_watch.log).
+
 ### 0c. 16 Nov 2026 (early) — permutation bank, branch `wt/perms-2026-11-16` (before the main demo)
 - New permanent bank `tests/accuracy/run_perms.py` + `perms_bank.yaml` (+ `perms_views.mjs`): 8 schemes x all 12
   districts x follow-up chains (by district -> a district's blocks in 6 wordings -> most / top 3 / lowest -> bar / pie /
