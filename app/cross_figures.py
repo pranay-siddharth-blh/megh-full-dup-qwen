@@ -375,8 +375,8 @@ class Plan:
 # districts", plural "which districts" and "districts with" read as a district
 # ranking. A place level (singular or plural, a near-miss spelling) beside any rank
 # word is a ranking at that level, never a scheme leader.
-_HIGH_RANK = frozenset({"top", "highest", "most", "maximum", "max", "best", "leading", "largest", "biggest",
-                        "greatest", "strongest"})
+_HIGH_RANK = frozenset({"top", "highest", "most", "maximum", "max", "best", "leading", "leads", "lead", "largest",
+                        "biggest", "greatest", "strongest"})  # "leads": the question bank's A10 (2026-11-15)
 _LOW_RANK = frozenset({"bottom", "lowest", "least", "fewest", "minimum", "min", "worst", "poorest", "weakest",
                        "smallest", "lagging"})
 # Hinglish: "sabse jyada" (most), "sabse kam" (least); "kis / kaun sa district" (which district)
@@ -471,6 +471,14 @@ def rank_ask(text: str) -> "RankAsk | None":
     if level is None:
         return None
     return RankAsk(level=level, high="high" in dirs or not dirs, low="low" in dirs, nth=nth)
+
+
+def _one_place_asked(text: str, level: str) -> bool:
+    """The ranked level is said in the SINGULAR with no number: "which district leads in each scheme", "top district
+    for every scheme" ask for the one leader per scheme, not every district in order (question bank A10, 2026-11-15).
+    "Which districts …", "rank the districts …" and "top 5 districts" stay full / N rankings."""
+    w = [t.low for t in tokens(text)]
+    return level in w and (level + "s") not in w and _top_n(text) is None
 
 
 def _top_n(text: str) -> "int | None":
@@ -678,7 +686,8 @@ def plan(text: str, schemes: list, resolved: dict, display: "dict | None",
              # ("combined", "together", "in total"); otherwise one list per scheme (I-6)
              combined=combined and (op == "rank_districts" or (op in ("list", "leader") and not ranked)),
              avg=avg, low=(ask.low and not ask.high) if drank else bool(_LOW.search(text)),
-             top_n=_top_n(text),
+             top_n=_top_n(text) or (1 if drank and not ask.nth and not (ask.high and ask.low)
+                                     and _one_place_asked(text, ask.level) else None),
              rank_measures=bool(_RANK_MEASURES.search(text)) and not by_district,
              lead_all=perf or (count and money),
              both=bool(drank and ask.high and ask.low), nth=ask.nth if drank else None,
@@ -1314,6 +1323,15 @@ def _district_lines(p: Plan, figs: dict, have: list, totals: "dict | None" = Non
                 order = _rank_order(p, keys, lambda k, s=s: value(figs[s].get(k, {}), m))
                 noun = _BEN_NOUN[s] if m == "count" else what
                 for label, part in _rank_parts(p, order):
+                    if len(part) == 1 and not p.nth:
+                        # the one leader per scheme ("which district leads in each scheme"): no "Top 1 … 1."
+                        _i, k = part[0]
+                        val = fmt(s, figs[s].get(k, {}), m)
+                        if val.endswith(" " + str(noun)):
+                            val = val[: -len(str(noun)) - 1]          # "21,867 members": the noun is said once
+                        out.append(f"**{SHORT[s]}**: {k.title()} has the {'fewest' if p.low else 'most'} {noun} "
+                                   f"({val}).")
+                        continue
                     out.append(f"**{SHORT[s]}** — {label} by {noun}: " + "; ".join(
                         f"{i}. {k.title()} {fmt(s, figs[s].get(k, {}), m)}" for i, k in part) + ".")
             return out
