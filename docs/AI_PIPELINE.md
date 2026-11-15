@@ -1460,13 +1460,25 @@ Edge replies carry `suggestions` (the `edge.STARTERS` chips). No model call is m
   answer");
 - `draft_reset`, `token`: `llm.call_response_composer` streams from the gateway (`stream_model`)
   **only** when a live client is bound (`turn_events.streaming()`); otherwise it makes the plain call;
-- `done` (the full result) or `error`.
+- `answer` (D-112, 2026-11-15): the final result, sent by `routers/query._emit_answer` the moment it
+  is final (after the restyle, the continue offer and a cache hit's context fold; a clarification
+  pause too), BEFORE the turn's bookkeeping (history, durable save, audit, cache writes);
+- `done` (the same full result, once the bookkeeping is finished) or `error`.
 
 **The streamed text is a draft.** `compose_response`, `rag.answer_from_kb` and every guard receive
 the full text exactly as before and run unchanged; the strict retry streams again after a
-`draft_reset`; the UI replaces the draft with `done`'s answer. A stream failure before completion
+`draft_reset`; the UI replaces the draft with the answer of `answer` (or `done`). A stream failure before completion
 falls back to the plain call (`draft_reset` first); `ModelBusyError` is never swallowed.
 `STREAM_COMPOSER_ENABLED=false` keeps the steps and turns the draft off.
+
+**The `answer` / `done` contract (D-112).** The page draws the answer on `answer` and keeps the turn
+running until `done` (its Stop button, the "one question at a time" rule, the voice's queue). Nothing
+the next turn reads is written early: the turn lock, the durable save (`session_sync.sync_out`, the
+revision guard) and the cache writes still run before `done`. A client that leaves after `answer`
+does not cancel the turn (its bookkeeping completes); a Stop before it cancels as before. On the
+stream the rolling summary's model call runs beside the answer (`context_manager.defer_summaries`)
+and is awaited before the durable save. Rows and chart specs are only ever sent in the final result
+(they are converted, renamed and capped after `post_rows`).
 
 ### 3.3a Flow G — live voice (D-103, 2026-11-02)
 The voice is outside the pipeline. Gemini Live (`gemini-3.8-live`, through `app/voice/relay.py`) hears the officer and

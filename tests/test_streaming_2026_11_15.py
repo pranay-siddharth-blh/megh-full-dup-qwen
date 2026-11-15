@@ -394,8 +394,12 @@ def test_the_guardrail_masks_one_text_once(monkeypatch):
         masked.append(text)
         return text
     monkeypatch.setattr(p, "_mask_village_names", mask)
-    src = Path(p.__file__).parent.joinpath("common", "c14_turn_stages.py").read_text(encoding="utf-8")
-    assert "if question == raw_question:" in src
+    monkeypatch.setattr(p.edge, "detect_harmful", lambda text: {"type": "violence"})   # stop right after the masking
+    asyncio.run(p._guardrail_check("houses in Dalu", "houses in Dalu", False))
+    assert masked == ["houses in Dalu"]
+    masked.clear()
+    asyncio.run(p._guardrail_check("and Dalu?", "PMAY-G houses in Dalu", False))
+    assert sorted(masked) == ["PMAY-G houses in Dalu", "and Dalu?"]
 
 
 # ── the SQL verifier beside the query ───────────────────────────────────────

@@ -5,7 +5,21 @@
 **Branch / commit:** `main` @ `f38ea1b` (2026-10-02 session start). Uncommitted at session start: `docs/HANDOFF.md`, `docs/KNOWN_ISSUES.md` (KI-182) and untracked QA files; the LangGraph session added the changes listed below on top, all uncommitted.
 
 **Port: 8401 only, everywhere (user rule 2026-10-19). Start from the repo venv.**
-## Latest: Bitbucket merge + architecture round (2026-11-14, D-107 / D-108 / D-109), branch `arch/step1-2026-11-14`
+## Latest: streaming, faster and smoother, no figure changed (2026-11-15, D-112), branch `wt/stream-2026-11-15`
+- Chat: the chart / table of an answer draws at once (no wait for the word reveal), at its final size, the text laid
+  out underneath so nothing moves; a fresh tall answer starts at its question. Voice stage: the picture's frame comes
+  up with the answer, items still revealed as the voice names them; the live pipeline step under the title / in the
+  pill. Server: `answer` SSE event before the bookkeeping (`done` unchanged, after it; caches / durable save / turn
+  lock unchanged); the rolling summary beside a streamed answer, awaited before the durable save; village masking
+  concurrent + shared / kept reads; the SQL verifier's call beside the query (verdict read where it was). Tokens no
+  longer re-render the App (`liveTurn.js`); a strict retry dims the old draft instead of blanking it.
+- VERIFIED: pytest 6,370 passed + the 4 known failures / 3 skipped; scripts 14/14; frontend 183/183, lint clean,
+  `web/app` rebuilt; no-model gold bank, 60 varied ids: 49/60 (nomodel-14 on the same ids 47/60), 0 newly failing;
+  voice UI (fake Live, real pipeline): ui_voice_visual subset 6/6, ui_voice_stage 22/23 (stale dock check),
+  ui_voice_views all but the two stale userBubbles checks. Timings in DECISIONS D-112.
+- NOT run: the gold bank with the model ON; a real-mic voice test.
+
+## Bitbucket merge + architecture round (2026-11-14, D-107 / D-108 / D-109), branch `arch/step1-2026-11-14`
 - This checkout = the team's Main 5c1deb1 (13 Nov) merged with the voice / accuracy work of 11-14 Nov; the five branches
   of the day (`wt/followups`, `wt/cross`, `wt/guard`, `wt/ui` + the voice shaper in the Full Duplex project) are MERGED
   here. Pull-only: nothing pushed. Ids renumbered (`docs/ID_RENUMBER_2026-11-14.md`).
