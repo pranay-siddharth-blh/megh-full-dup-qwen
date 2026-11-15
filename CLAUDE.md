@@ -16,6 +16,12 @@ gateway outage of 2–3 Nov). **Voice layer updated 10–11 Nov 2026 (§0); `doc
   scheme" (the bank's one miss: "leads" was not a rank word; a singular district ranking = one leader per scheme).
 - Results on the combined code: **model-on bank merged-4 = 413/413**, no-model nomodel-20 = 372/413 (0 newly
   failing), pytest 7,065 passed 0 failed, scripts 14/14, frontend 232/232. Server 8401 restarted on 72fc810.
+- After the merge (abd83bf, 298bbf4): the leader-per-scheme reading narrowed to a HIGH singular district ranking
+  said per scheme (each / every / per; 3 old reading tests had failed); the spoken ranking / breakdown open with a
+  SHORT sentence naming the leader (the picture lit the first place 1.5 s after its name: captions come a checked
+  sentence at a time); `voice_explain_*` throwaway sessions never show in the history list / search (4 had been
+  left); the voice tests now expect the spoken form (D-114). FINAL: pytest 7,076 passed 0 failed, scripts 14/14,
+  voice UI 153/153 (captions 20, stage 33, views 37, voice 23, visual 40). Server 8401 runs abd83bf.
 - Owner items open: D-114 extras (share + multiple in the lead; spoken rounding from 1 lakh; explained to the user,
   no answer yet); the guard could release captions at ':' / ';' (faster first caption, a D-108 decision); CM Elevate
   Legacy 2,820 vs 2,823 (3 de-sanctioned records; data team).
