@@ -251,6 +251,19 @@ def _c17_runners_up_answer(question: str, sql: str, rows: "list[dict]",
         noun = _c19_noun(mcol, schemes)
         w, when, _sw = _c19_scope(schemes, entities)
         most = _c19_more_word(mcol, low=order != "desc")
+        if order != "desc" and val(first) == 0 and rest and _c12s_additive(str(mcol)):
+            # 2026-11-16 (log bank): "Demdema has the fewest MGNREGA person-days: 0" — a place with nothing recorded
+            # (Demdema's person-days are missing from the employment records while its expenditure is ₹26-72 crore
+            # a year) is not the lowest performer. Said as "none recorded"; the lowest RECORDED figure is the answer.
+            zero = _join_list([name(r) for r in tied])
+            second = rest[0]
+            out = (f"No {noun} are recorded for {zero}{w}{when} in the source data, so "
+                   f"{'it is' if len(tied) == 1 else 'they are'} left out. Among the rest, {name(second)} has the "
+                   f"{most}: {_c12_fmt_value(mcol, val(second))}.")
+            if len(rest) > 1:
+                f3 = _c12_fmt_value(mcol, val(rest[1]))
+                out += f" {name(rest[1])} comes next, {'at' if '(' in f3 or f3.startswith('₹') else 'with'} {f3}."
+            return out
         if len(tied) > 1:
             out = f"{_join_list([name(r) for r in tied])} are tied for the {most} {noun}{w}{when}, with {v1} each."
         elif not rest:
@@ -303,7 +316,11 @@ _C17_AMOUNT_WORDS = frozenset(("amount", "total", "sum", "value", "rs", "rupee",
 
 def _c17_unit_by_name(col: str, scheme: "str | None") -> "str | None":
     low = str(col).lower()
-    if not any(p in low for p in _C17_MONEY_PARTS) and low not in ("exp", "total_exp", "released"):
+    # 2026-11-16 (log bank): PMAY-G's financial summary names its rupee sums bare — "sanctioned", "remaining"
+    # (pmay_g.py: COUNT(*) AS houses, SUM(sanctioned_amount) AS sanctioned, … AS remaining) — and they were written
+    # without ₹ ("4,30,85,90,000 sanctioned … 5,85,09,500 remaining")
+    pmay_bare = scheme == "PMAY-G" and low in ("sanctioned", "remaining")
+    if not any(p in low for p in _C17_MONEY_PARTS) and low not in ("exp", "total_exp", "released") and not pmay_bare:
         return None
     if any(p in low for p in _C17_COUNT_PARTS):
         return None

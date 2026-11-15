@@ -539,12 +539,21 @@ _C15_OVERVIEW = [
     ("summary",), ("happening",), ("update", "on"), ("how", "is"), ("how", "are"), ("doing",), ("status", "of"),
     ("report", "on"), ("picture",), ("tell", "me", "about"), ("know", "about"),
 ]
+_C15_OVERVIEW_ORIGINAL = list(_C15_OVERVIEW)
+_C15_OVERVIEW += [
+    # 2026-11-16 (user's live log): "Give me the figure of MGNREGA for West Garo Hills?" went to the reference
+    # documents ("the published scheme information does not contain the wage figure"). A vague measure word with one
+    # scheme and one place asks for the scheme's headline figures there; a real measure named ("person-days data",
+    # "number of houses") still takes its own path (the _measure_labels / metric_families check below).
+    ("figure",), ("figures",), ("numbers",), ("data",), ("details",), ("stats",), ("statistics",), ("status",),
+    ("snapshot",), ("headline",), ("headlines",), ("information",), ("info",),
+]
 _C15_OVERVIEW_TEMPLATES = {
     "MGNREGA": "Compare expenditure and person-days in {place}{year}",
     "PMAY-G": "PMAY-G house status in {place}{year}",
     "Focus Plus": "Total Focus Plus amount disbursed and number of beneficiaries in {place}{year}",
     "CM Elevate": "Number of CM Elevate applications by status in {place}",
-    "Focus Legacy": "Total Focus Legacy amount paid and number of producer groups in {place}{year}",
+    "Focus Legacy": "Number of Focus Legacy producer groups and total amount paid in {place}{year}",
     "CM Elevate Legacy": "Total CM Elevate Legacy amount disbursed and number of beneficiaries in {place}{year}",
     "CMSS": "CMSS applications and students paid in {place}{year}",
     "Homestay": "Homestay applications and approvals in {place}{year}",
@@ -572,16 +581,83 @@ def _c15_bare_village_ask(question: str) -> bool:
     return all(w in allowed or w.isdigit() for w in words)
 
 
+_C15_BARE_YEAR_FILLER = frozenset("in for of at during the fy financial year data figures figure numbers details stats "
+                                  "statistics show me give tell what about how was is were are headline headlines "
+                                  "key main overall summary overview status just only please can could would you u "
+                                  "okay ok now and so scheme s what's whats its it's for under show see get information info".split())
+_C15_VAGUE_NOUNS = frozenset("data figures figure numbers details stats statistics headline headlines summary "
+                             "overview status information info".split())
+
+
+def _c15_asks_a_shape(question: str) -> bool:
+    """A breakdown, ranking, trend or comparison: not a headline overview ("…, can you break it down by block?")."""
+    q = question or ""
+    return bool(_BREAKDOWN_CUE.search(q) or _HAS_BREAKDOWN.search(q) or _RANKING_CUE.search(q)
+                or _TIME_SERIES_CUE.search(q) or context_policy.grouping_dims(q)
+                or {"compare", "comparison", "versus", "vs"} & {w.lower() for w in _c15_words(q)})
+
+
+def _c15_bare_place_ask(question: str) -> bool:
+    """"MGNREGA in East Khasi Hills.", "Show me MGNREGA for Tikrikilla block": one scheme, one place (any level), maybe
+    a year, and nothing else but request words — the scheme's headline figures there (user's live log 2026-11-16:
+    these went to the reference documents)."""
+    places = named_places(question)
+    schemes = _exact_schemes(question)
+    if len(places) != 1 or len(schemes) != 1:
+        return False
+    allowed = (_C15_BARE_YEAR_FILLER | _C15_BARE_FILLER | {"block", "district", "constituency", "gp", "village", "ac"}
+               | {w.lower() for w in _c15_words(next(iter(places)))}
+               | {w.lower() for w in _c15_words(next(iter(schemes)))})
+    return all(w.lower() in allowed or w.isdigit() for w in _c15_words(question))
+
+
+def _c15_bare_scheme_year(question: str) -> "tuple[str, str] | None":
+    """(scheme, " in FY yyyy-yy" or "") when the question is ONE scheme, at most one year and a vague data word or a
+    year, nothing else ("MGNREGA in 2020.", "PMAY-G data for 2019-20", "can you give me the headline just for
+    MGNREGA?"); else None. User's live log 2026-11-16: "MGNREGA in 2020." went to the reference documents and was
+    refused; it asks the scheme's headline figures (statewide), and a year the data does not hold is then said
+    plainly by the data path (_year_out_of_range_clarification: the years held, the nearest)."""
+    if named_places(question):
+        return None
+    schemes = _named_or_inferred_schemes(question)
+    years = context_policy.extract_year_keys(question)
+    if len(schemes) != 1 or len(years) > 1 or schemes[0] not in _C15_OVERVIEW_TEMPLATES:
+        return None
+    words = [w.lower() for w in _c15_words(question)]
+    if not years and not (set(words) & _C15_VAGUE_NOUNS):
+        return None                                    # "What is MGNREGA?" is the documents'
+    allowed = _C15_BARE_YEAR_FILLER | {w.lower() for w in _c15_words(schemes[0])}
+    for lw in words:
+        if lw in allowed or lw.isdecimal() or lw.startswith("fy") and lw[2:].isdecimal():
+            continue
+        return None
+    if _measure_labels(question) or context_policy.metric_families(question) or _c15_asks_a_shape(question) \
+            or _c13_fixed_data_answer_claims(question):          # "overall Focus Plus summary" has its own answer
+        return None
+    if not years:
+        return schemes[0], ""
+    y = int(list(years)[0])
+    return schemes[0], f" in FY {y}-{str(y + 1)[-2:]}"
+
+
 def _overview_question(question: str) -> "tuple[str, str] | None":
     """(the headline-figures question for the place, the line that opens the answer)
     when `question` asks for an overview of ONE district or block under ONE scheme
-    and names no measure of its own; else None."""
+    and names no measure of its own; else None. One scheme and one year with nothing
+    else ("MGNREGA in 2020.") is the statewide overview of that year."""
     ws = _c15_words(question)
+    bare_year = _c15_bare_scheme_year(question)
+    if bare_year is not None:
+        scheme, year = bare_year
+        return (_C15_OVERVIEW_TEMPLATES[scheme].format(place="Meghalaya", year=year),
+                f"Here's an overview of {scheme} across Meghalaya{year}:")
     bare_village = _c15_bare_village_ask(question)
-    if not _c15_has(ws, _C15_OVERVIEW) and not bare_village:
+    if not _c15_has(ws, _C15_OVERVIEW) and not bare_village and not _c15_bare_place_ask(question):
         return None
     if _measure_labels(question) or context_policy.metric_families(question):
         return None
+    if _c15_asks_a_shape(question) and not _c15_has(ws, _C15_OVERVIEW_ORIGINAL):
+        return None                        # 2026-11-16: a breakdown / ranking / trend is its own question
     places = named_places(question)
     if len(places) != 1:
         return None
@@ -1215,3 +1291,135 @@ def _attach_conversational_touches(result: dict, session, raw_question: "str | N
             result["answer"] = f"{opening} {result['answer']}"
     except Exception:  # noqa: BLE001 — wording only; the answer stands as written
         logger.warning("_attach_conversational_touches failed (non-fatal)", exc_info=True)
+
+
+# ── "How many blocks are there in Meghalaya?" — a count from the places master ──
+# Log bank 2026-11-16: "Can you tell me how many blocks are there in Meghalaya?" asked "Which scheme is your
+# question about?". The number of districts / blocks / villages / constituencies is a fact of the geography master
+# (curated.dim_geography), not of any scheme. A question that names a scheme (or a measure) stays with the scheme.
+_C15_GEO_NOUNS = {"district": "district", "districts": "district", "block": "block", "blocks": "block",
+                  "village": "village", "villages": "village", "constituency": "ac", "constituencies": "ac"}
+_C15_GEO_EXPR = {
+    "district": ("COUNT(DISTINCT lgd_district)", "entity_type IN ('Village', 'Ward')", "districts"),
+    "block": ("COUNT(DISTINCT lgd_block)", "entity_type = 'Village'", "community and rural development blocks"),
+    "village": ("COUNT(DISTINCT village_code)", "entity_type = 'Village'", "villages"),
+    "ac": ("COUNT(DISTINCT ac_name)", "entity_type <> 'Unresolved'", "assembly constituencies"),
+}
+
+
+def _c15_geography_count(question: str) -> "tuple[str, str | None, str | None] | None":
+    """(what, district, block) for "how many <districts|blocks|villages|constituencies> (are there) in <Meghalaya |
+    a district | a block>", with no scheme and no measure named; else None."""
+    words = [w.lower() for w in _c15_words(question)]
+    # the thing counted is the place noun right after "how many" / "number of" ("how many blocks …"), never a
+    # measure counted IN a place ("how many persons received employment in Amlarem constituency")
+    nouns = []
+    for i in range(len(words) - 1):
+        if words[i:i + 2] in (["how", "many"], ["number", "of"], ["count", "of"]):
+            nxt = [w for w in words[i + 2:i + 5] if w not in ("total", "the", "all", "different", "distinct")][:1]
+            if nxt and nxt[0] in _C15_GEO_NOUNS:
+                nouns.append(_C15_GEO_NOUNS[nxt[0]])
+    if not nouns:
+        return None
+    if _named_schemes(question) or _mentions_scheme(question) or context_policy.metric_families(question) - {"count"}:
+        return None
+    if {"scheme", "schemes", "beneficiaries", "applications", "houses", "covered", "have", "has", "with", "where",
+            "which", "most", "least", "both"} & set(words):
+        return None                                  # about the schemes' coverage, not the map
+    places = {k: v for k, v in named_places(question).items() if str(k).upper() != "MEGHALAYA"}
+    if len(places) > 1:
+        return None
+    district = block = None
+    if places:
+        (canon, dim), = places.items()
+        if dim == "district":
+            district = canon
+        elif dim == "block":
+            block = canon
+        else:
+            return None
+    # the first geography noun AFTER "how many" is the thing counted ("blocks in West Garo Hills district")
+    what = nouns[0]
+    if (district and what == "district") or (block and what in ("district", "block")):
+        return None
+    return what, district, block
+
+
+async def _geography_count_answer(question: str) -> "dict | None":
+    found = _c15_geography_count(question)
+    if found is None:
+        return None
+    what, district, block = found
+    expr, base, noun = _C15_GEO_EXPR[what]
+    where, params, scope = [base], [], "Meghalaya"
+    if district:
+        params.append(district)
+        where.append(f"lgd_district = ${len(params)}")
+        scope = f"{_place_title(district)} district"
+    if block:
+        params.append(block)
+        where.append(f"lgd_block = ${len(params)}")
+        scope = f"{_place_title(block)} block"
+    sql = f"SELECT {expr} AS n FROM curated.dim_geography WHERE {' AND '.join(where)}"
+    try:
+        rows = [dict(r) for r in await fetch_rows(sql, params)]
+    except Exception as e:  # noqa: BLE001
+        if db_is_connection_error(e):
+            raise DatabaseUnavailableError(str(e)) from e
+        logger.warning("geography count failed — routing normally", exc_info=True)
+        return None
+    n = int((rows[0] if rows else {}).get("n") or 0)
+    if not n:
+        return None
+    if what == "block":
+        answer = f"{scope} has {n:,} {noun if n != 1 else 'community and rural development block'}."
+    else:
+        one = {"districts": "district", "villages": "village", "assembly constituencies": "assembly constituency"}
+        answer = f"{scope} has {_c12_indian(n)} {noun if n != 1 else one.get(noun, noun)}."
+    answer += " (From the state's geography master, not from any one scheme's records.)"
+    context_budget.log_decision("deterministic", answer="geography-count", what=what, district=district, block=block)
+    return {"route": "data", "intent": "DATA", "confidence": "high", "schemes": [],
+            "resolved_entities": {k: v for k, v in (("district", district), ("block", block)) if v},
+            "sql": sql, "sql_query": sql, "row_count": 1, "rows": [{"places": noun, "count": n}],
+            "data": [{"places": noun, "count": n}], "answer": answer}
+
+
+# ── a breakdown of the MGNREGA overview ("… can you break it down by block?") ─────────────────────────────────────
+# Log bank 2026-11-16 (LOG-A12): after the overview "Compare expenditure and person-days in Meghalaya", "for West Garo
+# Hills, can you break it down by block?" was rewritten "Compare expenditure and person-days in West Garo Hills,
+# broken down by block." — MGNREGA's two facts cannot be joined per block, so no query could be built and the
+# officer got "I couldn't build a working query". The breakdown is given for the headline figure (person-days, the
+# welcome card's), which is one query, and the answer says so.
+_C15_MG_PAIR = (("expenditure", "and", "person", "days"), ("person", "days", "and", "expenditure"),
+                ("expenditure", "and", "persondays"))
+
+
+def _overview_breakdown_question(question: str) -> "tuple[str, str] | None":
+    """(the person-days breakdown question, its preface) for a breakdown / ranking of MGNREGA's expenditure-and-
+    person-days pair; else None."""
+    toks = list(_c15_tokens(question or ""))
+    low = [t.low for t in toks]
+    hit = None
+    for pair in _C15_MG_PAIR:
+        n = len(pair)
+        for i in range(len(low) - n + 1):
+            if tuple(low[i:i + n]) == pair:
+                hit = (i, i + n)
+                break
+        if hit:
+            break
+    q0 = question or ""
+    if hit is None or not ({"by", "wise", "breakdown", "broken", "each", "every", "per", "rank", "ranking", "top",
+                            "lowest", "highest", "most", "least"} & set(low)):
+        return None                                  # "Compare expenditure and person-days in Dalu block" stays
+    if [s for s in _named_or_inferred_schemes(question) if s != "MGNREGA"]:
+        return None
+    q = question or ""
+    start = toks[hit[0]].start
+    if hit[0] > 0 and low[hit[0] - 1] in ("compare", "comparing", "the"):
+        start = toks[hit[0] - 1].start
+    out = (q[:start] + "MGNREGA person-days" + q[toks[hit[1] - 1].end:]).strip()
+    if out[:1].islower():
+        out = out[0].upper() + out[1:]
+    return out, ("MGNREGA's expenditure and person-days come from two separate records, so this breakdown is for its "
+                 "headline figure, person-days:")

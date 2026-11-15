@@ -31,4 +31,4 @@ def test_value_and_words(col, val, want):
 
 def test_words_drop_only_the_unit_suffix():
     assert p._fl_metric_words("total_disbursed_cr") == "total disbursed"
-    assert p._fl_metric_words("pg_count") == "pg count"
+    assert p._fl_metric_words("pg_count") == "producer groups"      # 2026-11-16: never "440 pg count"

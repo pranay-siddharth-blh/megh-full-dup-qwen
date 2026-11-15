@@ -208,7 +208,7 @@ def test_a_real_yes_no_question_keeps_the_composer_path(natural_on):
     assert p._c19_written(shape, CMP_ROWS, "Is West Garo Hills ahead of East Khasi Hills?", ["PMAY-G"], {}) is None
     q = "Could you show me the MGNREGA expenditure per financial year?"
     polite = p._answer_shape(q, EXP_SQL, EXP_ROWS)
-    assert polite.yes_no and not p._c19_yes_no(polite, q)                   # "could you show me" is a request
+    assert not polite.yes_no and not p._c19_yes_no(polite, q)               # "could you show me" is a request (2026-11-16: not a yes / no shape at all)
     assert p._c19_written(polite, EXP_ROWS, q, ["MGNREGA"], {}) is not None
 
 
@@ -216,9 +216,9 @@ def test_runners_up_answer_is_natural_and_exact(natural_on):
     out = p._c17_runners_up_answer(RUNNERS_Q, RUNNERS_SQL, RUNNERS_ROWS, ["MGNREGA"],
                                    {"district": "WEST GARO HILLS", "year": "2023-24"})
     assert out.startswith("Tikrikilla has the most MGNREGA unskilled wage expenditure in West Garo Hills district "
-                          "in FY 2023-24: ₹2,412.73 lakh (≈ ₹24.13 crore)")
-    assert "well ahead of Dalu, at ₹1,402.93 lakh (≈ ₹14.03 crore)" in out
-    assert out.endswith("Demdema comes next, at ₹1,321.20 lakh (≈ ₹13.21 crore).")
+                          "in FY 2023-24: ₹24.13 crore")          # one crore or more = the crore figure (2026-11-16)
+    assert "well ahead of Dalu (₹14.03 crore)" in out
+    assert out.endswith("Demdema comes next, at ₹13.21 crore.")
     assert "Next:" not in out and "TIKRIKILLA" not in out
 
 

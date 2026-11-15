@@ -753,7 +753,8 @@ _TK_COMPARE = frozenset(("compare", "comparison", "versus", "vs", "vs."))
 # A request for the data itself names no measure but is still complete:
 # "MGNREGA ka 2024-25 wala district-wise data batao".
 _TK_DATA_NOUNS = frozenset(("data", "details", "detail", "figures", "figure", "numbers", "statistics",
-                            "stats", "summary", "overview", "report", "performance", "progress"))
+                            "stats", "summary", "overview", "report", "performance", "progress", "headline",
+                            "headlines"))
 
 
 @dataclass(frozen=True)
@@ -825,11 +826,44 @@ def asked_levels(question: str) -> tuple:
     return tuple(out)
 
 
+# 2026-11-16 (user's live log): spoken openings carry no meaning of their own. "Okay, now give me the headline
+# figure of every scheme" was glued to the previous comparison by the follow-up rewriter. "and" / "also" / "then"
+# are NOT here: they do continue the previous turn ("and in 2023-24?").
+_TK_OPENERS = frozenset(("okay", "ok", "okk", "okey", "alright", "allright", "right", "so", "well", "now", "fine",
+                         "great", "good", "cool", "hmm", "hm", "thanks", "yes", "yeah", "sure", "please"))
+# The subject is the schemes themselves ("which scheme …", "every scheme", "across all the schemes"): the question
+# names what it is about, so it stands on its own (it was glued to the previous question: "Which scheme provided
+# the highest total financial assistance across Meghalaya?" -> "Compare …, and which scheme provided …").
+_TK_SCHEME_WORDS = frozenset(("scheme", "schemes", "programme", "programmes", "program", "programs"))
+_TK_SCHEME_SUBJECT = frozenset(("which", "every", "each", "all", "the", "across", "between", "among", "any"))
+
+
+def _tk_strip_openers(q: str) -> str:
+    """The question without its spoken opening ("Okay, now …", "So …", "Alright, …")."""
+    toks = list(tokens(q))
+    i = 0
+    while i < len(toks) - 1 and toks[i].low in _TK_OPENERS:
+        i += 1
+    if i == 0:
+        return q
+    return q[toks[i].start:].strip()
+
+
+def _tk_scheme_subject(q: str) -> bool:
+    """'which scheme', 'every scheme', 'all the schemes', 'across schemes': the schemes are the subject."""
+    ws = [t.low for t in tokens(q)]
+    for k, w in enumerate(ws):
+        if w in _TK_SCHEME_WORDS and k > 0 and (ws[k - 1] in _TK_SCHEME_SUBJECT
+                                                or (k > 1 and ws[k - 1] == "the" and ws[k - 2] in _TK_SCHEME_SUBJECT)):
+            return True
+    return False
+
+
 def turn_kind(question: str) -> TurnKind:
     """FOLLOWUP / STANDALONE / VAGUE for an in-scope message (see the block
     comment above). Deterministic, offline; the chat's own state is never read,
     so the same words get the same verdict in every conversation."""
-    q = (question or "").strip()
+    q = _tk_strip_openers((question or "").strip())
     schemes = _schemes_named(q)
     cues = _tk_reference_cues(q, len(schemes))
     asked = asked_levels(q)
@@ -838,6 +872,11 @@ def turn_kind(question: str) -> TurnKind:
     if cues:
         return TurnKind(TURN_FOLLOWUP, tuple("cue:" + c for c in cues), asked)
     ws = set(t.low for t in tokens(q))
+    # a whole question about the schemes (a measure, a scope, or a full sentence), not "which scheme has the most?"
+    if _tk_scheme_subject(q) and (metric_families(q) or ws & _TK_DATA_NOUNS or extract_year_keys(q)
+                                  or ws & {"across", "statewide", "meghalaya", "overall", "total"}
+                                  or len(list(tokens(q))) >= 7):
+        return TurnKind(TURN_STANDALONE, ("cross-scheme subject",), asked)
     measure = sorted(metric_families(q)) + sorted(ws & _TK_DATA_NOUNS)
     named = _tk_named_schemes(q)
     # A scheme pinned only by its measure ("how many job cards?") is the short,

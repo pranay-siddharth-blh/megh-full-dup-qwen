@@ -1003,6 +1003,41 @@ _ASKS_FOR_A_FIGURE = _M(
         Pred(_fy20), _S("fy", Pred(_y20)), Pred(_y20)),
 )
 
+# 2026-11-16 (the user's live log): "Can you give me the headline figure of every scheme?", "Can you give me the
+# MGNREGA numbers for West Garo Hills", "Could you do the same for East Garo Hills?", "can you give me the headline
+# just for MGNREGA?" got the capability reply ("Yes — I can answer …") instead of the data. A polite "can you /
+# could you <verb> <a data request>" IS the request: a data noun (figure, numbers, headline, details, status, the
+# same, a breakdown) or a Meghalaya place makes it one. A question about answering questions ("can you answer my
+# questions about MGNREGA?", "will you be able to give answers?") stays a capability check.
+_POLITE_DATA_NOUN = _M(_A(
+    W("figure", "figures", "headline", "headlines", "numbers", "stats", "statistics", "details", "status",
+      "breakdown", "summary", "overview", "dashboard", "trend", "split"),
+    _S("the", "same"), _S("same", W("for", "in", "thing")),
+    _S("break", Opt(W("it", "that", "this", "them", "these")), "down"),
+    _S("data", W("of", "for", "on", "in", "about", "under", "from")),
+))
+_ABOUT_ANSWERING = _M(W("question", "questions", "queries", "query", "answer", "answers", "anything", "everything"))
+
+
+def _polite_data_request(question: str, ql: str) -> bool:
+    """A capability phrase around a real data request (see _POLITE_DATA_NOUN)."""
+    if _POLITE_DATA_NOUN.search(ql):
+        return True
+    return not _ABOUT_ANSWERING.search(ql) and _names_meghalaya_place_not_state(question)
+
+
+def _names_meghalaya_place_not_state(question: str) -> bool:
+    """A district / block / village of Meghalaya named (not just "Meghalaya" itself, as in "… on Meghalaya
+    schemes")."""
+    try:
+        from app.entity_resolver import place_mentions
+        found = place_mentions(question) or {}
+    except Exception:  # noqa: BLE001 — never let this break edge detection
+        return False
+    names = [str(k).strip().lower() for k in (found.keys() if isinstance(found, dict) else found)]
+    return any(n and n != "meghalaya" for n in names)
+
+
 _META_CONV = [
     _M(_S(W("my", "your"), W("first", "last", "previous", "prior", "earlier"),
           _P("question", "query", "message", "answer"))),
@@ -1758,6 +1793,7 @@ def detect_edge_case(question: str, has_context: bool = False) -> dict | None:
     #     below, which now answer them with a direct "No".
     if (any(p.search(ql) for p in _CAPABILITY)
             and not _ASKS_FOR_A_FIGURE.search(ql)
+            and not _polite_data_request(q, ql)
             and not any(p.search(ql) for p in _SILLY)
             and not any(p.search(ql) for p in _OFF_TOPIC)):
         return _edge("capability", ql)

@@ -1364,6 +1364,11 @@ def _year_out_of_range_clarification(question: str, raw_year: str,
     future = bad_key is not None and bad_key > max(_fy_start(y) for y in years)
     gone = f"FY {_fy_short(bad_key)} has no data yet." if future \
         else f"No data is held for “{raw_year.strip()}”."
+    # 2026-11-16 (user's live log, "MGNREGA in 2020."): say which held year is nearest to the one asked.
+    nearest = min(years, key=lambda y: (abs(_fy_start(y) - bad_key), -_fy_start(y))) \
+        if bad_key is not None and not future else None
+    if nearest is not None and not others:
+        gone += f" The nearest year with data is FY {nearest}."
     if others:
         whole = question.strip().rstrip(" ?.")
         options = [
@@ -1377,7 +1382,7 @@ def _year_out_of_range_clarification(question: str, raw_year: str,
             rule="year-out-of-range",
         )
     options = [
-        {"label": f"FY {y}", "question": f"{stem} for FY {y}"}
+        {"label": f"FY {y} (nearest)" if y == nearest else f"FY {y}", "question": f"{stem} for FY {y}"}
         for y in years
     ]
     options.append({
