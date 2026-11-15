@@ -286,33 +286,28 @@ _CME_OPEN = {"curated.v_cm_elevate": [{"column": c} for c in ("request_id", "dat
 _CME_LOCKED = {"curated.v_cm_elevate": [{"column": c} for c in ("request_id", "data_verified", "current_file_status")]}
 
 
-def test_rejected_is_held_by_cm_elevate_once_file_status_is_readable(monkeypatch):
+# 2026-11-15: superseded by the team's D-101 (13 Nov, merged 14 Nov): approved / rejected questions go to the model path
+# on the plain file_status column, never the "not recorded" pause and never our fixed workflow query. The model-on gold
+# bank decides between the two versions: W2-CE-REJ-01 / -02 ("rejected in Ri Bhoi" = 17 valid, "rejected" statewide)
+# PASS on the team's version (merged-1, 15 Nov). These tests now pin D-101 so a regression to the old behaviour shows.
+def test_rejected_and_approved_are_not_a_measure_not_held_pause(monkeypatch):
     from app import schema_introspect as si
     monkeypatch.setattr(si, "live_columns", lambda: _CME_OPEN)
-    assert p._measures_not_held("How many CM Elevate applications were rejected in Ri Bhoi?", ["CM Elevate"]) == []
-    gaps = p._measures_not_held("How many CM Elevate applications were approved?", ["CM Elevate"])
-    assert [g[0] for g in gaps] == ["approval or rejection decisions"]
-    gap = p._measure_not_held_gap("How many CM Elevate applications were approved?", ["CM Elevate"])
-    assert gap is not None and "doesn't record approval decisions" in gap.question
+    for q in ("How many CM Elevate applications were rejected in Ri Bhoi?", "How many CM Elevate applications were approved?"):
+        assert p._measures_not_held(q, ["CM Elevate"]) == [], q
+        assert p._measure_not_held_gap(q, ["CM Elevate"]) is None, q
 
 
-def test_rejected_keeps_the_pause_while_file_status_is_locked(monkeypatch):
+def test_rejected_is_not_paused_while_file_status_is_locked_either(monkeypatch):
     from app import schema_introspect as si
     monkeypatch.setattr(si, "live_columns", lambda: _CME_LOCKED)
-    gaps = p._measures_not_held("How many CM Elevate applications were rejected?", ["CM Elevate"])
-    assert [g[0] for g in gaps] == ["approval or rejection decisions"]
+    assert p._measures_not_held("How many CM Elevate applications were rejected?", ["CM Elevate"]) == []
 
 
-def test_rejected_count_and_answer(monkeypatch):
+def test_rejected_count_is_left_to_the_d101_model_path(monkeypatch):
     from app import schema_introspect as si
     monkeypatch.setattr(si, "live_columns", lambda: _CME_OPEN)
-    q = "How many CM Elevate applications were rejected in Ri Bhoi?"
-    sql, params, _ = p._cme_workflow_query(q, {"district": "RI BHOI"})
-    assert "FILTER (WHERE file_status = 'Rejected') AS rejected" in sql and params == ["RI BHOI"]
-    rows = [{"pending": 2026, "sent_back": 2, "rejected": 17, "forward": 2035, "resubmit": 1, "sendback": 2,
-             "applications": 2038}]
-    a = p._cme_sector_answer(q, sql, rows, {"district": "Ri Bhoi"})
-    assert a.startswith("17 CM Elevate applications in Ri Bhoi have the file status Rejected (of 2,038 valid applications).")
+    assert p._cme_workflow_query("How many CM Elevate applications were rejected in Ri Bhoi?", {"district": "RI BHOI"}) is None
 
 
 # ── KI-721: an unasked lender filter on a CM Elevate Legacy loan figure ──────
