@@ -24,6 +24,8 @@ focus_legacy_pg_count:
   - producer groups
   - producer groups paid
   - pgs paid
+  - producer groups registered   # 2026-11-15, see the note at the end of the file (W2-PF-FLP-formal)
+  - pgs registered
 focus_legacy_total_disbursed:
   - amount
   - money
@@ -40,6 +42,11 @@ cm_elevate_disb_total_disbursed:
   - total disbursed
   - total amount disbursed
   - money disbursed
+  # 2026-11-15, see the note at the end of the file (PF-CL-formal / PF-CL-spoken)
+  - subsidy plus loan
+  - subsidy and loan combined
+  - loan plus subsidy
+  - loan and subsidy combined
 focus_plus_payments:
   - disbursements
   - disbursements made
@@ -84,3 +91,16 @@ mgnrega_persons_employed:
   - persons received employment
   - people received employment
   - persons provided employment
+# 2026-11-15 (no-model gold bank, each checked against the bank's independent truth SQL, which is the measure's own
+# expression on the measure's own view):
+#   G-P3 "households that completed 100 days" -> SUM(households_completed_100_days) on curated.v_employment by
+#   district, 2022-23 (EAST GARO HILLS 22,049 first); W2-PF-FLP-formal "producer groups are registered" (the helper
+#   verb is skipped) -> COUNT(DISTINCT pg_id) on curated.v_focus_legacy, Ri Bhoi 955; PF-CL-formal / PF-CL-spoken
+#   "subsidy and loan combined" / "subsidy plus loan" -> SUM(total_disbursement) = 82,89,78,537.75 (the view's
+#   total_disbursement IS subsidy + loan: 52,56,58,223.25 + 30,33,20,314.50). A bare "loan" is NOT added: the view
+#   also holds bank_sanctioned_amount, so "loan" alone could be the loan sanctioned.
+mgnrega_households_100_days:
+  - households completed 100 days
+  - households that completed 100 days
+  - households which completed 100 days
+  - households who completed 100 days

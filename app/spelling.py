@@ -94,7 +94,7 @@ class Tok:
 class Correction:
     typed: str
     canonical: str
-    kind: str              # "scheme" | "district" | "word"
+    kind: str              # "scheme" | "district" | "block" | "village" | "word" | "year" (2026-11-15: "2023 24")
     how: str               # "alias" | "sound" | "fuzzy"
     score: float = 100.0
 
@@ -550,8 +550,10 @@ def _domain_word(word: str) -> "str | None":
         lim = 1 if len(v) <= 5 else max_edits(len(v))
         if v[0] != w[0] or abs(len(v) - len(w)) > lim:
             continue
-        if v.startswith(w) or w.startswith(v):
-            return None                  # "loans", "employ": another form, not a typo
+        if (v.startswith(w) or w.startswith(v)) and not (v == w + "e" and len(w) >= 6):
+            # "loans", "employ": another form, not a typo. 2026-11-15: a long word missing only its final "e"
+            # ("expenditur") is a typo; no English word is formed by dropping a final "e" (gold bank W2-PF-MGX)
+            return None
         d = DamerauLevenshtein.distance(w, v, score_cutoff=lim)
         if d <= lim:
             hits.append((d, v))
@@ -758,6 +760,24 @@ def _exact_village_end(question: str, toks: list[Tok], i: int, place_end: int) -
     return best
 
 
+def _spaced_fy(question: str, toks: list[Tok], i: int) -> "str | None":
+    """"2023-24" for the tokens "2023" "24" (or "2023" "2024") at i, written with only spaces between them and
+    naming consecutive years; else None."""
+    if i + 1 >= len(toks):
+        return None
+    a, b = toks[i].raw, toks[i + 1].raw
+    if not (len(a) == 4 and a.isdecimal() and a.startswith("20")):
+        return None
+    if not ((len(b) == 2 or (len(b) == 4 and b.startswith("20"))) and b.isdecimal()):
+        return None
+    gap = question[toks[i].end:toks[i + 1].start]
+    if not gap or gap.strip() or int(b[-2:]) != (int(a[-2:]) + 1) % 100:
+        return None
+    if len(b) == 4 and int(b) != int(a) + 1:
+        return None
+    return f"{a}-{b[-2:]}"
+
+
 def _normalise(question: str) -> Normalised:
     toks = tokens(question)
     out: list[str] = []
@@ -768,6 +788,15 @@ def _normalise(question: str) -> Normalised:
     while i < len(toks):
         t = toks[i]
         prev = toks[i - 1].low if i > 0 else ""
+        fy = _spaced_fy(question, toks, i)
+        if fy is not None:
+            # 2026-11-15: "2023 24" (the dash dropped, gold bank PF-MG-misspelt) is FY 2023-24 when the two numbers
+            # are consecutive years; written with its dash so every year reader reads it
+            out += [question[last:t.start], fy]
+            last = toks[i + 1].end
+            corrections.append(Correction(_span_text(question, toks, i, i + 2), fy, "year", "spaced"))
+            i += 2
+            continue
         hit = _scheme_at(toks, i)
         if hit is not None:
             end, canon, score = hit

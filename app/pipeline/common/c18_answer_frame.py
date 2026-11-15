@@ -438,9 +438,12 @@ def _c18_render(frame: "_c18_af.AnswerFrame", chart: "str | None" = None) -> "st
         tail += " across all financial years"
     body = collapse_ws(stem + tail)
     if frame.qtype == "ranking":
+        word = "highest" if frame.order != "asc" else "lowest"
+        if frame.group == "year":
+            # 2026-11-15: every year (or every named year), ranked; read by the catalogue's "which year" ranking
+            return f"Which financial year has the {word}: {body}"
         if frame.group not in ("district", "block", "village"):
             return None
-        word = "highest" if frame.order != "asc" else "lowest"
         n = frame.limit or 1
         if n == 1:
             return f"Which {frame.group} has the {word}: {body}"
@@ -636,6 +639,30 @@ def _c18_regroup_dim(text: str) -> "str | None":
     return dims.pop() if len(dims) == 1 and trigger else None
 
 
+# 2026-11-15: "which year had the most?" / "which year was higher?" after an answer BY year (a per-year list or a
+# comparison of named years): the same figures ranked by year. Every word must be one of these.
+_C18_YEAR_RANK_WORDS = frozenset("which what year years financial fiscal fy had has have was were is saw got the one "
+                                 "of them those these two".split())
+_C18_YEAR_RANK_UP = frozenset("most highest maximum largest biggest top best higher more greater bigger larger".split())
+_C18_YEAR_RANK_DOWN = frozenset("least lowest minimum smallest fewest bottom worst lower less smaller".split())
+
+
+def _c18_edit_rank_year(raw: str, frame):
+    if frame.group != "year" or frame.qtype not in ("breakdown", "compare", "ranking") or len(frame.schemes) != 1:
+        return None
+    ws = _c01_tm_words(raw or "")
+    if "year" not in ws and "years" not in ws:
+        return None
+    up = [w for w in ws if w in _C18_YEAR_RANK_UP]
+    down = [w for w in ws if w in _C18_YEAR_RANK_DOWN]
+    if bool(up) == bool(down) or any(w not in _C18_YEAR_RANK_WORDS and w not in _C18_YEAR_RANK_UP
+                                     and w not in _C18_YEAR_RANK_DOWN for w in ws):
+        return None
+    new = _c18_copy(frame)
+    new.qtype, new.order, new.limit = "ranking", ("desc" if up else "asc"), None
+    return "rank", new
+
+
 def _c18_edit_rank(raw: str, frame):
     asked = _c01_rank_request(raw)
     if asked is None or len(frame.schemes) != 1:
@@ -803,7 +830,7 @@ def _c18_read_edit(raw: str, frame) -> "tuple[str, object] | None":
     q = raw or ""
     if _mentions_scheme(q) or _named_schemes(q) or _BARE_FOCUS_WORD.search(q):
         return None                                       # a scheme of its own: the swap / comparison / new paths
-    for reader in (_c18_edit_rank, _c18_edit_regroup, _c18_edit_place, _c18_edit_measure, _c18_edit_year):
+    for reader in (_c18_edit_rank_year, _c18_edit_rank, _c18_edit_regroup, _c18_edit_place, _c18_edit_measure, _c18_edit_year):
         try:
             out = reader(q, frame)
         except Exception:  # noqa: BLE001 — a reader that fails reads nothing

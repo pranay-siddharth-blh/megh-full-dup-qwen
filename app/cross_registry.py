@@ -228,6 +228,12 @@ def village_set_filter() -> "dict[str, str]":
     return {e.name: e.village.set_filter for e in ENTRIES if e.village.set_filter}
 
 
+def view_block_col() -> "dict[str, str]":
+    """{view: the expression its blocks are read by} for every declared view (2026-11-15: the metric catalogue reads
+    a Focus Plus block on UPPER(block_name_raw), as the model path's resolved-entity line pins it)."""
+    return {q.view: q.block for e in ENTRIES for q in e.queries if q.block}
+
+
 def block_fallback() -> "dict[str, str]":
     """{scheme: the column a block is looked up by when the scheme's own block names never use it}."""
     return {e.name: q.block_fallback for e in ENTRIES for q in e.queries if q.block_fallback}
