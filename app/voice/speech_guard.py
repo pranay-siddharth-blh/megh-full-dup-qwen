@@ -197,10 +197,18 @@ def facts_from(text: str, acc: set | None = None) -> set:
     return acc
 
 
-def _supported(v: float, facts: set) -> bool:
+# An honest spoken rounding (2026-11-15, the natural spoken form): "about thirty-five thousand" for 35,039, "nearly
+# 890 crore" for 886.29 crore. Accepted only when the sentence says it is approximate, and only within 3 % of a figure
+# an answer holds; a number no answer supports is still blocked.
+APPROX_WORDS = frozenset({"about", "nearly", "almost", "roughly", "around", "approximately", "just"})
+APPROX_TOL = 0.03
+
+
+def _supported(v: float, facts: set, approx: bool = False) -> bool:
     if v in TRIVIAL or v in facts or round(v, 1) in facts or round(v) in facts:
         return True
-    return any(abs(v - f) <= max(0.051, abs(f) * 0.006) for f in facts if f)
+    tol = APPROX_TOL if approx else 0.006
+    return any(abs(v - f) <= max(0.051, abs(f) * tol) for f in facts if f)
 
 
 def _is_year(v: float) -> bool:
@@ -259,6 +267,7 @@ def deviations(said: str, facts: set) -> list[str]:
     "To be exact" re-read came from this on the real voice, 2026-11-02). Ordinals, the size of a ranking ("top 15")
     and the day of a date are not figures either (_drop_allowed)."""
     bad: list[str] = []
+    approx = any(w in APPROX_WORDS for w in _words(said))
     vals = spoken_values(_drop_allowed(said))
     yearish = [False] * len(vals)
     for i, alts in enumerate(vals):
@@ -275,7 +284,7 @@ def deviations(said: str, facts: set) -> list[str]:
     for i, alts in enumerate(vals):
         if yearish[i]:
             continue
-        if any(_supported(v, facts) for v in alts):
+        if any(_supported(v, facts, approx) for v in alts):
             continue
         v = alts[-1]
         s = str(int(v)) if float(v).is_integer() else str(v)

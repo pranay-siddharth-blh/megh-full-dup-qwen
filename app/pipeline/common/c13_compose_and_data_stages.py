@@ -185,6 +185,12 @@ async def compose_response(question: str, sql: str, rows: list[dict],
         if _grouped:
             logger.info("compose_response: templated drill-down answer (metric %s)", shape.metric)
             return _finish_answer(_grouped, rows, schemes, entities)
+        # 2026-11-15: a natural, insight-first lead written by code over the same list (c19_natural_answers); no
+        # model call. None for a shape it does not write (a yes / no question …): E9 below, as before.
+        _natural = _c19_written(shape, _shape_rows, question, schemes, entities) if _c19_on() else None
+        if _natural:
+            logger.info("compose_response: natural %s answer (metric %s)", shape.kind, shape.metric)
+            return _finish_answer(_natural, rows, schemes, entities)
         _body = _c12s_e9_body(shape, _shape_rows, question)
         if _body:
             logger.info("compose_response: templated %s answer (metric %s)", shape.kind, shape.metric)

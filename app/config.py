@@ -266,6 +266,12 @@ class Settings(BaseSettings):
     # composer writes only the opening line, with no figure. false = the composer writes
     # the whole answer from the shape guide, as before (the rollback).
     ANSWER_TEMPLATES_ENABLED: bool = True
+    # 2026-11-15 (user: "the answers are very robotic … it should be like having a normal conversation"): with the
+    # templates on, a ranking / comparison / trend / split opens with a deterministic, insight-first lead in plain
+    # English (exact figures, places in Title Case) over the same list, and every data answer carries a short
+    # `spoken` form for the live voice (rounded figures, marked "about", checked against the rows;
+    # c19_natural_answers.py). false = the E9 answer and the page's own spoken form, as before.
+    ANSWER_NATURAL_ENABLED: bool = True
 
     # ── SQL semantic verifier — qwen3-coder-30b (qwen-model), not the 4B ──
     # Execution checks first, then this (2026-10-15): it runs after the free code

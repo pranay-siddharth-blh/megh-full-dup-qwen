@@ -1119,6 +1119,71 @@ not recorded.*
   results (a figure for one row of a table), and "define <measure>" when the documents hold no definition.
 - **Status:** Active.
 
+### D-114 — Natural answers: an insight-first lead in plain English, a short spoken form, screen commands never refused (2026-11-15)
+
+- **Context (user, live voice, 15 Nov):** "The answers are very robotic and quantized. They need to be a lot more
+  natural language and high level … like having a normal conversation with another person." The multi-row answers
+  were E9's (D-063 / c12 `_c12s_e9_body`): a model-written opening line ("This briefing outlines the top five …")
+  over a formula ("WEST GARO HILLS is the largest with 33,147; EASTERN WEST KHASI HILLS is the smallest with
+  5,494."), places in the database's capitals; the voice read the WHOLE answer word for word (`spokenForm`: first
+  three list items, every number in full). And: "take me back to the dashboard" — the page went back, but the chat
+  pipeline answered too: the guardrail model filed it as an out-of-scope TASK ("I can't apply, book, pay or contact
+  anyone for you"), because the page's `canonicalNav` knew only the exact sentence "go back to the dashboard".
+- **Decision:**
+  1. **Written lead, by code** (`app/pipeline/common/c19_natural_answers.py` `_c19_written`, called first in
+     compose_response's template branch and in `_shaped_fallback`): a ranking / comparison / trend / split opens
+     with two or three plain sentences that say what stands out — the leader and its margin over the next ("more
+     than twice", "well ahead of"), its share of the whole ("about a fifth (19.4%) of the 1,71,107 across
+     Meghalaya's twelve districts"), the bottom and the spread ("about six times as many"), a trend's shape ("ended
+     slightly higher than it started … dipped to … and then peaked at …"), a comparison's verdict ("FY 2022-23 was
+     clearly higher than FY 2023-24 …") — with every figure EXACT (the one formatter, `_c12_fmt_value`), places in
+     Title Case, and the same list / lines E9 wrote underneath for the screen. Wording varies with the question (a
+     stable crc32 pick: the same question always reads the same). No model call (it was one per answer, for a
+     ~20-token line). Every figure of the lead is checked against the rows and the figures computed from them
+     (`_c19_allowed`: totals, gaps, shares, % changes); a miss returns None and E9 stands. A real yes / no question
+     keeps the composer; a polite request ("Could you show me …") is no longer read as one (`_c19_yes_no`).
+     The singular-superlative answer (c17 RC4) reads the same way ("Tikrikilla has the most … : ₹2,412.73 lakh
+     (≈ ₹24.13 crore), well ahead of Dalu, at … . Demdema comes next, at …").
+  2. **Places in Title Case on every path** (`_c19_title_places`, in `_finish_data_result`): a place name a result
+     row holds in capitals is written in Title Case in the answer, longest first; the rows, table and chart keep
+     the database's values.
+  3. **A short spoken form** (`result["spoken"]`, `_c19_spoken_for_result`, in `_finish_data_result`): for the four
+     shapes, two or three spoken sentences — the headline and the pattern, the top one or two named, figures
+     rounded the way a person says them and always marked ("just over 33,000", "about 1.7 lakh", "nearly ₹890
+     crore", one rounding for figures said together so they never collapse into one), then "All 12 districts are
+     on your screen" / "The full ranking is on your screen"; at most 300 characters. Any other data answer (a single
+     figure, a cross-scheme answer, a list): its own first sentences, big figures rounded (a single figure only
+     from one lakh, within 1 %), notes, headers and brackets left to the screen. **Number fidelity:** every number in
+     `spoken` is checked (`_c19_spoken_numbers_ok`) against the row values, the figures computed from the rows and
+     the written answer's own figures: exact (0.1 %), or an honest rounding of one — within 3 % AND right after
+     "about" / "nearly" / "just over" …; a miss drops `spoken` and the page reads the answer as before. The page
+     (`voiceSpeech.spokenForm`) reads `spoken` when it is there; the voice is told to keep every "about" / "nearly"
+     (`app/voice/prompt.py`).
+  4. **The voice's guard accepts an honest rounding** (`speech_guard._supported(approx=…)`): in a sentence that
+     says "about / nearly / almost / roughly / around / approximately / just", a figure within 3 % of one an answer
+     holds is supported; an invented figure is still cut (D-108), marked or not.
+  5. **Screen commands** (`app/ui_commands.py`, string methods only): a message is navigation only when EVERY word is
+     in a closed vocabulary (politeness, verbs of moving and showing, dashboard / home / main screen / chart / back /
+     again / close) and it names where to go — "take me back to the dashboard", "go home", "close the chart",
+     "show the chart again" — while "dashboard of MGNREGA expenditure", "MGNREGA dashboard", "show me PMAY-G houses
+     by district" stay questions. The page's `canonicalNav` (`frontend/src/chat/voice/voiceViews.js`) reads the same
+     vocabulary (the voice stage acts at once); the chat's conversation layer answers a typed one itself (route
+     edge, `edge_type` "ui_command", not a turn of the topic, never cached: `layer.action == "ui"`); the guardrail
+     model's OUT_OF_SCOPE verdict is overruled for any app command (`is_app_command`: navigation, or a
+     closed-vocabulary command such as "repeat that", "download the table as excel") and its prompt lists screen
+     commands as SAFE; a harm verdict is never overruled. The voice instruction says to pass a navigation request as
+     exactly "go back to the dashboard" / "bring the chart back".
+- **Choices made without the user (to confirm):** the written lead states a share of the total and the top-to-bottom
+  multiple when the dimension is a place (not asked for; E9 gave shares only when asked); the spoken form rounds
+  a single figure from one lakh up ("about 9.1 crore person-days"); the dataset Note lines are not spoken.
+- **Rejected:** letting the compose model word the lead and verifying it afterwards (a model call per answer for a
+  sentence code writes reliably; a mismatch would fall back anyway); rewriting the composer's free text for the
+  voice (text surgery on prose); a regex for navigation (D-046 / D-047).
+- **Off switch:** `ANSWER_NATURAL_ENABLED=false` (E9 and the page's own spoken form, exactly as before). The suites
+  written before this pin E9's wording and run with it off (`tests/conftest.py`).
+- **Tests:** `tests/test_natural_answers_2026_11_15.py`, `frontend/tests/naturalVoice.test.js` (TESTING.md).
+- **Status:** Active (worktree branch `wt/natural-2026-11-15`). Not verified: how Gemini Live sounds reading it.
+
 ### D-111 — Dictation: the composer mic streams to /ws/dictate and types the words at the caret (2026-11-15)
 
 - **Context:** the composer mic opened the live voice; dictation (`useVoice.js`) ran only as its fallback, its live
@@ -1304,7 +1369,7 @@ not recorded.*
   blocks"), not a full block list. (c) "by district" after a district / block figure is a roll-up (the filter at that
   level and below is cleared, the year kept). (d) "what about <district>?" is resolved by the frame, no longer left to
   the model rewrite while it answers (D-056's swap note): the frame keeps everything else exactly.
-- **(b) REVISED 2026-11-15 (the user's live report, KI-728): a regroup after an answer about a SET of places keeps
+- **(b) REVISED 2026-11-15 (the user's live report, KI-728; CONFIRMED by the user 15 Nov 2026): a regroup after an answer about a SET of places keeps
   those places.** "Show me the top five districts by Focus Plus beneficiaries" then "Can you break this down by block?"
   = every block of those five districts, each with its district, the districts in the ranking's order, each district's
   blocks largest first ("Focus Plus beneficiaries in West Garo Hills, …, North Garo Hills by block"); "by year" = each

@@ -1147,6 +1147,28 @@ Three parts, all in `compose_response` and the c12 files:
    templates on, `_shaped_fallback` returns the templated answer under code's opening line. Log line:
    `compose_response: templated <kind> answer`.
 
+### 2.9d' Natural answers and the spoken form (2026-11-15, D-114, KI-729)
+
+With `ANSWER_NATURAL_ENABLED` (default true; conftest sets it false for the older suites) and the templates on,
+compose_response's template branch and `_shaped_fallback` first call `_c19_written(shape, rows, question, schemes,
+entities)` (`app/pipeline/common/c19_natural_answers.py`): two or three plain sentences written by code that say what
+stands out — ranking: the leader, its margin over #2 ("more than twice the figure for …", "well ahead of …"), how the
+rest sit; breakdown: the leader and its margin, its share of the total for a place breakdown ("about a fifth (19.4%)
+of the 1,71,107 across Meghalaya's twelve districts"), the bottom and the top-to-bottom multiple; trend: rose / fell
+every year, or "ended slightly higher than it started … dipped to … and then peaked at …"; compare: the verdict with
+the gap and % ("FY 2022-23 was clearly higher than FY 2023-24 …"). Every figure exact (`_c12_fmt_value`), places in
+Title Case, then the same list E9 wrote. Wording picked by a crc32 of the question (stable). The lead's figures are
+checked against `_c19_allowed` (row values, totals, gaps, shares, % changes); a miss -> None -> E9. No model call.
+Log line: `compose_response: natural <kind> answer`. The singular-superlative answer (c17) reads the same way.
+
+`_finish_data_result` (finalize) then: places a row holds in capitals are written in Title Case in the answer
+(`_c19_title_places`), and `result["spoken"]` = `_c19_spoken_for_result(result)`: for the four shapes, two or three
+spoken sentences with rounded, marked figures ("just over 33,000", "about 1.7 lakh", "nearly ₹890 crore") and "… on
+your screen"; otherwise the answer's own first sentences with big figures rounded. Every number is checked
+(`_c19_spoken_numbers_ok`: exact within 0.1 %, or within 3 % right after about / nearly / just over …); a miss drops
+`spoken`. The page's voice reads `spoken` (`voiceSpeech.spokenForm`), else the answer as before; the live relay's
+guard (`speech_guard`) accepts a marked rounding within 3 % and still cuts an invented figure.
+
 ### 2.9e RAG fix report fixes (2026-10-29, D-089..D-091, KI-574..KI-590; LIVE-VERIFIED in-process)
 The tester's report (`megh_rag_fix_report.md`, 17 issues) and where each fix lives — all in stage functions or the
 scheme files, no graph node changed:

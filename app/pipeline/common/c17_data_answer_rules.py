@@ -246,6 +246,31 @@ def _c17_runners_up_answer(question: str, sql: str, rows: "list[dict]",
     tied = [r for r in rows if val(r) == val(first)]
     rest = [r for r in rows if val(r) != val(first)]
     v1 = _c12_fmt_value(mcol, val(first))
+    if _c19_on():
+        # 2026-11-15: said the way a person would (c19_natural_answers), every figure the same as below
+        noun = _c19_noun(mcol, schemes)
+        w, when, _sw = _c19_scope(schemes, entities)
+        most = _c19_more_word(mcol, low=order != "desc")
+        if len(tied) > 1:
+            out = f"{_join_list([name(r) for r in tied])} are tied for the {most} {noun}{w}{when}, with {v1} each."
+        elif not rest:
+            return f"{name(first)} has the {most} {noun}{w}{when}: {v1}."
+        else:
+            second = rest[0]
+            if order == "desc":
+                out = (f"{name(first)} has the {most} {noun}{w}{when}: {v1}, "
+                       f"{_c19_margin(mcol, val(first), val(second), name(second))}.")
+            else:
+                out = (f"{name(first)} has the {most} {noun}{w}{when}: {v1}, followed by "
+                       f"{name(second)}{_c19_paren(_c12_fmt_value(mcol, val(second)))}.")
+            rest = rest[1:]
+        if len(rest) == 1:
+            f3 = _c12_fmt_value(mcol, val(rest[0]))
+            out += f" {name(rest[0])} comes next, {'at' if '(' in f3 or f3.startswith('₹') else 'with'} {f3}."
+        elif rest:
+            out += " " + _join_list([f"{name(r)}{_c19_paren(_c12_fmt_value(mcol, val(r)))}" for r in rest]) \
+                + " come next."
+        return out
     if len(tied) > 1:
         lead = f"{word} {label} ({head}): tied between {_join_list([name(r) for r in tied])}, {v1} each."
     else:

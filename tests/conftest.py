@@ -82,3 +82,6 @@ def _sql_examples_from_yaml(monkeypatch):
     # own multi-row wording (the rollback path). tests/test_answer_format_e9_2026_10_29.py
     # switches them on.
     monkeypatch.setattr(settings, "ANSWER_TEMPLATES_ENABLED", False)
+    # Natural leads + the spoken form (2026-11-15): the suites written before them pin the E9 / composer wording.
+    # tests/test_natural_answers_2026_11_15.py switches it on.
+    monkeypatch.setattr(settings, "ANSWER_NATURAL_ENABLED", False)

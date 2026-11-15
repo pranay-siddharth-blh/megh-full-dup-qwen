@@ -59,7 +59,7 @@ import logging
 import time
 from dataclasses import dataclass
 
-from app import context_budget, cross_registry, scheme_registry, topic_memory
+from app import context_budget, cross_registry, scheme_registry, topic_memory, ui_commands
 from app.config import settings
 from app.context_policy import (_CpEnd, _CpNextChar, _CpSep, _CpStart, _cp_end_punct, _cp_ends, _cp_glued,
                                 _cp_has, _cp_starts, _cp_ws)
@@ -1218,6 +1218,7 @@ def _enabled(session) -> bool:
 # A stopped question lives as long as the idle window (CONTEXT_IDLE_EXPIRY_SECONDS).
 STOPPED_MAX_AGE_SECONDS = 1800   # fallback when the idle window is 0 (never expire)
 NOTHING_RUNNING_EDGE = "nothing_running"
+UI_COMMAND_EDGE = "ui_command"       # "take me back to the dashboard" (2026-11-15)
 
 _CL_POLITE = W("ok", "okay", "yes", "yeah", "yep", "sure", "please", "pls", "plz", "now", "so", "then", "haan", "ha")
 _CONTINUE_ASK = Matcher(Seq(
@@ -1269,6 +1270,13 @@ def _take_stopped(session, question: str) -> "str | None":
     return stopped["question"]
 
 
+def _ui_command_answer(nav: str) -> dict:
+    from app import pipeline
+    # confidence "low": the answer caches never store such a reply.
+    return {"route": "edge", "intent": "EDGE", "confidence": "low", "answer": ui_commands.NAV_REPLY[nav],
+            "edge_type": UI_COMMAND_EDGE, "ui_command": nav, "suggestions": [], **pipeline._empty_data_fields()}
+
+
 def _nothing_running_answer() -> dict:
     from app import pipeline
     # confidence "low": the answer caches never store such a reply.
@@ -1295,6 +1303,13 @@ async def prepare_turn(session, question: str) -> LayerTurn:
             # A typed "stop" with nothing running (a running answer is stopped
             # by the chat box itself). Not a question; the topic carries on.
             return LayerTurn(question=question, action="stop", response=_nothing_running_answer(), changed=True)
+        nav = ui_commands.nav_command(question)
+        if nav:
+            # "Take me back to the dashboard" (user report 2026-11-15): a command to the screen, never a question
+            # for the pipeline (the guardrail model filed it as a task: "I can't apply, book, pay … for you").
+            # Not a turn of the topic either, like a typed "stop".
+            context_budget.log_decision("conversation", action="ui-command", nav=nav)
+            return LayerTurn(question=question, action="ui", response=_ui_command_answer(nav), changed=True)
     except Exception:  # noqa: BLE001 — the layer must never break a turn
         logger.warning("conversation layer: stop / continue failed (non-fatal)", exc_info=True)
     return await _prepare(session, question)
