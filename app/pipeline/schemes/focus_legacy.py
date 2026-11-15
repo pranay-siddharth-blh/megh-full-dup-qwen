@@ -515,7 +515,27 @@ def _focus_legacy_group_list_answer(rows: list[dict], display: dict,
     return head + ":\n\n" + "\n".join(names)
 
 
+# A column's unit suffix (the SQL-prompt conventions) belongs to the VALUE, not to the measure's name: the list
+# read "₹10.93 crore total disbursed cr" and its total "21.28 total disbursed cr" (no ₹, no crore; 2026-11-15).
+_FL_UNIT_SUFFIXES = (("_cr", "₹{:,.2f} crore"), ("_crore", "₹{:,.2f} crore"), ("_lakh", "₹{:,.2f} lakh"),
+                     ("_lakhs", "₹{:,.2f} lakh"), ("_pct", "{:,.2f}%"), ("_percent", "{:,.2f}%"))
+
+
+def _fl_unit_suffix(k: str) -> "tuple[str, str] | None":
+    kl = k.lower()
+    return next(((suf, fmt) for suf, fmt in _FL_UNIT_SUFFIXES if kl.endswith(suf) and len(kl) > len(suf)), None)
+
+
+def _fl_metric_words(k: str) -> str:
+    """The measure's name in words, without its unit suffix: total_disbursed_cr -> 'total disbursed'."""
+    u = _fl_unit_suffix(k)
+    return (k[: -len(u[0])] if u else k).replace("_", " ")
+
+
 def _fl_metric_value(k: str, n) -> str:
+    u = _fl_unit_suffix(k)
+    if u:
+        return u[1].format(float(n))
     if _PMAY_MONEY_COL_MATCH.search(k) and not _PMAY_NOT_MONEY_COL_MATCH.search(k):
         return _pmay_money(n).split(" (")[0]
     return f"{int(n):,}" if float(n).is_integer() else f"{n:,.2f}"
@@ -546,8 +566,7 @@ def _focus_legacy_breakdown_answer(sql: str, rows: list[dict], display: dict,
     lim = sql_ast.outer_limit(sql or "")
     truncated = bool(lim and lim > 0) and len(rows) == lim and lim < 1000
 
-    def words(k):
-        return k.replace("_", " ")
+    words = _fl_metric_words
 
     def line(r):
         name = _place_title(r[level_col])
