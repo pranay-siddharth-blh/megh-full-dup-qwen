@@ -132,7 +132,7 @@ def test_money_of_a_crore_or_more_reads_in_crore(natural_on):
     assert p._c12_money(-2976.56, "lakh") == "-₹29.77 crore"
     assert p._c12_money(3628.67, "crore") == "₹3,628.67 crore"
     # under a crore: as before
-    assert p._c12_money(940000, "rupees") == "₹9.40 lakh"
+    assert p._c12_money(940000, "rupees") == "₹9,40,000"
     assert p._c12_money(85.25, "lakh") == "₹85.25 lakh"
     # a composer's own exact copy in brackets is not said twice
     out = p._c12_normalise_figures("₹1,356.45 crore (₹13,56,45,32,500) was spent.", [{"b": 13564532500}],
@@ -376,8 +376,8 @@ def test_speech_guard_does_not_join_a_crore_figure_to_the_next_count():
 
 
 def test_money_below_a_crore_has_one_form(natural_on):
-    assert p._c12_money(0.28, "crore") == "₹28 lakh"
-    assert p._c12_money(630000, "rupees") == "₹6.30 lakh"
+    assert p._c12_money(0.28, "crore") == "₹0.28 crore"          # the SQL's 2 decimals: no finer lakh figure
+    assert p._c12_money(630000, "rupees") == "₹6,30,000"
     assert p._c12_money(35000, "rupees") == "₹35,000"
 
 
