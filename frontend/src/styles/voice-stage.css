@@ -896,3 +896,13 @@ body.vstage-in .app { visibility: hidden; transition: transform .8s var(--m-ease
   .vstage.parked .vs-beam { animation: none; opacity: 0; }
   body.vstage-on .app { transition-duration: .2s; }
 }
+
+/* 16 Nov 2026: the voice switch, Female | Male (a segmented pill, top right of the stage) */
+.vs-voice-seg { display: inline-flex; align-items: center; gap: 2px; padding: 3px 3px 3px 10px; border-radius: 999px;
+  border: 1px solid rgba(124, 63, 191, .18); background: rgba(255, 255, 255, .82); }
+.vs-voice-seg .vs-voice-wave { margin-right: 6px; }
+.vs-voice-opt { border: 0; background: transparent; color: var(--m-mute); font-size: 12px; font-weight: 600;
+  padding: 5px 12px; border-radius: 999px; cursor: pointer; transition: background .2s, color .2s, box-shadow .2s; }
+.vs-voice-opt:hover { color: var(--m-tx); }
+.vs-voice-opt.on { background: var(--m-em1); color: #fff; box-shadow: 0 4px 12px rgba(124, 63, 191, .25); }
+.vs-voice-opt:focus-visible { outline: 2px solid var(--m-em1); outline-offset: 2px; }
