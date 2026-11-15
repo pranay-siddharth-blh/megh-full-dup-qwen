@@ -104,8 +104,8 @@ async def main():
     async with Browser(port=9381, mic_wav=silent_wav(), init_js=init, size=(1600, 940)) as b:
         await b.goto(BASE + "/megh-chat?voicetest=1", wait=4)
         await b.eval(PAGE_JS)
-        await b.eval("(async () => !!(await until(() => document.querySelector('.mic-btn'), 20000)))()")
-        await b.eval("document.querySelector('.mic-btn').click()")
+        await b.eval("(async () => !!(await until(() => document.querySelector('[data-testid=agent-orb]'), 20000)))()")
+        await b.eval("document.querySelector('[data-testid=agent-orb]').click()")
         ok = await b.eval("""(async () => { const ok = !!(await until(() => window.__meghVoice && window.__meghVoice.phase() === 'live', 25000));
             await until(() => vlog().some(e => e.type === 'turn_complete' && e.said), 25000);
             await until(() => !window.__meghVoice.playing(), 20000); await sleep(500); return ok; })()""", timeout=80)

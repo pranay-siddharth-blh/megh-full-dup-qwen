@@ -104,7 +104,7 @@ async def main():
     async with Browser(port=9391, mic_wav=silent_wav(), init_js=init, size=(1600, 940)) as b:
         await b.goto(BASE + "/megh-chat?voicetest=1", wait=4)
         await b.eval(VIS_JS)
-        await b.eval("(async () => !!(await until(() => document.querySelector('.mic-btn'), 20000)))()")
+        await b.eval("(async () => !!(await until(() => document.querySelector('[data-testid=agent-orb]'), 20000)))()")
         await b.eval("sleep(2500)")          # the board is fetched ahead while the chat loads
         # ── opening: one entrance, nothing in stages ──
         await b.eval("""window.__mounts = { tiles: 0, maps: 0 };
@@ -112,7 +112,7 @@ async def main():
               window.__mounts.tiles += (n.classList.contains('sd-tile') ? 1 : 0) + n.querySelectorAll('.sd-tile').length;
               window.__mounts.maps += n.querySelectorAll('.vs-col .vc canvas').length + (n.matches('.vs-col .vc') ? 1 : 0); })))
               .observe(document.body, { childList: true, subtree: true });
-            document.querySelector('.mic-btn').click();""")
+            document.querySelector('[data-testid=agent-orb]').click();""")
         op = await b.eval("""(async () => { await until(() => window.__meghVoice && window.__meghVoice.phase() === 'live', 20000);
             await sleep(4500);
             const cols = window.__anims.filter(a => a.includes('vsColIn')).length;

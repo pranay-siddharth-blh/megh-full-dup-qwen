@@ -8,7 +8,9 @@ import { GLOSSARY, MAX_QUESTION_CHARS, UI_STRINGS, UNIFIED_SAMPLES } from './con
 import { nowTime, stampTime, todayLabel } from './format.js';
 import { useVoice } from './useVoice.js';
 import { useLiveVoice } from './useLiveVoice.js';
-import { LiveVoiceStrip } from './components/LiveVoiceStrip.jsx';
+import { AgentOrb } from './components/AgentOrb.jsx';
+import { TalkHint, VoicePanel } from './components/VoicePanel.jsx';
+import { RESTING_TIP, noteMicTypes, orbState } from './agentOrb.js';
 import { VoiceStage } from './components/VoiceStage.jsx';
 import { isContinueText, isStopText } from './stopContinue.js';
 import { speechChunks } from './text.js';
@@ -822,6 +824,7 @@ export default function App() {
   const liveOnMessages = live.onMessages;
   useEffect(() => { liveOnMessages(messages); }, [messages, liveOnMessages]);
   const onMic = () => {
+    noteMicTypes(showUndo);           // D-113: once per browser, "the mic now types your words; for the voice, tap the orb"
     if (live.view || live.phase !== 'off') { live.closeView(); return; }
     if (!voice.busy && live.available()) {
       if (lang && lang !== 'en') showUndo('Voice input is English only. Speak in English, or type your question in Khasi / Garo.');
@@ -834,6 +837,17 @@ export default function App() {
     // English with no warning; starting the mic now says so on every device
     if (!voice.busy && lang && lang !== 'en') showUndo('Voice input is English only. Speak in English, or type your question in Khasi / Garo.');
     voice.toggleMic();
+  };
+  // ── The agent orb (D-113, 2026-11-15): the way into the live voice; the mic dictates ──
+  // A tap while dictating stops the dictation (its words stay in the box), then the voice opens. `stopDictation` is
+  // the dictation side's stop; the dictation work may point it at its own.
+  const stopDictation = () => { if (voice.recordingRef.current) voice.stopMic(); };
+  const onTalk = (question) => {
+    if (live.view || live.phase !== 'off') return;
+    if (!live.available()) { showUndo(RESTING_TIP); return; }
+    if (voice.busy && stopDictation) stopDictation();
+    if (lang && lang !== 'en') showUndo('Voice input is English only. Speak in English, or type your question in Khasi / Garo.');
+    live.open(typeof question === 'string' ? question : undefined);   // the voice stage takes the screen (VoiceStage.jsx)
   };
 
   // The voice stage draws the chat's own answer components, big: the same props as the chat list below.
@@ -928,7 +942,8 @@ export default function App() {
       if (!messages.some((m) => m.kind === 'user' || m.kind === 'rich')) { showUndo('Nothing to download yet'); return; }
       setExportSignal((n) => n + 1);
     },
-    mic: () => onMic(),
+    mic: () => { if (live.view) return false; onMic(); },     // the voice view's own M mutes; Ctrl+M never closes it
+    talk: () => { if (modal || live.view) return false; onTalk(); },
     sidebar: () => toggleRail(),
     help: () => openShortcuts(),
   };
@@ -976,6 +991,8 @@ export default function App() {
   const slashActive = Math.min(slashIdx, Math.max(0, slashItems.length - 1));
 
   const signedIn = auth === 'unlocked' && !!getToken();
+  const orbFace = orbState({ signedIn, resting: live.resting, dictating: voice.busy,
+    hasMic: typeof navigator !== 'undefined' && !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia) });
 
   return (
     <>
@@ -1037,7 +1054,7 @@ export default function App() {
           <div className="chat-area" ref={chatAreaRef} onScroll={onChatScroll}>
             <div className={'chat-inner' + (messages.length ? '' : ' is-welcome')} ref={chatInnerRef}>
               <WelcomeCard strings={strings} prompts={prompts} setPrompts={setPrompts} onAsk={ask}
-                signedIn={auth === 'unlocked'} />
+                signedIn={auth === 'unlocked'} heroExtra={<TalkHint state={orbFace} onTalk={() => onTalk()} />} />
               <div>
                 {messages.map((m, i) => {
                   // Regenerate / Try again sit on the latest answer only: an
@@ -1069,6 +1086,8 @@ export default function App() {
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 15l-6-6-6 6" /></svg>
           </button>
 
+          {signedIn && !live.view && !modal && <VoicePanel state={orbFace} welcome={!messages.length} onTalk={onTalk} />}
+
           <div className="composer-wrap">
             {newBelow && (
               <button type="button" className="new-below" onClick={() => {
@@ -1082,7 +1101,6 @@ export default function App() {
             )}
             <div className="composer-inner">
               <SlashMenu items={slashItems} active={slashActive} onPick={applySlash} onHover={setSlashIdx} />
-              <LiveVoiceStrip live={live} />
               {/* While recording (#307) the text box is kept but hidden, so Enter and
                   the shortcuts still work; the strip takes its place. The live text
                   keeps filling the box and shows when the recording stops. */}
@@ -1126,6 +1144,7 @@ export default function App() {
                       ? <svg className="orb-stop" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2" /></svg>
                       : <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" y1="19" x2="12" y2="23" /><line x1="8" y1="23" x2="16" y2="23" /></svg>}
                   </button>
+                  <AgentOrb size={40} state={orbFace} onTalk={() => onTalk()} tip testId="agent-orb" />
                   {running ? (
                     <button className="send-btn stop" type="button" onClick={stopQuery}
                             title="Stop this answer (Esc)" aria-label="Stop this answer">

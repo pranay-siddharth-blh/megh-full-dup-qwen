@@ -1117,6 +1117,50 @@ not recorded.*
   results (a figure for one row of a table), and "define <measure>" when the documents hold no definition.
 - **Status:** Active.
 
+### D-113 — Voice orb and panel: the orb opens the live voice, the mic dictates (2026-11-15)
+
+- **Context:** the composer had one mic that opened the live voice when it could and dictated otherwise, so the
+  officer never knew which one a press would give. A design study (15 Nov, mock-ups approved by the user) split the
+  two: the mic types (dictation, a parallel branch `wt/dictate`), and a new **agent orb** beside it opens the live voice.
+  Free space beside the chat column varies with the sidebar (which can be dragged): 1920 = 320 px each side, 1536 =
+  158 / 260, 1366 = 73 / 175, 1280 = 30 / 132, phone none.
+- **Decision:**
+  - **Composer** `[ text ] [ mic 40 ] [ orb 40 ] [ send 40 ]`, 6 px gaps (4 px and 38 px at <= 480 px).
+    `components/AgentOrb.jsx`: a dotted sphere in SVG (body gradient through `--p-200/400/600/800`, 64 dots from the
+    stage orb's fibonacci lattice computed once in `agentOrb.js`, depth shade, highlight, rim light); front / back dots
+    turn in opposite directions with CSS transforms on their own layers, a halo breathes (4.2 s), a wake ring on press.
+    No canvas, no animation loop, no audio; paused under `body.vstage-on`; still under reduced motion.
+    Faces (`orbState`): idle; **dictating** (38 % opacity, still) — a tap stops the dictation, keeps its words in the box
+    and opens the voice (`onTalk` calls `stopDictation()`), so it stays a working button (not `aria-disabled`);
+    **resting** (after a fallback, no microphone, signed out: grey, still, `aria-disabled`, tooltip "Live voice is
+    resting. Back in a few minutes; the mic still types."). `aria-label` "Talk to Megh One AI", `aria-haspopup="dialog"`.
+  - **Shortcut Alt+V** (`talk` in `shortcuts.js`; Ctrl+Shift+Space switches the Windows keyboard layout). While the voice
+    view is up Ctrl+M returns not-applicable (the view's own M mutes; it never closes the view). `RESERVED_KEYS` lists the
+    browser / OS keys no shortcut may take (tested).
+  - **Voice panel** `components/VoicePanel.jsx`, three tiers by a container query on `.main` (not the viewport):
+    full card >= 1,580 px (248 px, under the header at 78 px, 24 px from the right; three cross-scheme examples, each
+    opens the voice and asks it; Start talking + Alt+V; "English only · AI-generated voice"), compact in a conversation
+    ("Talk about this answer"); an x folds it to the rail (remembered per browser, `megh_voice_panel_collapsed`), a
+    chevron unfolds it; slim rail 1,140-1,579 px (60 px pill, the whole rail opens the voice); below that, on the welcome
+    screen only, a hint chip under the title. Hidden while the voice view or a modal is up and in print; never over or
+    narrowing the chat column.
+  - `useLiveVoice.open(question)`: the hello becomes the greeting + the AI disclosure (D-108) only, and the question
+    goes on the existing `{type:'text'}` path once the hello's turn ends (9 s at the latest); speaking first drops it.
+    `useLiveVoice.resting` (state) lets the orb re-render when the 5-minute fallback ends.
+  - One-time toast on the first mic press after this change ("The mic now types your words. For the live voice, tap
+    the orb.", `noteMicTypes`, `megh_mic_types_toast_seen`).
+  - Motion tokens `--m-ease-*` / `--m-dur-*` hoisted from `.vstage` to `:root` (same values): one family for the
+    composer, the panel and the voice view.
+  - Removed: `LiveVoiceStrip.jsx` (unreachable: shown only with the session open and the view closed, but closing the
+    view ends the session) and `styles/voice.css` (only that strip and the green `.mic-btn.live` used it).
+- **Rejected:** concept A (always the rail, a flyout on hover) — the full card explains the voice where there is room;
+  a canvas orb in the composer (a loop per frame for a 40 px button); taking the free space by viewport media queries
+  (wrong once the sidebar is dragged).
+- **Consequences:** the Python UI tests open the voice through `[data-testid=agent-orb]`. Until the dictation branch
+  is merged, this branch's mic still opens the live voice (its `onMic` is unchanged) while the toast already says the
+  mic types.
+- **Status:** Active (frontend only).
+
 ### D-109 — No-model coverage: more questions answered by the catalogue and rules alone (2026-11-14)
 
 - **Context:** with the model gateway down (GPU crash, 14 Nov) the accuracy gold bank was run in "no-model mode"

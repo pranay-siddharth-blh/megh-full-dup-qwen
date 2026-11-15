@@ -12,6 +12,10 @@
     --red:#B91C1C; --red-bg:#FEE2E2;
     --pink:#9D174D; --pink-bg:#FCE7F3;
     --blue:#1D4ED8; --blue-bg:#DBEAFE;
+    /* motion tokens (hoisted 2026-11-15 from .vstage, D-113; same values): ONE family of curves and durations for
+       the composer, the voice panel and the voice view. out = arriving / settling; in = leaving */
+    --m-ease-out: cubic-bezier(.2, .8, .2, 1); --m-ease-in: cubic-bezier(.4, 0, 1, 1); --m-ease-io: cubic-bezier(.4, 0, .6, 1);
+    --m-dur-1: .18s; --m-dur-2: .32s; --m-dur-3: .6s;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; height: 100%; }
