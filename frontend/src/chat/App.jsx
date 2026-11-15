@@ -8,6 +8,8 @@ import { GLOSSARY, MAX_QUESTION_CHARS, UI_STRINGS, UNIFIED_SAMPLES } from './con
 import { nowTime, stampTime, todayLabel } from './format.js';
 import { useVoice } from './useVoice.js';
 import { useLiveVoice } from './useLiveVoice.js';
+import { useDictation } from './useDictation.js';
+import { DictationBar, DictationMirror } from './components/DictationBar.jsx';
 import { LiveVoiceStrip } from './components/LiveVoiceStrip.jsx';
 import { VoiceStage } from './components/VoiceStage.jsx';
 import { isContinueText, isStopText } from './stopContinue.js';
@@ -777,6 +779,38 @@ export default function App() {
     },
     onUnauthorized: () => handleLogout(),
   });
+  // ── Dictation (D-111, 2026-11-15, useDictation.js) ──────────────────────
+  // The composer mic = dictation: the words stream to /ws/dictate and appear at the caret as they are
+  // heard (the box stays visible); ✓ / the mic again inserts them, ✕ / Esc puts the box back, Send stops
+  // and sends. One undo puts back the text from before. Without the socket the batch recorder above is used.
+  const [dictSaid, setDictSaid] = useState('');
+  const dict = useDictation({
+    lang,
+    textareaRef,
+    getValue: () => inputRef.current,
+    setValue: (v) => setInput(v),
+    onInserted: ({ restore, corrections, ended }) => {
+      setDictSaid('Dictation inserted');
+      if (sendAfterVoice.current) { sendAfterVoice.current = false; sendQueryRef.current(); return; }
+      const heard = (corrections || []).slice(0, 2).map((c) => `“${c.heard}” as ${c.wrote}`).join(', ');
+      const lead = ended === 'max length' ? 'Dictation stopped at the 2-minute limit' : 'Dictation inserted';
+      showUndoRef.current(lead + (heard ? ` · heard ${heard}` : ''), () => {
+        setInput(restore.value);
+        const t = textareaRef.current;
+        if (t) setTimeout(() => { try { t.focus(); t.setSelectionRange(restore.selStart, restore.selEnd); } catch (e) { /* */ } }, 0);
+      });
+    },
+    onFallback: () => { dictBase.current = inputRef.current; voice.toggleMic(); },
+    onUnauthorized: () => handleLogout(),
+  });
+  useEffect(() => {
+    if (dict.state.status === 'listening') setDictSaid('Listening');
+    // Send was pressed while dictating and nothing came back (no speech, an error): the box is sent as it is
+    if (!dict.active && sendAfterVoice.current && !voice.busy) {
+      sendAfterVoice.current = false;
+      if (inputRef.current.trim()) sendQueryRef.current();
+    }
+  }, [dict.state.status, dict.active]); // eslint-disable-line react-hooks/exhaustive-deps
   // Composer auto-grows up to 160px; the scrollbar shows only when the text
   // is longer than that, never on an empty or short box.
   // 2026-10-18: while recording (#307) the box is hidden at 1px wide, so its
@@ -791,7 +825,9 @@ export default function App() {
     t.style.height = 'auto';
     t.style.height = Math.min(t.scrollHeight, 160) + 'px';
     t.style.overflowY = t.scrollHeight > 160 ? 'auto' : 'hidden';
-  }, [input, voice.isRecording, voice.busy, voice.status]);
+    // dictating: the newest words stay in view
+    if (dict.range && dict.range.end >= input.length - 1) t.scrollTop = t.scrollHeight;
+  }, [input, voice.isRecording, voice.busy, voice.status, dict.range]);
 
   // Send was pressed but the final transcription gave nothing (no speech,
   // network, ASR error): the live text already in the box is what the officer
@@ -803,6 +839,7 @@ export default function App() {
     if (inputRef.current.trim()) { voice.clearStatus(); sendQueryRef.current(); }
   }, [voice.phase]); // eslint-disable-line react-hooks/exhaustive-deps
   const sendOrFinishVoice = () => {
+    if (dict.active) { sendAfterVoice.current = true; dict.stop(); return; }
     if (!voice.busy) { sendQuery(); return; }
     if (voice.recordingRef.current) { sendAfterVoice.current = true; voice.stopMic(); return; }
     if (voice.phase === 'finishing') sendAfterVoice.current = true;
@@ -821,19 +858,20 @@ export default function App() {
   });
   const liveOnMessages = live.onMessages;
   useEffect(() => { liveOnMessages(messages); }, [messages, liveOnMessages]);
+  // The live voice is opened by live.open() (useLiveVoice.js, unchanged); its button is the voice orb
+  // (another workstream). Before it opens, the orb calls micLock.stopDictation(): dictation inserts its
+  // words and lets go of the microphone.
+  // The composer mic = DICTATION (D-111, 2026-11-15): tap to start, tap again (or ✓) to insert.
   const onMic = () => {
-    if (live.view || live.phase !== 'off') { live.closeView(); return; }
-    if (!voice.busy && live.available()) {
-      if (lang && lang !== 'en') showUndo('Voice input is English only. Speak in English, or type your question in Khasi / Garo.');
-      live.open();                    // the voice stage takes the screen (VoiceStage.jsx)
-      return;
-    }
+    if (live.view || live.phase !== 'off') return false;   // the live voice holds the mic (its own M mutes)
+    if (dict.active) { sendAfterVoice.current = false; dict.stop(); return true; }
     sendAfterVoice.current = false;   // the mic button only stops: the text stays to check
-    if (!voice.busy) dictBase.current = inputRef.current;
+    if (voice.busy) { voice.toggleMic(); return true; }   // the batch recorder (the fallback) is running
     // K-40 (audit 2026-10-29): with Khasi / Garo chosen, speech was recognised as
     // English with no warning; starting the mic now says so on every device
-    if (!voice.busy && lang && lang !== 'en') showUndo('Voice input is English only. Speak in English, or type your question in Khasi / Garo.');
-    voice.toggleMic();
+    if (lang && lang !== 'en') showUndo('Voice input is English only. Speak in English, or type your question in Khasi / Garo.');
+    dict.start();
+    return true;
   };
 
   // The voice stage draws the chat's own answer components, big: the same props as the chat list below.
@@ -928,7 +966,7 @@ export default function App() {
       if (!messages.some((m) => m.kind === 'user' || m.kind === 'rich')) { showUndo('Nothing to download yet'); return; }
       setExportSignal((n) => n + 1);
     },
-    mic: () => onMic(),
+    mic: () => onMic(),             // false while the live voice is open: Ctrl+M is then the stage's own
     sidebar: () => toggleRail(),
     help: () => openShortcuts(),
   };
@@ -936,6 +974,8 @@ export default function App() {
   // ── Keyboard ────────────────────────────────────────────────────────────
   const voiceRef = useRef(voice);
   voiceRef.current = voice;
+  const dictRef = useRef(dict);
+  dictRef.current = dict;
   useEffect(() => {
     const onKey = (e) => {
       // Keyboard shortcuts (shortcuts.js): one table, also shown by Ctrl + /.
@@ -952,7 +992,8 @@ export default function App() {
       if (e.key === 'Escape') {
         closeNav();
         closeModal();
-        if (voiceRef.current.recordingRef.current) voiceRef.current.stopMic();
+        if (dictRef.current.active) dictRef.current.cancel();
+        else if (voiceRef.current.recordingRef.current) voiceRef.current.stopMic();
         else if (!voiceRef.current.busy) voiceRef.current.clearStatus();
       }
     };
@@ -972,7 +1013,7 @@ export default function App() {
     // While dictating the box is filling itself: Enter waits for the final text.
     if (enterSends(e)) { e.preventDefault(); sendOrFinishVoice(); }
   };
-  const slashItems = slashClosed || voice.busy ? [] : slashMenuItems(input);
+  const slashItems = slashClosed || voice.busy || dict.active ? [] : slashMenuItems(input);
   const slashActive = Math.min(slashIdx, Math.max(0, slashItems.length - 1));
 
   const signedIn = auth === 'unlocked' && !!getToken();
@@ -1086,14 +1127,17 @@ export default function App() {
               {/* While recording (#307) the text box is kept but hidden, so Enter and
                   the shortcuts still work; the strip takes its place. The live text
                   keeps filling the box and shows when the recording stops. */}
-              <div className={'composer' + (voice.isRecording ? ' recording' : '')}>
-                <textarea className={'composer-input' + (voice.busy ? ' dictating' : '')} ref={textareaRef} rows={1} enterKeyHint="send"
-                          placeholder={voice.isRecording ? 'Listening…' : strings.composerPh}
-                          readOnly={voice.busy} aria-hidden={voice.isRecording || undefined}
+              <div className={'composer' + (voice.isRecording ? ' recording' : '') + (dict.active ? ' dictating-live' : '')}>
+                <textarea className={'composer-input' + (voice.busy ? ' dictating' : '') + (dict.range ? ' dict-live' : '')}
+                          ref={textareaRef} rows={1} enterKeyHint="send"
+                          placeholder={voice.isRecording || dict.active ? 'Listening…' : strings.composerPh}
+                          readOnly={voice.busy || dict.active} aria-hidden={voice.isRecording || undefined}
                           aria-autocomplete="list" aria-controls={slashItems.length ? 'slash-menu' : undefined}
                           aria-activedescendant={slashItems.length ? 'slash-opt-' + slashActive : undefined}
                           maxLength={MAX_QUESTION_CHARS}
                           value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={onComposerKey} />
+                <DictationMirror value={input} range={dict.range} textareaRef={textareaRef} />
+                <div className="sr-only" aria-live="polite">{dictSaid}</div>
                 {voice.isRecording && (
                   <RecordingStrip startedAt={voice.startedAt} live={voice.phase === 'listening'}
                                   status={voice.status} levelRef={voice.levelRef} />
@@ -1104,7 +1148,8 @@ export default function App() {
                     <span className={'composer-count' + (input.length >= MAX_QUESTION_CHARS ? ' full' : '')}
                           aria-live="polite">{input.length}/{MAX_QUESTION_CHARS}</span>
                   )}
-                  {!voice.isRecording && (voice.busy || voice.status) && (
+                  {(dict.active || dict.state.status === 'error') && <DictationBar dict={dict} />}
+                  {!voice.isRecording && !dict.active && (voice.busy || voice.status) && (
                     <div className={'voice-status' + (voice.status && voice.status.error ? ' error' : '')}
                          role="status" aria-live="polite">
                       {voice.phase === 'finishing' && <span className="voice-spin" />}
@@ -1116,13 +1161,14 @@ export default function App() {
                       )}
                     </div>
                   )}
-                  <button className={'mic-btn' + (voice.isRecording ? ' recording' : '') + (live.phase !== 'off' ? ' live' : '')} type="button"
-                          onClick={onMic} disabled={voice.phase === 'finishing'}
-                          title={(live.phase !== 'off' ? 'End live voice' : voice.isRecording ? 'Stop recording' : 'Talk to Megh One AI (live voice)')
+                  <button className={'mic-btn' + (voice.isRecording || dict.active ? ' recording' : '')} type="button"
+                          onClick={onMic} disabled={voice.phase === 'finishing' || dict.state.status === 'finishing'}
+                          aria-pressed={dict.active || voice.isRecording}
+                          title={(dict.active ? 'Stop and insert the words' : voice.isRecording ? 'Stop recording' : 'Dictate (speak to type)')
                             // K-40 (audit 2026-10-29): speech is recognised as English whatever the question language
                             + (lang && lang !== 'en' ? ' — voice input is English only' : '') + ` (${keyLabel('mic')})`}
-                          aria-label={voice.isRecording ? 'Stop recording' : 'Speak your question'}>
-                    {voice.isRecording
+                          aria-label={dict.active ? 'Stop dictating and insert the words' : voice.isRecording ? 'Stop recording' : 'Dictate (speak to type)'}>
+                    {voice.isRecording || dict.active
                       ? <svg className="orb-stop" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2" /></svg>
                       : <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" y1="19" x2="12" y2="23" /><line x1="8" y1="23" x2="16" y2="23" /></svg>}
                   </button>
@@ -1133,8 +1179,8 @@ export default function App() {
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2" /></svg>
                     </button>
                   ) : (
-                    <button className={'send-btn' + (voice.busy ? ' voice-send' : '')} type="button" onClick={sendOrFinishVoice}
-                            title={voice.busy ? 'Stop recording and send (Enter)' : 'Send (Enter)'}>
+                    <button className={'send-btn' + (voice.busy || dict.active ? ' voice-send' : '')} type="button" onClick={sendOrFinishVoice}
+                            title={voice.busy || dict.active ? 'Stop and send (Enter)' : 'Send (Enter)'}>
                       <span>{strings.sendBtn}</span>
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
                     </button>

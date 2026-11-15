@@ -344,6 +344,29 @@ class Settings(BaseSettings):
     # there (WAV + the ASR's answer) so a bad transcript can be replayed. Holds
     # users' voice recordings — leave empty outside local debugging.
     ASR_DEBUG_DIR: str = ""
+    # Speech-to-text has its own concurrency gate (app/asr_gate.py), never the LLM
+    # gate (MODEL_MAX_CONCURRENCY): a busy chat must not stall voice typing, and
+    # voice typing must not queue chat answers (D-111). /api/query/transcribe uses
+    # ASR_MAX_CONCURRENCY; /ws/dictate uses DICTATE_ASR_CONCURRENCY.
+    ASR_MAX_CONCURRENCY: int = 8
+
+    # ── Dictation (D-111, 15 Nov 2026): the composer mic, /ws/dictate ──
+    # The mic types the officer's words into the prompt box. Audio is streamed as
+    # 16 kHz PCM, cut at pauses, heard by our own qwen3-asr and cleaned
+    # (app/dictation/). Audio lives in memory only; ASR_DEBUG_DIR never applies.
+    DICTATE_ENGINE: str = "on"                 # on | off (off: the page uses the old batch upload)
+    DICTATE_ASR_URL: str = ""                  # blank = ASR_BASE_URL
+    DICTATE_ASR_MODEL: str = ""                # blank = ASR_MODEL
+    DICTATE_ASR_API_KEY: str = ""              # blank = ASR_API_KEY
+    DICTATE_ASR_TIMEOUT_SECONDS: float = 15.0  # one segment / whole-utterance call
+    DICTATE_ASR_CONCURRENCY: int = 8           # dictation's own ASR slots, per worker
+    DICTATE_PARTIALS: str = "asr"              # asr | kyutai | off (kyutai needs msgpack + a Kyutai STT server)
+    DICTATE_KYUTAI_URL: str = ""               # ws(s)://host/api/asr-streaming (only with DICTATE_PARTIALS=kyutai)
+    DICTATE_MAX_SECONDS: int = 120             # one dictation is finished at this length
+    DICTATE_IDLE_SECONDS: int = 10             # no audio frames for this long: finished (a stalled page)
+    DICTATE_HELLO_PER_MINUTE: int = 60         # /ws/dictate connections per address per minute (0 = no limit)
+    DICTATE_MAX_SESSIONS: int = 40             # open dictations per worker
+    DICTATE_WHOLE_PASS_SECONDS: int = 45       # on stop, an utterance up to this long is heard once more, whole
 
     # ── Vector store (Qdrant on the same data box) — scheme-knowledge base ──
     # Since 2026-10-27 (D-074) the project uses ONLY two collections on the

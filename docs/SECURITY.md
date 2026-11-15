@@ -179,6 +179,21 @@ could read the token (INFERRED; no XSS was found or tested).
 - `GET /api/voice/board` (D-105): the same login check as `/api/scheme-stats`, statewide aggregates only, filtered to
   the caller's schemes; fixed SELECTs with no parameters (no injection surface), cached, never the forbidden tables.
 
+### Dictation socket (D-111, 2026-11-15)
+- `/ws/dictate` (`app/dictation/router.py`) takes a `hello` with the chat's JWT within 5 s (else close 4400); the
+  same check as `/ws/voice` (`app/voice/relay.py identify`: a valid token for an active user; else 4401).
+  `DICTATE_HELLO_PER_MINUTE` (60) connections per address per minute (4429: the HTTP rate limiter does not see
+  WebSockets); `DICTATE_MAX_SESSIONS` (40) per worker; one dictation per user (the newer one replaces the older);
+  `DICTATE_MAX_SECONDS` (120) and `DICTATE_IDLE_SECONDS` (10) bound every session; binary frames over 8 KB (or of an
+  odd length) are dropped; text frames are only `stop` / `cancel`. nginx: `location = /ws/dictate`, the same
+  header block as `/ws/voice`, a 180 s read timeout.
+- Sovereign: the audio goes only to our own qwen3-asr on the model gateway (`DICTATE_ASR_URL`, default
+  `ASR_BASE_URL`); no third party hears it. Audio is held in memory for the session only and dropped when it ends;
+  `ASR_DEBUG_DIR` never applies (a test asserts no file is written). Logs carry counts and timings, never words; the
+  spelling module's own log line is silenced for dictated text (`clean._QuietFilter`).
+- Speech has its own concurrency gate (`app/asr_gate.py`): a flood of dictation cannot take the LLM's slots, and a busy
+  chat cannot stall dictation. `/api/query/transcribe` moved to the same kind of gate (`ASR_MAX_CONCURRENCY`).
+
 ## Deploy checklist (security-relevant)
 
 See `deploy/DEPLOYMENT.md` for the full list. The essentials:
