@@ -173,10 +173,39 @@ async def main() -> int:
                 probs.append(f"a full question turned into a follow-up ({r['how']})")
             results.append({"part": "block" + ("+screen" if on_screen else ""), "id": c["id"], "said": said,
                             "how": r["how"], "sent": out, "ok": not probs, "probs": probs, "ms": ms})
+    # part C: every district drilled as the user speaks it (the DRL chains of the typed bank, spoken forms)
+    spoken = {"top 3": ["Okay so top three.", ["top"]], "which is the lowest": ["um which one is having the lowest for me",
+                                                                                ["lowest"]]}
+    for c in [c for c in bank if c["cat"] == "district-drill"]:
+        m = shaper.Memory()
+        for t in c["turns"]:
+            q = t["q"]
+            said, must = q, []
+            if q in spoken:
+                said, must = spoken[q]
+            elif q.startswith("only "):
+                said, must = f"just {q[5:]} only please", [q[5:].replace(" block", "")]
+            elif q.startswith("what about FY") or q.startswith("what about 20"):
+                fy = q.split()[-1].rstrip("?")
+                y = int(fy[:4])
+                said, must = f"and how was it in {SAY_YEAR.get(y, fy)}", [fy]
+            elif "by the blocks" in q or "block" in q:
+                d = next((x for x in shaper.districts_in(q)), "")
+                must = [d, "block"]
+            else:
+                must = [w for w in q.split() if w[0].isupper()][:1]
+            r = await shaper.shape(said, m)
+            out = r.get("question") or ""
+            probs = [] if r["action"] == "send" else [f"held ({r['how']})"]
+            probs += judge(out, must, []) if r["action"] == "send" else []
+            results.append({"part": "drill", "id": c["id"], "said": said, "how": r["how"], "sent": out,
+                            "ok": not probs, "probs": probs, "ms": 0})
+            m.asked(out or said, said)
+            m.answered("(answer)", "data", [])
     ok = sum(r["ok"] for r in results)
     print(f"SHAPER LOG BANK: {ok}/{len(results)} pass in {round(time.perf_counter() - t_all)} s; model rewrites: "
           f"{shaper.STATS.get('rewrites', '?')}, model errors {shaper.STATS.get('llm_errors', 0)}")
-    for part in ("log", "block", "block+screen"):
+    for part in ("log", "block", "block+screen", "drill"):
         rs = [r for r in results if r["part"] == part]
         print(f"  {part}: {sum(r['ok'] for r in rs)}/{len(rs)}")
     for r in results:

@@ -4555,3 +4555,603 @@ cases:
       unit: rupees
     pause: false
     max_s: 25
+- id: DRL-EASTERN_WEST_KHASI_HILLS
+  cat: district-drill
+  shape: 'MGNREGA person-days: EASTERN WEST KHASI HILLS'
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: MGNREGA person-days by district
+    rows:
+    - sql: SELECT lgd_district, SUM(person_days) FROM curated.v_employment WHERE lgd_district IS NOT NULL GROUP BY 1 ORDER
+        BY 2 DESC
+      unit: count
+    pause: false
+    max_s: 25
+  - q: Okay, could you break down Eastern West Khasi Hills by the blocks?
+    rows:
+    - sql: SELECT lgd_block, SUM(person_days) FROM curated.v_employment WHERE lgd_district = 'EASTERN WEST KHASI HILLS' GROUP
+        BY 1 ORDER BY 2 DESC
+      unit: count
+    pause: false
+    place: EASTERN WEST KHASI HILLS
+    max_s: 25
+  - q: top 3
+    rows:
+    - sql: SELECT lgd_block, SUM(person_days) FROM curated.v_employment WHERE lgd_district = 'EASTERN WEST KHASI HILLS' GROUP
+        BY 1 ORDER BY 2 DESC
+      unit: count
+      take: 3
+    pause: false
+    max_s: 25
+  - q: which is the lowest
+    rows:
+    - sql: SELECT lgd_block, SUM(person_days) FROM curated.v_employment WHERE lgd_district = 'EASTERN WEST KHASI HILLS' GROUP
+        BY 1 ORDER BY 2 ASC
+      unit: count
+      take: 1
+    pause: false
+    max_s: 25
+  - q: only Mairang block
+    figures:
+    - sql: SELECT SUM(person_days) FROM curated.v_employment WHERE lgd_block = 'MAIRANG'
+      unit: count
+    pause: false
+    place: MAIRANG
+    max_s: 25
+  - q: what about 2023-24?
+    figures:
+    - sql: SELECT SUM(person_days) FROM curated.v_employment WHERE lgd_block = 'MAIRANG' AND year_key = 2023
+      unit: count
+    pause: false
+    place: MAIRANG
+    year: 2023
+    max_s: 25
+- id: DRL-EAST_GARO_HILLS
+  cat: district-drill
+  shape: 'PMAY-G houses sanctioned: EAST GARO HILLS'
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: PMAY-G houses sanctioned by district
+    rows:
+    - sql: SELECT lgd_district, COUNT(*) FROM curated.v_pmay WHERE lgd_district IS NOT NULL GROUP BY 1 ORDER BY 2 DESC
+      unit: count
+    pause: false
+    max_s: 25
+  - q: Now show me East Garo Hills block wise
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_pmay WHERE lgd_district = 'EAST GARO HILLS' GROUP BY 1 ORDER BY 2 DESC
+      unit: count
+    pause: false
+    place: EAST GARO HILLS
+    max_s: 25
+  - q: top 3
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_pmay WHERE lgd_district = 'EAST GARO HILLS' GROUP BY 1 ORDER BY 2 DESC
+      unit: count
+      take: 3
+    pause: false
+    max_s: 25
+  - q: which is the lowest
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_pmay WHERE lgd_district = 'EAST GARO HILLS' GROUP BY 1 ORDER BY 2 ASC
+      unit: count
+      take: 1
+    pause: false
+    max_s: 25
+  - q: only Songsak block
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_pmay WHERE lgd_block = 'SONGSAK'
+      unit: count
+    pause: false
+    place: SONGSAK
+    max_s: 25
+  - q: what about 2022-23?
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_pmay WHERE lgd_block = 'SONGSAK' AND year_key = 2022
+      unit: count
+    pause: false
+    place: SONGSAK
+    year: 2022
+    max_s: 25
+- id: DRL-EAST_JAINTIA_HILLS
+  cat: district-drill
+  shape: 'MGNREGA expenditure: EAST JAINTIA HILLS'
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: MGNREGA expenditure by district
+    rows:
+    - sql: SELECT lgd_district, ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE lgd_district IS NOT NULL GROUP BY
+        1 ORDER BY 2 DESC
+      unit: lakh
+    pause: false
+    max_s: 25
+  - q: Can you break East Jaintia Hills down by block for the same?
+    rows:
+    - sql: SELECT lgd_block, ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE lgd_district = 'EAST JAINTIA HILLS'
+        GROUP BY 1 ORDER BY 2 DESC
+      unit: lakh
+    pause: false
+    place: EAST JAINTIA HILLS
+    max_s: 25
+  - q: top 3
+    rows:
+    - sql: SELECT lgd_block, ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE lgd_district = 'EAST JAINTIA HILLS'
+        GROUP BY 1 ORDER BY 2 DESC
+      unit: lakh
+      take: 3
+    pause: false
+    max_s: 25
+  - q: which is the lowest
+    rows:
+    - sql: SELECT lgd_block, ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE lgd_district = 'EAST JAINTIA HILLS'
+        GROUP BY 1 ORDER BY 2 ASC
+      unit: lakh
+      take: 1
+    pause: false
+    max_s: 25
+  - q: only Wapung block
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE lgd_block = 'WAPUNG'
+      unit: lakh
+    pause: false
+    place: WAPUNG
+    max_s: 25
+  - q: what about 2024-25?
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE lgd_block = 'WAPUNG' AND year_key = 2024
+      unit: lakh
+    pause: false
+    place: WAPUNG
+    year: 2024
+    max_s: 25
+- id: DRL-EAST_KHASI_HILLS
+  cat: district-drill
+  shape: 'PMAY-G houses completed: EAST KHASI HILLS'
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: PMAY-G houses completed by district
+    rows:
+    - sql: SELECT lgd_district, COUNT(*) FROM curated.v_pmay WHERE is_completed AND TRUE AND lgd_district IS NOT NULL GROUP
+        BY 1 ORDER BY 2 DESC
+      unit: count
+    pause: false
+    max_s: 25
+  - q: okay and for East Khasi Hills, by block please
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_pmay WHERE is_completed AND TRUE AND lgd_district = 'EAST KHASI HILLS'
+        GROUP BY 1 ORDER BY 2 DESC
+      unit: count
+    pause: false
+    place: EAST KHASI HILLS
+    max_s: 25
+  - q: top 3
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_pmay WHERE is_completed AND TRUE AND lgd_district = 'EAST KHASI HILLS'
+        GROUP BY 1 ORDER BY 2 DESC
+      unit: count
+      take: 3
+    pause: false
+    max_s: 25
+  - q: which is the lowest
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_pmay WHERE is_completed AND TRUE AND lgd_district = 'EAST KHASI HILLS'
+        GROUP BY 1 ORDER BY 2 ASC
+      unit: count
+      take: 1
+    pause: false
+    max_s: 25
+  - q: only Pynursla block
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_pmay WHERE is_completed AND TRUE AND lgd_block = 'PYNURSLA'
+      unit: count
+    pause: false
+    place: PYNURSLA
+    max_s: 25
+  - q: what about 2020-21?
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_pmay WHERE is_completed AND TRUE AND lgd_block = 'PYNURSLA' AND year_key = 2020
+      unit: count
+    pause: false
+    place: PYNURSLA
+    year: 2020
+    max_s: 25
+- id: DRL-NORTH_GARO_HILLS
+  cat: district-drill
+  shape: 'Focus Legacy producer groups: NORTH GARO HILLS'
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Focus Legacy producer groups by district
+    rows:
+    - sql: SELECT lgd_district, COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_district IS NOT NULL GROUP BY
+        1 ORDER BY 2 DESC
+      unit: count
+    pause: false
+    max_s: 25
+  - q: Okay, could you break down North Garo Hills by the blocks?
+    rows:
+    - sql: SELECT lgd_block, COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_district = 'NORTH GARO HILLS' GROUP
+        BY 1 ORDER BY 2 DESC
+      unit: count
+    pause: false
+    place: NORTH GARO HILLS
+    max_s: 25
+  - q: top 3
+    rows:
+    - sql: SELECT lgd_block, COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_district = 'NORTH GARO HILLS' GROUP
+        BY 1 ORDER BY 2 DESC
+      unit: count
+      take: 3
+    pause: false
+    max_s: 25
+  - q: which is the lowest
+    rows:
+    - sql: SELECT lgd_block, COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_district = 'NORTH GARO HILLS' GROUP
+        BY 1 ORDER BY 2 ASC
+      unit: count
+      take: 1
+    pause: false
+    max_s: 25
+  - q: only Resubelpara block
+    figures:
+    - sql: SELECT COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_block = 'RESUBELPARA'
+      unit: count
+    pause: false
+    place: RESUBELPARA
+    max_s: 25
+  - q: what about 2025-26?
+    figures:
+    - sql: SELECT COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_block = 'RESUBELPARA' AND year_key = 2025
+      unit: count
+    pause: false
+    place: RESUBELPARA
+    year: 2025
+    max_s: 25
+- id: DRL-RI_BHOI
+  cat: district-drill
+  shape: 'MGNREGA person-days: RI BHOI'
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: MGNREGA person-days by district
+    rows:
+    - sql: SELECT lgd_district, SUM(person_days) FROM curated.v_employment WHERE lgd_district IS NOT NULL GROUP BY 1 ORDER
+        BY 2 DESC
+      unit: count
+    pause: false
+    max_s: 25
+  - q: Now show me Ri Bhoi block wise
+    rows:
+    - sql: SELECT lgd_block, SUM(person_days) FROM curated.v_employment WHERE lgd_district = 'RI BHOI' GROUP BY 1 ORDER BY
+        2 DESC
+      unit: count
+    pause: false
+    place: RI BHOI
+    max_s: 25
+  - q: top 3
+    rows:
+    - sql: SELECT lgd_block, SUM(person_days) FROM curated.v_employment WHERE lgd_district = 'RI BHOI' GROUP BY 1 ORDER BY
+        2 DESC
+      unit: count
+      take: 3
+    pause: false
+    max_s: 25
+  - q: which is the lowest
+    rows:
+    - sql: SELECT lgd_block, SUM(person_days) FROM curated.v_employment WHERE lgd_district = 'RI BHOI' GROUP BY 1 ORDER BY
+        2 ASC
+      unit: count
+      take: 1
+    pause: false
+    max_s: 25
+  - q: only Umling block
+    figures:
+    - sql: SELECT SUM(person_days) FROM curated.v_employment WHERE lgd_block = 'UMLING'
+      unit: count
+    pause: false
+    place: UMLING
+    max_s: 25
+  - q: what about 2023-24?
+    figures:
+    - sql: SELECT SUM(person_days) FROM curated.v_employment WHERE lgd_block = 'UMLING' AND year_key = 2023
+      unit: count
+    pause: false
+    place: UMLING
+    year: 2023
+    max_s: 25
+- id: DRL-SOUTH_GARO_HILLS
+  cat: district-drill
+  shape: 'PMAY-G houses sanctioned: SOUTH GARO HILLS'
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: PMAY-G houses sanctioned by district
+    rows:
+    - sql: SELECT lgd_district, COUNT(*) FROM curated.v_pmay WHERE lgd_district IS NOT NULL GROUP BY 1 ORDER BY 2 DESC
+      unit: count
+    pause: false
+    max_s: 25
+  - q: Can you break South Garo Hills down by block for the same?
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_pmay WHERE lgd_district = 'SOUTH GARO HILLS' GROUP BY 1 ORDER BY 2 DESC
+      unit: count
+    pause: false
+    place: SOUTH GARO HILLS
+    max_s: 25
+  - q: top 3
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_pmay WHERE lgd_district = 'SOUTH GARO HILLS' GROUP BY 1 ORDER BY 2 DESC
+      unit: count
+      take: 3
+    pause: false
+    max_s: 25
+  - q: which is the lowest
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_pmay WHERE lgd_district = 'SOUTH GARO HILLS' GROUP BY 1 ORDER BY 2 ASC
+      unit: count
+      take: 1
+    pause: false
+    max_s: 25
+  - q: only Gasuapara block
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_pmay WHERE lgd_block = 'GASUAPARA'
+      unit: count
+    pause: false
+    place: GASUAPARA
+    max_s: 25
+  - q: what about 2022-23?
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_pmay WHERE lgd_block = 'GASUAPARA' AND year_key = 2022
+      unit: count
+    pause: false
+    place: GASUAPARA
+    year: 2022
+    max_s: 25
+- id: DRL-SOUTH_WEST_GARO_HILLS
+  cat: district-drill
+  shape: 'MGNREGA expenditure: SOUTH WEST GARO HILLS'
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: MGNREGA expenditure by district
+    rows:
+    - sql: SELECT lgd_district, ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE lgd_district IS NOT NULL GROUP BY
+        1 ORDER BY 2 DESC
+      unit: lakh
+    pause: false
+    max_s: 25
+  - q: okay and for South West Garo Hills, by block please
+    rows:
+    - sql: SELECT lgd_block, ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE lgd_district = 'SOUTH WEST GARO HILLS'
+        GROUP BY 1 ORDER BY 2 DESC
+      unit: lakh
+    pause: false
+    place: SOUTH WEST GARO HILLS
+    max_s: 25
+  - q: top 3
+    rows:
+    - sql: SELECT lgd_block, ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE lgd_district = 'SOUTH WEST GARO HILLS'
+        GROUP BY 1 ORDER BY 2 DESC
+      unit: lakh
+      take: 3
+    pause: false
+    max_s: 25
+  - q: which is the lowest
+    rows:
+    - sql: SELECT lgd_block, ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE lgd_district = 'SOUTH WEST GARO HILLS'
+        GROUP BY 1 ORDER BY 2 ASC
+      unit: lakh
+      take: 1
+    pause: false
+    max_s: 25
+  - q: only Zikzak block
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE lgd_block = 'ZIKZAK'
+      unit: lakh
+    pause: false
+    place: ZIKZAK
+    max_s: 25
+  - q: what about 2024-25?
+    figures:
+    - sql: SELECT ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE lgd_block = 'ZIKZAK' AND year_key = 2024
+      unit: lakh
+    pause: false
+    place: ZIKZAK
+    year: 2024
+    max_s: 25
+- id: DRL-SOUTH_WEST_KHASI_HILLS
+  cat: district-drill
+  shape: 'PMAY-G houses completed: SOUTH WEST KHASI HILLS'
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: PMAY-G houses completed by district
+    rows:
+    - sql: SELECT lgd_district, COUNT(*) FROM curated.v_pmay WHERE is_completed AND TRUE AND lgd_district IS NOT NULL GROUP
+        BY 1 ORDER BY 2 DESC
+      unit: count
+    pause: false
+    max_s: 25
+  - q: Okay, could you break down South West Khasi Hills by the blocks?
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_pmay WHERE is_completed AND TRUE AND lgd_district = 'SOUTH WEST KHASI
+        HILLS' GROUP BY 1 ORDER BY 2 DESC
+      unit: count
+    pause: false
+    place: SOUTH WEST KHASI HILLS
+    max_s: 25
+  - q: top 3
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_pmay WHERE is_completed AND TRUE AND lgd_district = 'SOUTH WEST KHASI
+        HILLS' GROUP BY 1 ORDER BY 2 DESC
+      unit: count
+      take: 3
+    pause: false
+    max_s: 25
+  - q: which is the lowest
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_pmay WHERE is_completed AND TRUE AND lgd_district = 'SOUTH WEST KHASI
+        HILLS' GROUP BY 1 ORDER BY 2 ASC
+      unit: count
+      take: 1
+    pause: false
+    max_s: 25
+  - q: only Mawkyrwat block
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_pmay WHERE is_completed AND TRUE AND lgd_block = 'MAWKYRWAT'
+      unit: count
+    pause: false
+    place: MAWKYRWAT
+    max_s: 25
+  - q: what about 2020-21?
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_pmay WHERE is_completed AND TRUE AND lgd_block = 'MAWKYRWAT' AND year_key = 2020
+      unit: count
+    pause: false
+    place: MAWKYRWAT
+    year: 2020
+    max_s: 25
+- id: DRL-WEST_GARO_HILLS
+  cat: district-drill
+  shape: 'Focus Legacy producer groups: WEST GARO HILLS'
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Focus Legacy producer groups by district
+    rows:
+    - sql: SELECT lgd_district, COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_district IS NOT NULL GROUP BY
+        1 ORDER BY 2 DESC
+      unit: count
+    pause: false
+    max_s: 25
+  - q: Now show me West Garo Hills block wise
+    rows:
+    - sql: SELECT lgd_block, COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_district = 'WEST GARO HILLS' GROUP
+        BY 1 ORDER BY 2 DESC
+      unit: count
+    pause: false
+    place: WEST GARO HILLS
+    max_s: 25
+  - q: top 3
+    rows:
+    - sql: SELECT lgd_block, COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_district = 'WEST GARO HILLS' GROUP
+        BY 1 ORDER BY 2 DESC
+      unit: count
+      take: 3
+    pause: false
+    max_s: 25
+  - q: which is the lowest
+    rows:
+    - sql: SELECT lgd_block, COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_district = 'WEST GARO HILLS' GROUP
+        BY 1 ORDER BY 2 ASC
+      unit: count
+      take: 1
+    pause: false
+    max_s: 25
+  - q: only Demdema block
+    figures:
+    - sql: SELECT COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_block = 'DEMDEMA'
+      unit: count
+    pause: false
+    place: DEMDEMA
+    max_s: 25
+  - q: what about 2025-26?
+    figures:
+    - sql: SELECT COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_block = 'DEMDEMA' AND year_key = 2025
+      unit: count
+    pause: false
+    place: DEMDEMA
+    year: 2025
+    max_s: 25
+- id: DRL-WEST_JAINTIA_HILLS
+  cat: district-drill
+  shape: 'MGNREGA person-days: WEST JAINTIA HILLS'
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: MGNREGA person-days by district
+    rows:
+    - sql: SELECT lgd_district, SUM(person_days) FROM curated.v_employment WHERE lgd_district IS NOT NULL GROUP BY 1 ORDER
+        BY 2 DESC
+      unit: count
+    pause: false
+    max_s: 25
+  - q: Can you break West Jaintia Hills down by block for the same?
+    rows:
+    - sql: SELECT lgd_block, SUM(person_days) FROM curated.v_employment WHERE lgd_district = 'WEST JAINTIA HILLS' GROUP BY
+        1 ORDER BY 2 DESC
+      unit: count
+    pause: false
+    place: WEST JAINTIA HILLS
+    max_s: 25
+  - q: top 3
+    rows:
+    - sql: SELECT lgd_block, SUM(person_days) FROM curated.v_employment WHERE lgd_district = 'WEST JAINTIA HILLS' GROUP BY
+        1 ORDER BY 2 DESC
+      unit: count
+      take: 3
+    pause: false
+    max_s: 25
+  - q: which is the lowest
+    rows:
+    - sql: SELECT lgd_block, SUM(person_days) FROM curated.v_employment WHERE lgd_district = 'WEST JAINTIA HILLS' GROUP BY
+        1 ORDER BY 2 ASC
+      unit: count
+      take: 1
+    pause: false
+    max_s: 25
+  - q: only Laskein block
+    figures:
+    - sql: SELECT SUM(person_days) FROM curated.v_employment WHERE lgd_block = 'LASKEIN'
+      unit: count
+    pause: false
+    place: LASKEIN
+    max_s: 25
+  - q: what about 2023-24?
+    figures:
+    - sql: SELECT SUM(person_days) FROM curated.v_employment WHERE lgd_block = 'LASKEIN' AND year_key = 2023
+      unit: count
+    pause: false
+    place: LASKEIN
+    year: 2023
+    max_s: 25
+- id: DRL-WEST_KHASI_HILLS
+  cat: district-drill
+  shape: 'PMAY-G houses sanctioned: WEST KHASI HILLS'
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: PMAY-G houses sanctioned by district
+    rows:
+    - sql: SELECT lgd_district, COUNT(*) FROM curated.v_pmay WHERE lgd_district IS NOT NULL GROUP BY 1 ORDER BY 2 DESC
+      unit: count
+    pause: false
+    max_s: 25
+  - q: okay and for West Khasi Hills, by block please
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_pmay WHERE lgd_district = 'WEST KHASI HILLS' GROUP BY 1 ORDER BY 2 DESC
+      unit: count
+    pause: false
+    place: WEST KHASI HILLS
+    max_s: 25
+  - q: top 3
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_pmay WHERE lgd_district = 'WEST KHASI HILLS' GROUP BY 1 ORDER BY 2 DESC
+      unit: count
+      take: 3
+    pause: false
+    max_s: 25
+  - q: which is the lowest
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_pmay WHERE lgd_district = 'WEST KHASI HILLS' GROUP BY 1 ORDER BY 2 ASC
+      unit: count
+      take: 1
+    pause: false
+    max_s: 25
+  - q: only Nongstoin block
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_pmay WHERE lgd_block = 'NONGSTOIN'
+      unit: count
+    pause: false
+    place: NONGSTOIN
+    max_s: 25
+  - q: what about 2022-23?
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_pmay WHERE lgd_block = 'NONGSTOIN' AND year_key = 2022
+      unit: count
+    pause: false
+    place: NONGSTOIN
+    year: 2022
+    max_s: 25

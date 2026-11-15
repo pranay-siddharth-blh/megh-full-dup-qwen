@@ -65,6 +65,7 @@ KINDS = {
     "block-wise wordings after a breakdown": ["blockwise"],
     "scheme + place, no measure (headline)": ["headline-no-measure"],
     "grouping words (per FY / district wise)": ["grouping-words"],
+    "every district drilled (block, top 3, lowest, only, year)": ["district-drill"],
 }
 
 

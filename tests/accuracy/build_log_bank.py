@@ -632,9 +632,53 @@ def grouping_cases() -> list[dict]:
     return C
 
 
+async def drill_cases() -> list[dict]:
+    """(h) every district drilled the way the user speaks it: <scheme measure> by district -> break down <district>
+    by the blocks -> top 3 -> which is the lowest -> only <its top block> -> what about <another FY>."""
+    C = []
+    plan = [  # (scheme measure said, expr FROM view, unit, block column, year for the last turn)
+        ("MGNREGA person-days", f"SUM(person_days) FROM {EMP}", "count", "lgd_block", 2023),
+        ("PMAY-G houses sanctioned", f"COUNT(*) FROM {PM}", "count", "lgd_block", 2022),
+        ("MGNREGA expenditure", f"ROUND(SUM(total_exp), 2) FROM {EXP}", "lakh", "lgd_block", 2024),
+        ("PMAY-G houses completed", f"COUNT(*) FROM {PM} WHERE is_completed AND TRUE", "count", "lgd_block", 2020),
+        ("Focus Legacy producer groups", f"COUNT(DISTINCT pg_id) FROM {FL}", "count", "lgd_block", 2025),
+    ]
+    dists = [r[0] for r in await fetch("SELECT DISTINCT lgd_district FROM curated.v_pmay WHERE lgd_district IS NOT NULL "
+                                       "ORDER BY 1")]
+    spoken_drill = ["Okay, could you break down {d} by the blocks?", "Now show me {d} block wise",
+                    "Can you break {d} down by block for the same?", "okay and for {d}, by block please"]
+    for i, d in enumerate(dists):
+        m, expr, unit, bc, y = plan[i % len(plan)]
+        if " WHERE " in expr:
+            base, cond = expr.split(" WHERE ", 1)
+            w = lambda extra: f"{base} WHERE {cond} AND {extra}"  # noqa: E731
+        else:
+            w = lambda extra, expr=expr: f"{expr} WHERE {extra}"  # noqa: E731
+        blocks_sql = f"SELECT {bc}, {w(f'lgd_district = {chr(39)}{q(d)}{chr(39)}')} GROUP BY 1 ORDER BY 2 DESC"
+        brows = await fetch(blocks_sql)
+        if not brows:
+            continue
+        top = brows[0][0]
+        C.append(case(f"DRL-{d.replace(' ', '_')}", "district-drill", f"{m}: {d}", [
+            turn(f"{m} by district", rows=[rows(f"SELECT lgd_district, {w('lgd_district IS NOT NULL')} GROUP BY 1 "
+                                                "ORDER BY 2 DESC", unit)], pause=False, max_s=25),
+            turn(spoken_drill[i % len(spoken_drill)].format(d=title(d)), rows=[rows(blocks_sql, unit)], pause=False,
+                 place=d, max_s=25),
+            turn("top 3", rows=[rows(blocks_sql, unit, take=3)], pause=False, max_s=25),
+            turn("which is the lowest", rows=[rows(blocks_sql.replace("ORDER BY 2 DESC", "ORDER BY 2 ASC"), unit,
+                                                   take=1)], pause=False, max_s=25),
+            turn(f"only {title(top)} block", figures=[fig(f"SELECT {w(f'{bc} = {chr(39)}{q(top)}{chr(39)}')}", unit)],
+                 pause=False, place=top, max_s=25),
+            turn(f"what about {FY[y]}?",
+                 figures=[fig(f"SELECT {w(f'{bc} = {chr(39)}{q(top)}{chr(39)} AND year_key = {y}')}", unit)],
+                 pause=False, place=top, year=y, max_s=25)]))
+    return C
+
+
 async def main():
     blk = await block_cases()
     cases = log_cases() + blk + vague_cases() + chain_cases() + voice_cases(blk) + headline_cases() + grouping_cases()
+    cases += await drill_cases()
     bank = {"bank": "Megh One AI LOG BANK (the user's own questions, every block, vague starts, spoken follow-ups)",
             "built_by": "tests/accuracy/build_log_bank.py", "truth_recorded": "2026-11-16", "cases": cases}
     with open(OUT, "w", encoding="utf-8") as fh:
