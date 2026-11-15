@@ -529,7 +529,9 @@ def _fl_unit_suffix(k: str) -> "tuple[str, str] | None":
 def _fl_metric_words(k: str) -> str:
     """The measure's name in words, without its unit suffix: total_disbursed_cr -> 'total disbursed'."""
     u = _fl_unit_suffix(k)
-    return (k[: -len(u[0])] if u else k).replace("_", " ")
+    words = (k[: -len(u[0])] if u else k).replace("_", " ")
+    # 2026-11-16 (log bank): "440 pg count" — the catalogue's alias for producer groups
+    return {"pg count": "producer groups", "pgs": "producer groups", "pg": "producer groups"}.get(words, words)
 
 
 def _fl_metric_value(k: str, n) -> str:
@@ -565,6 +567,10 @@ def _focus_legacy_breakdown_answer(sql: str, rows: list[dict], display: dict,
         unplaced = (level, null_rows[0])
     lim = sql_ast.outer_limit(sql or "")
     truncated = bool(lim and lim > 0) and len(rows) == lim and lim < 1000
+    if truncated and _c19_on():
+        # 2026-11-16 (log bank): "Which district has the lowest …" read "Top 3 districts by pg count" (an
+        # ascending list called the top): a ranking is the natural answers' (c19), which say lowest / highest.
+        return None
 
     words = _fl_metric_words
 

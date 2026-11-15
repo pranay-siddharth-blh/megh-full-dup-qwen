@@ -181,6 +181,11 @@ async def compose_response(question: str, sql: str, rows: list[dict],
     if settings.ANSWER_TEMPLATES_ENABLED and not (_premise_notes or extra_numbers or no_usable_value or _total_rows):
         # 2026-11-15: a catalogue drill-down (the blocks of the ranked / compared districts, each place by year):
         # one line per place, every figure from code (c18 _c18_grouped_body); nothing else changes here
+        # 2026-11-16 (K8): two years side by side for each place — the totals, the leader, the biggest rise / fall
+        _two = _c19_two_period_places(_shape_rows, question, schemes, entities) if _c19_on() else None
+        if _two:
+            logger.info("compose_response: natural two-year comparison by place")
+            return _finish_answer(_two, rows, schemes, entities)
         _grouped = _c18_grouped_body(shape, _shape_rows, sql, schemes, entities)
         if _grouped:
             logger.info("compose_response: templated drill-down answer (metric %s)", shape.metric)
@@ -1642,6 +1647,18 @@ def _c13_unknown_place_pause(question: str, name: str, level: str, schemes: "lis
         rule="unknown-place")
 
 
+_C13_ONE_DIMS = frozenset(("district", "block", "village", "constituency", "scheme", "gp", "panchayat"))
+_C13_EXTREMES = frozenset(("lowest", "highest", "most", "least", "fewest", "largest", "smallest", "biggest", "top",
+                           "bottom", "maximum", "minimum", "best", "worst"))
+
+
+def _c13_which_one(question: str) -> bool:
+    """"Which district has the lowest …": ONE place asked for (its runners-up are not a cut-off list)."""
+    ws = [t.low for t in tokens(question or "")]
+    return any(w == "which" and i + 1 < len(ws) and ws[i + 1] in _C13_ONE_DIMS for i, w in enumerate(ws)) \
+        and bool(set(ws) & _C13_EXTREMES)
+
+
 def _c13_unresolved_named_place(question: str, resolved: dict) -> "tuple[str, str] | None":
     """(name, "district" | "block") for "in <name> district/block" when nothing in the
     question resolved to a place and no catalogue knows the name; else None."""
@@ -1660,6 +1677,11 @@ def _c13_unresolved_named_place(question: str, resolved: dict) -> "tuple[str, st
         if any(n.low in _C13_NOT_A_NAME or n.raw.isdigit() for n in name):
             continue
         text = (question or "")[name[0].start:name[-1].end]
+        # 2026-11-16 (log bank): "How much money was disbursed under Focus Legacy district-wise?" read "Focus
+        # Legacy" as a district. A scheme name is never a place, and "district-wise" is a grouping, not a level.
+        if _named_schemes(text) or _mentions_scheme(text) \
+                or (i + 1 < len(toks) and toks[i + 1].low in ("wise", "level", "levels")):
+            continue
         # a catalogue name for the WHOLE phrase: "Shillong Hills" holds the block
         # "Shillong", which is not the place named
         want = {n.low for n in name}
@@ -2706,7 +2728,11 @@ async def _data_post_rows_stage(d: dict, scope: "auth.UserScope | None" = None) 
         _fl_unplaced = await _focus_legacy_unplaced_row(sql, rows)
         if _fl_unplaced:
             notes.append(_focus_legacy_unplaced_note(*_fl_unplaced))
-        _fl_total = await _focus_legacy_list_total(sql, rows)
+        # 2026-11-16 (log bank): "Which district has the lowest Focus Legacy producer groups?" read "12 results match in
+        # total; the top 3 are shown below. Top 3 districts by pg count" — a singular superlative's runners-up are not
+        # a cut-off list.
+        _fl_total = await _focus_legacy_list_total(sql, rows) \
+            if _c17_singular_superlative(question) is None and not _c13_which_one(question) else None
         if _fl_total:
             notes.append(f"{_fl_total[0]:,} {_fl_total[1]} match in total; the result lists only the "
                          f"first {len(rows)}. Say that {_fl_total[0]:,} {_fl_total[1]} match, then name "

@@ -70,8 +70,17 @@ def _c12s_additive(col: str) -> bool:
     return not any(p in _C12S_NON_ADDITIVE_PARTS for p in _c12s_parts(col))         and measure_kinds.measure_kind(col) != "rate"
 
 
+_C12S_POLITE_VERBS = frozenset({"show", "give", "tell", "list", "display", "get", "see", "provide", "share", "break",
+                                "compare", "rank", "draw", "plot", "pull", "find", "send", "do"})
+
+
 def _c12s_yes_no(question: str) -> bool:
     toks = _c12s_words(question)
+    if len(toks) >= 2 and toks[0] in ("can", "could", "will", "would") and toks[1] in ("you", "u", "i", "we") \
+            and any(w in _C12S_POLITE_VERBS for w in toks[2:8]):
+        # 2026-11-16 (log bank): "Can you tell me how many …" is a request, not a yes / no question: its answer
+        # opened "Yes, there were 1,859 …"
+        return False
     return bool(toks) and toks[0] in _C12S_YES_NO_LEADS
 
 

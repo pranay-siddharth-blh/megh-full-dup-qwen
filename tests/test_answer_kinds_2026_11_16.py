@@ -248,3 +248,99 @@ def test_geography_count_questions(text, want):
 ])
 def test_scheme_coverage_questions_are_not_geography_counts(text):
     assert p._c15_geography_count(text) is None
+
+
+# ── K3: a query that singles out years must single out every year of the span ──
+
+def test_span_query_that_drops_a_middle_year_is_repaired(monkeypatch):
+    monkeypatch.setitem(p._SCHEME_DATA_YEARS, "MGNREGA", ["2022-23", "2023-24", "2024-25", "2025-26"])
+    er = {"resolved": {"year_key_list": [2023, 2024, 2025], "district": "WEST GARO HILLS"}}
+    q = "How have MGNREGA person-days changed from FY 2023-24 to FY 2025-26 in West Garo Hills?"
+    where = "FROM curated.v_employment WHERE year_key BETWEEN 2023 AND 2025 AND lgd_district = 'WEST GARO HILLS'"
+    bad = ("SELECT SUM(person_days) FILTER (WHERE year_key = 2023) AS a, SUM(person_days) FILTER (WHERE year_key = "
+           "2025) AS b " + where)
+    out = p._resolved_scope_missing(q, ["MGNREGA"], er, bad)
+    assert out is not None and out[0] == "year" and "FY 2024-25" in out[1]
+    for good in ("SELECT year_key, SUM(person_days) " + where + " GROUP BY year_key",
+                 "SELECT SUM(person_days) " + where,
+                 "SELECT SUM(person_days) FILTER (WHERE year_key = 2023) a, SUM(person_days) FILTER (WHERE year_key = "
+                 "2024) b, SUM(person_days) FILTER (WHERE year_key = 2025) c " + where):
+        assert p._resolved_scope_missing(q, ["MGNREGA"], er, good) is None
+
+
+# ── K8: two years side by side for each district ──
+
+TWO_YEAR_ROWS = [
+    {"year_key": 2022, "lgd_district": "WEST GARO HILLS", "total_expenditure_crore": 150.54, "total_person_days": 1},
+    {"year_key": 2022, "lgd_district": "EAST KHASI HILLS", "total_expenditure_crore": 118.69, "total_person_days": 1},
+    {"year_key": 2022, "lgd_district": "RI BHOI", "total_expenditure_crore": 45.75, "total_person_days": 1},
+    {"year_key": 2023, "lgd_district": "WEST GARO HILLS", "total_expenditure_crore": 148.81, "total_person_days": 1},
+    {"year_key": 2023, "lgd_district": "EAST KHASI HILLS", "total_expenditure_crore": 89.96, "total_person_days": 1},
+    {"year_key": 2023, "lgd_district": "RI BHOI", "total_expenditure_crore": 50.10, "total_person_days": 1}]
+
+
+def test_two_years_by_district_reads_naturally(natural_on):
+    text = p._c19_two_period_places(TWO_YEAR_ROWS, "Compare MGNREGA expenditure in 2022-23 and 2023-24 by district",
+                                    ["MGNREGA"], {})
+    assert text.startswith("MGNREGA total expenditure across the 3 districts fell from ₹314.98 crore in FY 2022-23 "
+                           "to ₹288.87 crore in FY 2023-24, down ₹26.11 crore (8.3%).")
+    assert "West Garo Hills was the highest in both years (₹150.54 crore and ₹148.81 crore)." in text
+    assert "The biggest rise was in Ri Bhoi (up ₹4.35 crore); the biggest fall in East Khasi Hills" in text
+    assert "- **East Khasi Hills** — FY 2022-23 ₹118.69 crore → FY 2023-24 ₹89.96 crore (down ₹28.73 crore)" in text
+    assert "results" not in text and "year key" not in text
+
+
+def test_two_period_reader_leaves_other_shapes(natural_on):
+    one_year = [r for r in TWO_YEAR_ROWS if r["year_key"] == 2022]
+    assert p._c19_two_period_places(one_year, "q", ["MGNREGA"], {}) is None
+    assert p._c19_two_period_places([{"year_key": 2022, "x": 1}, {"year_key": 2023, "x": 2}], "q", [], {}) is None
+
+
+# ── a place with nothing recorded is not "the lowest" ──
+
+def test_zero_recorded_place_is_left_out_of_lowest(natural_on):
+    rows = [{"block": "DEMDEMA", "employment_generated": 0}, {"block": "MAWHATI", "employment_generated": 32151},
+            {"block": "MAWPAT", "employment_generated": 184993}]
+    sql = ("SELECT lgd_block AS block, SUM(person_days) AS employment_generated FROM curated.v_employment "
+           "GROUP BY lgd_block ORDER BY employment_generated ASC LIMIT 3")
+    out = p._c17_runners_up_answer("Which block has the lowest MGNREGA person-days?", sql, rows, ["MGNREGA"], {})
+    assert out.startswith("No MGNREGA person-days of employment are recorded for Demdema")
+    assert "Mawhati has the fewest: 32,151" in out and ": 0" not in out
+
+
+# ── PMAY-G's bare rupee columns, scheme names are never places, wording repairs ──
+
+def test_pmay_bare_money_columns_get_rupees(natural_on):
+    rows = [{"houses": 33147, "sanctioned": 4308590000, "released": 4250080500, "remaining": 58509500}]
+    a = ("West Garo Hills has 33,147 houses, 4,30,85,90,000 sanctioned, ₹4,25,00,80,500 (≈ ₹425.01 crore) released "
+         "and 5,85,09,500 remaining.")
+    assert p._c12_normalise_figures(a, rows, ["PMAY-G"]) == (
+        "West Garo Hills has 33,147 houses, ₹430.86 crore sanctioned, ₹425.01 crore released and ₹5.85 crore "
+        "remaining.")
+
+
+def test_a_scheme_name_is_never_an_unknown_district():
+    assert p._c13_unresolved_named_place("How much money was disbursed under Focus Legacy district-wise?", {}) is None
+    assert p._c13_unresolved_named_place("MGNREGA person-days in Shillong Hills district", {}) == \
+        ("Shillong Hills", "district")
+
+
+def test_wording_repairs(natural_on):
+    assert p._c12_tidy_words("in the financial year FY 2022-23, Batabari  (54,330)") == "in FY 2022-23, Batabari (54,330)"
+    assert p._c19_title_resolved("Under MGNREGA, TIKRIKILLA block recorded …", {"block": "TIKRIKILLA"}) == \
+        "Under MGNREGA, Tikrikilla block recorded …"
+    assert p._c19_title_resolved("RI BHOI and RI BHOIX", {"district": "RI BHOI"}) == "Ri Bhoi and RI BHOIX"
+
+
+def test_mgnrega_overview_breakdown_uses_the_headline():
+    q, pre = p._overview_breakdown_question(
+        "Compare expenditure and person-days in West Garo Hills, Meghalaya, broken down by block.")
+    assert q == "MGNREGA person-days in West Garo Hills, Meghalaya, broken down by block." and "person-days" in pre
+    assert p._overview_breakdown_question("Compare expenditure and person-days in Gambegre block during 2022-23.") is None
+
+
+def test_polite_request_is_not_a_yes_no_shape():
+    assert not p._c12s_yes_no("Can you tell me how many PMAY-G houses were completed in Ri Bhoi?")
+    assert not p._c12s_yes_no("Could you show me MGNREGA person-days by district?")
+    assert p._c12s_yes_no("Is Ri Bhoi above the state average?")
+    assert p._c12s_yes_no("Can Ri Bhoi be ranked first?")

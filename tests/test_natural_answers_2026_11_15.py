@@ -208,7 +208,7 @@ def test_a_real_yes_no_question_keeps_the_composer_path(natural_on):
     assert p._c19_written(shape, CMP_ROWS, "Is West Garo Hills ahead of East Khasi Hills?", ["PMAY-G"], {}) is None
     q = "Could you show me the MGNREGA expenditure per financial year?"
     polite = p._answer_shape(q, EXP_SQL, EXP_ROWS)
-    assert polite.yes_no and not p._c19_yes_no(polite, q)                   # "could you show me" is a request
+    assert not polite.yes_no and not p._c19_yes_no(polite, q)               # "could you show me" is a request (2026-11-16: not a yes / no shape at all)
     assert p._c19_written(polite, EXP_ROWS, q, ["MGNREGA"], {}) is not None
 
 

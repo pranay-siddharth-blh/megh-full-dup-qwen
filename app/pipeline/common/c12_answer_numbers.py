@@ -1086,6 +1086,21 @@ def _c12_period_phrase(period: str) -> str:
     return period if period.startswith(("across", "over", "in ", "during")) else "for " + period
 
 
+def _c12_tidy_words(text: str) -> str:
+    """Small wording repairs on any data answer (log bank 2026-11-16): "the financial year FY 2022-23" -> "FY
+    2022-23", and a doubled space inside a line ("Batabari  (54,330)") -> one."""
+    for a, b in (("the financial year FY ", "FY "), ("The financial year FY ", "FY "), ("financial year FY ", "FY ")):
+        text = text.replace(a, b)
+    lines = []
+    for line in text.split("\n"):
+        lead = len(line) - len(line.lstrip(" "))
+        body = line[lead:]
+        while "  " in body:
+            body = body.replace("  ", " ")
+        lines.append(line[:lead] + body)
+    return "\n".join(lines)
+
+
 def _finish_answer(answer: str, rows: list[dict], schemes: "list[str] | None", entities: "dict | None") -> str:
     """The universal last pass over a data answer: result figures carry thousands
     separators, and a single-figure answer that does not name the scheme or the
@@ -1094,6 +1109,8 @@ def _finish_answer(answer: str, rows: list[dict], schemes: "list[str] | None", e
     if not answer:
         return answer
     text = _group_result_digits(answer, rows, schemes)
+    if _c12_crore_lead():
+        text = _c12_tidy_words(text)
     scheme, place, period = _scope_words(schemes, entities)
     # CM Elevate has no time dimension at all (_SCHEME_DATA_YEARS = []): "2,624 applicants
     # in Ri Bhoi across all financial years" implied years the data does not hold (UAT
@@ -1126,6 +1143,10 @@ def _finish_answer(answer: str, rows: list[dict], schemes: "list[str] | None", e
     when = "" if (fy and fy in text) or timeless else f", {period}"
     if not names_scheme and not names_place:
         tail = f"This figure is for {scheme}, {place_text}{' (statewide)' if statewide else ''}{when}."
+    elif not names_scheme and bool(getattr(settings, "ANSWER_NATURAL_ENABLED", False)):
+        # 2026-11-16 (log bank: 35 answers): "This is the MGNREGA figure." closing a sentence that already says the
+        # place and the period reads robotic; the scheme is the conversation's and shows on the scope banner.
+        return text
     elif not names_scheme:
         # "This is the PMAY-G figure for across all financial years." (D5 / D7 run 2026-10-29)
         tail = f"This is the {scheme} figure{(' ' + _c12_period_phrase(period)) if when else ''}."
@@ -1201,6 +1222,7 @@ def _finish_data_result(result: dict) -> None:
             # 2026-11-15: place names in Title Case whichever path wrote the answer, and the short spoken form the
             # live voice says instead of the whole answer (c19_natural_answers)
             result["answer"] = _c19_title_places(result.get("answer") or "", result.get("data") or rows)
+            result["answer"] = _c19_title_resolved(result.get("answer") or "", resolved)
             spoken = _c19_spoken_for_result(result)
             if spoken:
                 result["spoken"] = spoken

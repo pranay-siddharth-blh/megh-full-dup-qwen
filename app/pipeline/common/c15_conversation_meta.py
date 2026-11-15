@@ -546,14 +546,14 @@ _C15_OVERVIEW += [
     # scheme and one place asks for the scheme's headline figures there; a real measure named ("person-days data",
     # "number of houses") still takes its own path (the _measure_labels / metric_families check below).
     ("figure",), ("figures",), ("numbers",), ("data",), ("details",), ("stats",), ("statistics",), ("status",),
-    ("snapshot",), ("headline",), ("headlines",),
+    ("snapshot",), ("headline",), ("headlines",), ("information",), ("info",),
 ]
 _C15_OVERVIEW_TEMPLATES = {
     "MGNREGA": "Compare expenditure and person-days in {place}{year}",
     "PMAY-G": "PMAY-G house status in {place}{year}",
     "Focus Plus": "Total Focus Plus amount disbursed and number of beneficiaries in {place}{year}",
     "CM Elevate": "Number of CM Elevate applications by status in {place}",
-    "Focus Legacy": "Total Focus Legacy amount paid and number of producer groups in {place}{year}",
+    "Focus Legacy": "Number of Focus Legacy producer groups and total amount paid in {place}{year}",
     "CM Elevate Legacy": "Total CM Elevate Legacy amount disbursed and number of beneficiaries in {place}{year}",
     "CMSS": "CMSS applications and students paid in {place}{year}",
     "Homestay": "Homestay applications and approvals in {place}{year}",
@@ -584,9 +584,9 @@ def _c15_bare_village_ask(question: str) -> bool:
 _C15_BARE_YEAR_FILLER = frozenset("in for of at during the fy financial year data figures figure numbers details stats "
                                   "statistics show me give tell what about how was is were are headline headlines "
                                   "key main overall summary overview status just only please can could would you u "
-                                  "okay ok now and so scheme s what's whats its it's for under show see get".split())
+                                  "okay ok now and so scheme s what's whats its it's for under show see get information info".split())
 _C15_VAGUE_NOUNS = frozenset("data figures figure numbers details stats statistics headline headlines summary "
-                             "overview status".split())
+                             "overview status information info".split())
 
 
 def _c15_asks_a_shape(question: str) -> bool:
@@ -1375,3 +1375,44 @@ async def _geography_count_answer(question: str) -> "dict | None":
             "resolved_entities": {k: v for k, v in (("district", district), ("block", block)) if v},
             "sql": sql, "sql_query": sql, "row_count": 1, "rows": [{"places": noun, "count": n}],
             "data": [{"places": noun, "count": n}], "answer": answer}
+
+
+# ── a breakdown of the MGNREGA overview ("… can you break it down by block?") ─────────────────────────────────────
+# Log bank 2026-11-16 (LOG-A12): after the overview "Compare expenditure and person-days in Meghalaya", "for West Garo
+# Hills, can you break it down by block?" was rewritten "Compare expenditure and person-days in West Garo Hills,
+# broken down by block." — MGNREGA's two facts cannot be joined per block, so no query could be built and the
+# officer got "I couldn't build a working query". The breakdown is given for the headline figure (person-days, the
+# welcome card's), which is one query, and the answer says so.
+_C15_MG_PAIR = (("expenditure", "and", "person", "days"), ("person", "days", "and", "expenditure"),
+                ("expenditure", "and", "persondays"))
+
+
+def _overview_breakdown_question(question: str) -> "tuple[str, str] | None":
+    """(the person-days breakdown question, its preface) for a breakdown / ranking of MGNREGA's expenditure-and-
+    person-days pair; else None."""
+    toks = list(_c15_tokens(question or ""))
+    low = [t.low for t in toks]
+    hit = None
+    for pair in _C15_MG_PAIR:
+        n = len(pair)
+        for i in range(len(low) - n + 1):
+            if tuple(low[i:i + n]) == pair:
+                hit = (i, i + n)
+                break
+        if hit:
+            break
+    q0 = question or ""
+    if hit is None or not ({"by", "wise", "breakdown", "broken", "each", "every", "per", "rank", "ranking", "top",
+                            "lowest", "highest", "most", "least"} & set(low)):
+        return None                                  # "Compare expenditure and person-days in Dalu block" stays
+    if [s for s in _named_or_inferred_schemes(question) if s != "MGNREGA"]:
+        return None
+    q = question or ""
+    start = toks[hit[0]].start
+    if hit[0] > 0 and low[hit[0] - 1] in ("compare", "comparing", "the"):
+        start = toks[hit[0] - 1].start
+    out = (q[:start] + "MGNREGA person-days" + q[toks[hit[1] - 1].end:]).strip()
+    if out[:1].islower():
+        out = out[0].upper() + out[1:]
+    return out, ("MGNREGA's expenditure and person-days come from two separate records, so this breakdown is for its "
+                 "headline figure, person-days:")

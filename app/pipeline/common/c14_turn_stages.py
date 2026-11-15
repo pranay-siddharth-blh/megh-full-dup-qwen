@@ -2413,7 +2413,14 @@ async def _turn_route_stage(t: dict, session: "Session | None" = None,
     #     place, asked the way the pipeline already answers them
     #     (_overview_question). Data, no classifier call; the answer opens with
     #     "Here's an overview of …" (_attach_preface).
-    _ov = _overview_question(question)
+    _ovb = _overview_breakdown_question(question)          # 2026-11-16: a breakdown of the MGNREGA overview
+    if _ovb is not None:
+        question, _ovb_preface = _ovb
+        t["question"] = question
+        if session is not None:
+            session.turn_context["answer_preface"] = _ovb_preface
+        context_budget.log_decision("route", rewrite="overview-breakdown", question=question)
+    _ov = _overview_question(question) if _ovb is None else None
     if _ov is not None:
         question, _ov_preface = _ov
         t["question"] = question

@@ -1194,7 +1194,32 @@ def _resolved_scope_missing(question: str, schemes: list[str], entity_result: di
                 f"query leaves out {fy}. Filter year_key BETWEEN {span[0]} AND {span[-1]} (or the "
                 "scheme's own financial-year column for the same years) and keep every other clause "
                 "as it was.")
+        # 2026-11-16 (user's live log): "How have MGNREGA person-days changed over the last three years in West
+        # Garo Hills?" — the WHERE's BETWEEN covered FY 2023-24 to FY 2025-26, but the SELECT picked out only 2023
+        # and 2025 (CASE / FILTER per year, or just their difference), so FY 2024-25 never reached the answer. A
+        # query that singles out years must single out every year of the span, or group by the year.
+        picked = _vr_year_key_literals(sql)
+        missed = [y for y in span if y not in picked]
+        if picked and missed and set(picked) <= set(span) and not _vr_groups_by_year(sql):
+            fy = ", ".join(f"FY {y}-{(y + 1) % 100:02d}" for y in missed)
+            return "year", (
+                f"the question asks about every financial year from FY {span[0]}-{(span[0] + 1) % 100:02d} "
+                f"to FY {span[-1]}-{(span[-1] + 1) % 100:02d}, but this query picks out only some of them and "
+                f"leaves out {fy}. Return one figure per year (GROUP BY year_key with the scheme's "
+                "financial-year label, ORDER BY year_key) for every year in the span, keep every other clause as "
+                "it was, and compute no difference column.")
     return None
+
+
+def _vr_groups_by_year(sql: str) -> bool:
+    """The query groups by a year column (year_key, financial_year, financial_year_short, fy …)."""
+    for tree in sql_ast.parse(sql):
+        for grp in tree.find_all(exp.Group):
+            for col in grp.find_all(exp.Column):
+                name = (col.name or "").lower()
+                if name in ("year_key", "fy", "year") or name.startswith("financial_year"):
+                    return True
+    return False
 
 
 def _vr_between_covers(sql: str, lo: int, hi: int) -> bool:

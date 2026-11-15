@@ -106,6 +106,43 @@ def _c19_title_places(answer: str, rows: list) -> str:
     return answer
 
 
+_C19_RESOLVED_PLACE_KEYS = ("district", "block", "village", "village_name", "assembly_constituency", "constituency",
+                            "district_list", "block_list", "village_name_list")
+
+
+def _c19_title_resolved(answer: str, resolved: "dict | None") -> str:
+    """The places the question resolved to, written in Title Case where the answer has them in the database's
+    capitals ("Under MGNREGA, TIKRIKILLA block recorded …": the row held no place column, so _c19_title_places had
+    nothing to read; log bank 2026-11-16: 26 answers)."""
+    if not answer or not isinstance(resolved, dict):
+        return answer
+    names = set()
+    for k in _C19_RESOLVED_PLACE_KEYS:
+        v = resolved.get(k)
+        for x in (v if isinstance(v, (list, tuple)) else [v]):
+            if isinstance(x, str) and len(x) >= 3 and x.isupper():
+                names.add(x)
+    for name in sorted(names, key=len, reverse=True):
+        answer = _c19_replace_word(answer, name, _place_title(name))
+    return answer
+
+
+def _c19_replace_word(text: str, old: str, new: str) -> str:
+    """`old` replaced by `new` only where it stands as whole words (not inside a longer capitalised word)."""
+    out, i = [], 0
+    while True:
+        j = text.find(old, i)
+        if j < 0:
+            out.append(text[i:])
+            return "".join(out)
+        k = j + len(old)
+        if (j == 0 or not text[j - 1].isalnum()) and (k == len(text) or not text[k].isalnum()):
+            out.append(text[i:j]); out.append(new)
+        else:
+            out.append(text[i:k])
+        i = k
+
+
 def _c19_noun(col: str, schemes: "list | None") -> str:
     """What the measure counts, with the scheme in front when the name does not carry it: "PMAY-G houses
     sanctioned", "Focus Plus beneficiaries" (never "focus plus beneficiaries")."""
@@ -1093,3 +1130,104 @@ def _c19_with_caveats(spoken: str, answer: str, rows: list, result: dict) -> str
     if not pointer and (len(body) < len(parts)):
         text += " The rest is on your screen."
     return text
+
+
+# ── two years side by side for each place (K8, user's live log 2026-11-16) ────────────────────────────────────────
+# "Compare MGNREGA expenditure in 2022-23 and 2023-24 by district" read "here are the 24 results: Key points - Total
+# expenditure: ₹1,645.91 crore in total, across 24 rows …", one line per (district, year). The shape is recognisable:
+# one place column, one year column with exactly two years. It now says the state total each year and the change,
+# who led, where it rose and fell most, then one line per place with both years — every figure from the rows.
+_C19_YEAR_COLS = ("year_key", "financial_year", "financial_year_short", "fy", "year")
+
+
+def _c19_two_period_places(rows: list, question: str, schemes, entities) -> "str | None":
+    if not rows or not all(isinstance(r, dict) for r in rows) or len(rows) > 400:
+        return None
+    cols = list(rows[0].keys())
+    ycols = [c for c in cols if str(c).lower() in _C19_YEAR_COLS]
+    pcols = [c for c in cols if _c19_is_place_col(c)]
+    if not ycols or len(pcols) != 1:
+        return None
+    pcol = pcols[0]
+    metrics = [c for c in cols if c not in ycols and c != pcol and _as_number(rows[0].get(c)) is not None
+               and not _c12_is_code_col(c)]
+    if not metrics:
+        return None
+    m = max(metrics, key=lambda c: (_c12s_e9_asked(str(c), question), -metrics.index(c)))
+    ycol = ycols[0]
+
+    def period(v) -> str:
+        s = str(v)
+        if s.isdecimal() and len(s) == 4:
+            return f"FY {s}-{(int(s) + 1) % 100:02d}"
+        return s if s.upper().startswith("FY") else f"FY {s}"
+
+    years = sorted({str(r.get(ycol)) for r in rows if r.get(ycol) is not None})
+    if len(years) != 2:
+        return None
+    y0, y1 = years
+    table: dict = {}
+    for r in rows:
+        v = _as_number(r.get(m))
+        place = r.get(pcol)
+        if v is None or place is None:
+            continue
+        table.setdefault(str(place), {})[str(r.get(ycol))] = float(v)
+    both = {p: d for p, d in table.items() if y0 in d and y1 in d}
+    if len(both) < 2:
+        return None
+    p0, p1 = period(y0), period(y1)
+    title = {p: (_place_title(p) if p.isupper() else p) for p in table}
+    t0 = sum(d[y0] for d in table.values() if y0 in d)
+    t1 = sum(d[y1] for d in table.values() if y1 in d)
+    fmt = lambda v: _c12_fmt_value(str(m), _c12s_num(v))                         # noqa: E731
+    noun = _c19_noun(str(m), schemes)
+    dim = _c12s_dim_noun(_AnswerShape("breakdown", m, [m], [pcol]))
+    allowed = [t0, t1, abs(t1 - t0)] + [x for d in table.values() for x in d.values()]
+    sentences = []
+    if t1 == t0:
+        sentences.append(f"{_c12s_e9_cap(noun)} across the {len(table)} {dim} was the same in {p0} and {p1}: "
+                         f"{fmt(t1)}.")
+    else:
+        up = t1 > t0
+        pct = _c12s_pct(abs(t1 - t0), abs(t0)) if t0 > 0 and not _c12_is_pct_col(str(m)) else None
+        if pct is not None:
+            allowed.append(pct)
+        sentences.append(f"{_c12s_e9_cap(noun)} across the {len(table)} {dim} {'rose' if up else 'fell'} from "
+                         f"{fmt(t0)} in {p0} to {fmt(t1)} in {p1}, {'up' if up else 'down'} "
+                         f"{_c12s_e9_gap(str(m), abs(t1 - t0))}" + (f" ({pct}%)." if pct is not None else "."))
+    lead0 = max(both, key=lambda p: both[p][y0])
+    lead1 = max(both, key=lambda p: both[p][y1])
+    if lead0 == lead1:
+        sentences.append(f"{title[lead1]} was the highest in both years ({fmt(both[lead1][y0])} and "
+                         f"{fmt(both[lead1][y1])}).")
+    else:
+        sentences.append(f"{title[lead0]} was the highest in {p0} ({fmt(both[lead0][y0])}), {title[lead1]} in {p1} "
+                         f"({fmt(both[lead1][y1])}).")
+    changes = sorted(both, key=lambda p: both[p][y1] - both[p][y0])
+    rise, fall = changes[-1], changes[0]
+    d_rise, d_fall = both[rise][y1] - both[rise][y0], both[fall][y1] - both[fall][y0]
+    allowed += [abs(both[p][y1] - both[p][y0]) for p in both]
+    bits = []
+    if d_rise > 0:
+        bits.append(f"the biggest rise was in {title[rise]} (up {_c12s_e9_gap(str(m), d_rise)})")
+    if d_fall < 0:
+        bits.append(f"the biggest fall {'' if bits else 'was '}in {title[fall]} (down {_c12s_e9_gap(str(m), -d_fall)})")
+    if bits:
+        s = "; ".join(bits) + "."
+        sentences.append(s[0].upper() + s[1:])
+    lead = " ".join(sentences)
+    if not _c19_spoken_numbers_ok(lead, allowed + [a * s for a in allowed for s in (1e5, 1e7) if _c19_is_money(m)]):
+        return None
+    lines = []
+    for p in sorted(table, key=lambda p: -(table[p].get(y1, table[p].get(y0, 0.0))))[:_C12S_LIST_MAX]:
+        d = table[p]
+        a = f"{p0} {fmt(d[y0])}" if y0 in d else f"{p0} no data"
+        b = f"{p1} {fmt(d[y1])}" if y1 in d else f"{p1} no data"
+        ch = ""
+        if y0 in d and y1 in d and d[y1] != d[y0]:
+            ch = f" ({'up' if d[y1] > d[y0] else 'down'} {_c12s_e9_gap(str(m), abs(d[y1] - d[y0]))})"
+        lines.append(f"- **{title[p]}** — {a} → {b}{ch}")
+    if len(table) > _C12S_LIST_MAX:
+        lines.append(f"…and {len(table) - _C12S_LIST_MAX} more in the table.")
+    return lead + "\n" + "\n".join(lines)
