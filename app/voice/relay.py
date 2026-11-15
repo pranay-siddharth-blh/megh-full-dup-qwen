@@ -168,6 +168,12 @@ async def _open_upstream(cfg, officer: Officer):
             await up.send(json.dumps(setup_msg(cfg, officer)))
             first = json.loads(await asyncio.wait_for(up.recv(), 12))
             if "setupComplete" in first:
+                # 2026-11-16: an engine that reads CONTEXT_LINE data says so in its setupComplete (the sovereign engine
+                # of 16 Nov on); an older engine would take the line for typed words, so it never gets one
+                try:
+                    up.megh_context = bool((first.get("setupComplete") or {}).get("meghContext"))
+                except Exception:  # noqa: BLE001
+                    pass
                 return up, None
             last = ("refused", f"unexpected setup reply: {str(first)[:160]}")
         except (OSError, asyncio.TimeoutError, TimeoutError) as e:
@@ -289,6 +295,8 @@ class VoiceSession:
         self.timeouts: dict = {}                # question key -> timeout task
         self.turn = self._new_turn()
         self.last_answer = ""                   # the last answer sent to the model (a toolResponse speak or a read), _letters
+        # 2026-11-16: the sovereign engine takes CONTEXT_LINE data (it said so at setup); never Gemini, never an old engine
+        self.engine_context = bool(cfg.live_url) and bool(getattr(up, "megh_context", False))
 
     @staticmethod
     def _new_turn() -> dict:
@@ -402,14 +410,14 @@ class VoiceSession:
                 self.turn["fresh"] = True
                 await self.up_text(text)
             elif t == "context":                    # 2026-11-16: the chat's last answers, when the voice opens
-                if self.cfg.live_url:
+                if self.engine_context:
                     items = [_context_fields(x) for x in (m.get("items") or [])[:3] if isinstance(x, dict)]
                     items = [x for x in items if x]
                     if items:
                         await self.up_text(prompt.CONTEXT_LINE + json.dumps({"items": items}, ensure_ascii=False))
             elif t == "read":                       # an answer the page got another way (a typed question, a chip)
                 text = speech_guard.scrub(str(m.get("text") or ""))[:2500]
-                if text and self.cfg.live_url:
+                if text and self.engine_context:
                     ctx = _context_fields(m)
                     if ctx:                         # a typed / chip answer: the engine's memory takes it too
                         ctx["speak"] = text

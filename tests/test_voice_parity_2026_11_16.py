@@ -132,7 +132,9 @@ class _Ws:
 def _session(live_url):
     cfg = SimpleNamespace(live_url=live_url, tool_timeout=20, idle_seconds=25, max_session_minutes=0,
                           block_unsourced=True)
-    s = relay.VoiceSession(_Ws(), _Up(), cfg, relay.Officer(key="1", username="u", name="n"))
+    up = _Up()
+    up.megh_context = bool(live_url)              # the sovereign engine announced CONTEXT_LINE at setup
+    s = relay.VoiceSession(_Ws(), up, cfg, relay.Officer(key="1", username="u", name="n"))
     return s
 
 
@@ -205,6 +207,18 @@ def test_a_typed_answer_read_aloud_reaches_the_engine_as_context(monkeypatch):
     s2.ws.send_json = _Ws().send_json
     try:
         asyncio.run(s2.from_page())
+    except Exception:  # noqa: BLE001
+        pass
+    assert not [t for t in sent if t.startswith(voice_prompt.CONTEXT_LINE)] and sent, sent
+    # an engine that did not announce it (an older sovereign engine) gets no context line either
+    s3 = _session("ws://127.0.0.1:8171")
+    s3.engine_context = False
+    sent.clear()
+    monkeypatch.setattr(s3, "up_text", up_text)
+    s3.ws = _Page()
+    s3.ws.send_json = _Ws().send_json
+    try:
+        asyncio.run(s3.from_page())
     except Exception:  # noqa: BLE001
         pass
     assert not [t for t in sent if t.startswith(voice_prompt.CONTEXT_LINE)] and sent, sent
