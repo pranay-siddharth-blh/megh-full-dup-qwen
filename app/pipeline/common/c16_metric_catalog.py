@@ -286,6 +286,19 @@ def _c16_year_series(question: str) -> "set[str] | None":
     return {"year"} | ({"district"} if "district" in rest else set()) | (rest - {"district"})
 
 
+def _c16_all_districts_said(question: str) -> bool:
+    """"(across|in|over|for) all (the) (12|twelve) districts" is said."""
+    ws = _c01_tm_words(question or "")
+    for i, w in enumerate(ws):
+        if w == "all":
+            k = i + 1
+            while k < len(ws) and ws[k] in ("the", "12", "twelve"):
+                k += 1
+            if k < len(ws) and ws[k] == "districts":
+                return True
+    return False
+
+
 def _c16_shape(question: str, filters: dict) -> "dict | None":
     """The query type the question asks for: {"qtype", "group", "order", "limit"},
     or None for a shape the catalogue query does not cover (the model answers)."""
@@ -500,6 +513,10 @@ def _metric_catalog_plan(question: str, schemes: "list[str]", entity_result: dic
         allowed = allowed | _C16_YEAR_SERIES_WORDS
         if _c16_years_joined(question):
             allowed = allowed | {"and", "vs", "versus"}      # "... in FY 2022-23 and FY 2023-24"
+        elif _c16_year_series(question) is not None and _c16_all_districts_said(question):
+            # 2026-11-16 (the user's live voice test): "MGNREGA expenditure by financial year AND across all the
+            # districts" fell to the model ("asks more than the measure: and"), whose SQL found no rows
+            allowed = allowed | {"and"}
     extra = _c16_extra_words(question, schemes, entity_result, found.spans, allowed)
     if extra:
         out["reason"] = "asks more than the measure: " + " ".join(extra[:6])
