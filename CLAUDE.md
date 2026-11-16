@@ -29,6 +29,12 @@ gateway outage of 2–3 Nov). **Voice layer updated 10–11 Nov 2026 (§0); `doc
   `deploy/nginx/nginx-megh-full-dup-qwen.conf` (upstream `megh_full_dup_qwen_app`, zones `*_megh_full_dup_qwen`, TLS
   cache `MEGH_FULL_DUP_QWEN_SSL`, certs `/etc/nginx/tls/megh-full-dup-qwen-*.pem`). Ports unchanged: https :9000 ->
   127.0.0.1:9001, so this build and the Maya build cannot run on the same server at the same time without a port change.
+- **Verified deployment-ready (16 Nov evening, Docker Desktop, the same checks as the Maya build):** images built
+  (app 813 MB, voice 614 MB), no secret file in either; voice image FDX_TTS_ENGINE=qwen, no MAYA setting, the clip
+  byte-identical; the three containers healthy on the real settings files (voice qwen3-tts, maya key not set, ears +
+  second listen on; app: issuer megh-full-dup-qwen, VOICE_LIVE_URL = the engine, no Gemini key, 0 errors); nginx:1.27
+  `nginx -t` ok with this site file, http -> 301 https, https /health and /megh-chat 200; `tests/voice/ui_voice.py
+  --real` through nginx on https://127.0.0.1:9000 **16/16** (/ws/voice 101). NOT pushed to GitHub (the user: not yet).
 
 ### 0f. 16 Nov 2026 (midday) — DEPLOYMENT BUILD `megh-full-dup` (read first)
 - **Where:** branch `release/megh-full-dup` (cut from arch/step1 9c75760) in this clone, pushed to the PRIVATE GitHub
