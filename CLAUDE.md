@@ -20,6 +20,15 @@ gateway outage of 2–3 Nov). **Voice layer updated 10–11 Nov 2026 (§0); `doc
 - Local side-by-side test (16 Nov): Maya = app 8401 / engine 8170 / voice 8144 (the main); qwen = app 8402 / engine 8171 /
   voice 8145, all from the worktree `D:\megwt\qwen` (start script: the session scratchpad `start_qwen.ps1`).
 - Kyutai TTS 1.6B is NOT on the gateway (404); PersonaPlex cannot be the voice (does not say numbers exactly).
+- **Every name in this branch is `megh-full-dup-qwen` (the user, 16 Nov evening)** — §0f below describes the Maya build
+  with the old names; here read: compose `docker-compose.megh-full-dup-qwen.yml`, project `megh-full-dup-qwen`; images
+  `megh-full-dup-qwen-app` / `megh-full-dup-qwen-voice`; containers `megh-full-dup-qwen-app` / `-engine` / `-voicesvc`;
+  network `megh-full-dup-qwen-net`; volume `megh-full-dup-qwen_hf_cache`; app image `Dockerfile.megh-full-dup-qwen`,
+  paths `/opt/megh-full-dup-qwen` and `/opt/megh-full-dup-qwen-voice`; settings `deploy/megh-full-dup-qwen/app.env` +
+  `voice.env` (own JWT_SECRET / ADMIN_TOKEN, JWT_ISSUER=megh-full-dup-qwen); nginx site
+  `deploy/nginx/nginx-megh-full-dup-qwen.conf` (upstream `megh_full_dup_qwen_app`, zones `*_megh_full_dup_qwen`, TLS
+  cache `MEGH_FULL_DUP_QWEN_SSL`, certs `/etc/nginx/tls/megh-full-dup-qwen-*.pem`). Ports unchanged: https :9000 ->
+  127.0.0.1:9001, so this build and the Maya build cannot run on the same server at the same time without a port change.
 
 ### 0f. 16 Nov 2026 (midday) — DEPLOYMENT BUILD `megh-full-dup` (read first)
 - **Where:** branch `release/megh-full-dup` (cut from arch/step1 9c75760) in this clone, pushed to the PRIVATE GitHub

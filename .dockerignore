@@ -25,7 +25,7 @@ fastembed_cache/
 # never enter an image layer, where it survives every later deletion.
 certs/local/
 
-# megh-full-dup (2026-11-16): secrets that live beside the code on a dev machine and are git-ignored — git-ignore
+# megh-full-dup-qwen (2026-11-16): secrets that live beside the code on a dev machine and are git-ignored — git-ignore
 # does NOT apply to `docker build`, so without these lines they were sent to the builder and certs/voice.env (the
 # Gemini key) was COPIED into the app image by `COPY certs/`. Settings reach the containers only at run time
 # (docker compose env_file / environment).
@@ -35,7 +35,7 @@ gateway_models.env
 *.env
 .env.*
 **/gateway_models.env
-deploy/megh-full-dup/*.env
+deploy/megh-full-dup-qwen/*.env
 
 # Docs / deploy scaffolding not needed inside the app image
 docs

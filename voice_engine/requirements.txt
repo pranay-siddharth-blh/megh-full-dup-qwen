@@ -1,4 +1,4 @@
-# MEGH-FULL-DUP voice image (engine megh/adapter.py + voice service sidevoice/server.py).
+# MEGH-FULL-DUP-QWEN voice image (engine megh/adapter.py + voice service sidevoice/server.py).
 # Pinned to the versions the engine runs and was tested with (D:\Full Duplex Architecture\.venv, 16 Nov 2026).
 httpx==0.28.1
 anyio==4.13.0

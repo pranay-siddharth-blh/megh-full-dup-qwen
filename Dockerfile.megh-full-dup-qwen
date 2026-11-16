@@ -1,15 +1,15 @@
 # syntax=docker/dockerfile:1
 
 # ─────────────────────────────────────────────────────────────────────────────
-# MEGH-FULL-DUP — the Megh One AI app image (API, chat UI, admin UI, the voice relay /ws/voice and dictation
+# MEGH-FULL-DUP-QWEN — the Megh One AI app image (API, chat UI, admin UI, the voice relay /ws/voice and dictation
 # /ws/dictate). Its live voice is the sovereign engine (voice_engine/Dockerfile), reached on the compose network
 # through VOICE_LIVE_URL; nothing is sent to Gemini.
 #
-#   docker compose -f docker-compose.megh-full-dup.yml build
-#   (image megh-full-dup-app:latest; the older builds use megh-nlp:latest and megh-langgraph:latest)
+#   docker compose -f docker-compose.megh-full-dup-qwen.yml build
+#   (image megh-full-dup-qwen-app:latest; the older builds use megh-nlp:latest and megh-langgraph:latest)
 #
 # Same build as the project Dockerfile, under this build's own names and path. Settings and secrets are NOT in
-# the image: they come at run time from deploy/megh-full-dup/app.env (see the compose file).
+# the image: they come at run time from deploy/megh-full-dup-qwen/app.env (see the compose file).
 # Build uses requirements.txt, NOT requirements.lock (the lock pins Windows-only packages).
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -40,7 +40,7 @@ RUN python -c "from fastembed import TextEmbedding; TextEmbedding(model_name='BA
 # ---- Stage 2: runtime -------------------------------------------------------
 FROM python:3.11-slim AS runtime
 
-LABEL org.opencontainers.image.title="megh-full-dup-app" \
+LABEL org.opencontainers.image.title="megh-full-dup-qwen-app" \
       org.opencontainers.image.description="Megh One AI with the sovereign full-duplex voice (app)"
 
 # libgomp1: required by onnxruntime (fastembed local embeddings).
@@ -58,14 +58,14 @@ COPY --from=builder /opt/venv /opt/venv
 COPY --from=builder /opt/hf-cache /opt/hf-cache
 
 # The tree must keep its shape: app/ resolves data/ and web/ as siblings (Path(__file__).resolve().parents[1]).
-WORKDIR /opt/megh-full-dup
+WORKDIR /opt/megh-full-dup-qwen
 COPY app/   ./app/
 COPY data/  ./data/
 COPY web/   ./web/
 COPY certs/ ./certs/
 
 RUN mkdir -p logs \
-    && chown -R megh:megh /opt/megh-full-dup /opt/hf-cache
+    && chown -R megh:megh /opt/megh-full-dup-qwen /opt/hf-cache
 
 USER megh
 EXPOSE 8401
