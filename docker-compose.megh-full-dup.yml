@@ -1,6 +1,6 @@
 # MEGH-FULL-DUP — Megh One AI with the sovereign full-duplex voice. Three containers on one private network:
 #
-#   app       megh-full-dup-app     the API + chat / admin UI + voice relay   host 127.0.0.1:9000 -> 8401 (nginx in front)
+#   app       megh-full-dup-app     the API + chat / admin UI + voice relay   host 127.0.0.1:9001 -> 8401 (nginx :9000 in front)
 #   engine    megh-full-dup-engine  the voice engine (Kyutai ears, shaper)    internal only (8170)
 #   voicesvc  megh-full-dup-voicesvc the maya2 voice (Jahnavi / Akshat)       internal only (8144)
 #
@@ -16,7 +16,7 @@
 #   images            megh-full-dup-app:latest, megh-full-dup-voice:latest
 #   containers        megh-full-dup-app, megh-full-dup-engine, megh-full-dup-voicesvc
 #   network           megh-full-dup-net        volumes  megh-full-dup_hf_cache
-#   host port         127.0.0.1:9000 (only the app; nginx-megh-full-dup.conf proxies to it)
+#   host port         127.0.0.1:9001 (only the app; nginx-megh-full-dup.conf serves https://<ip>:9000 and proxies to it)
 #
 # Settings (never in an image): deploy/megh-full-dup/app.env (the app's own settings, the keys app/config.py knows —
 # it refuses unknown keys) and deploy/megh-full-dup/voice.env (the voice engine + voice service). Both are
@@ -40,7 +40,7 @@ services:
       MEGH_VOICE_ENV: /dev/null       # no certs/voice.env inside the image
       PIPELINE_GRAPH_CHECKPOINTER_DSN: ${PIPELINE_GRAPH_CHECKPOINTER_DSN:-postgres}
     ports:
-      - "127.0.0.1:9000:8401"
+      - "127.0.0.1:9001:8401"     # local only; nginx serves the public https://<ip>:9000
     volumes:
       - ./logs:/opt/megh-full-dup/logs
       - hf_cache:/opt/hf-cache
