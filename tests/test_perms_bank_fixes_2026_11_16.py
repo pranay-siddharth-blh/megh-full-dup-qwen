@@ -102,3 +102,12 @@ def test_block_ranking_inside_listed_districts():
     assert s and s["qtype"] == "ranking" and s["group"] == "block"
     assert P._c16_shape("Which district has the highest PMAY-G houses completed in West Garo Hills and Ri Bhoi",
                         {"district": ["WEST GARO HILLS", "RI BHOI"]}) is None
+
+
+def test_year_series_and_across_all_districts_reads_and_as_a_joiner():
+    """The user's live voice test (16 Nov 09:56): "MGNREGA expenditure by financial year AND across all the districts"
+    declined the catalogue on the word "and"."""
+    from app import pipeline as p
+    assert p._c16_all_districts_said("by financial year and across all the districts")
+    assert p._c16_all_districts_said("per financial year across all 12 districts")
+    assert not p._c16_all_districts_said("by financial year in West Garo Hills")
