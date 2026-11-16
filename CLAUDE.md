@@ -6,6 +6,47 @@ gateway outage of 2–3 Nov). **Voice layer updated 10–11 Nov 2026 (§0); `doc
 
 ## 0. Current state of the live voice (10–11 Nov 2026) — read before touching anything voice
 
+### 0f. 16 Nov 2026 (midday) — DEPLOYMENT BUILD `megh-full-dup` (read first)
+- **Where:** branch `release/megh-full-dup` (cut from arch/step1 9c75760) in this clone, pushed to the PRIVATE GitHub
+  repo **`pranay-siddharth-blh/megh-full-dup`** (remote `github`, default branch = this one). The team's Bitbucket
+  `origin` stays fetch-only. Another machine deploys it to the `.2` server beside the older builds; nobody gives us
+  server access, so everything is in the code.
+- **Opened at `https://<server-ip>:9000`** (the owner's choice, "option A": its own port, by IP, no URL prefix).
+  - `deploy/nginx/nginx-megh-full-dup.conf`: listens 9000 ssl (server_name `_`), plain http on 9000 -> 301 https
+    (error_page 497), never touches 80 / 443; upstream `megh_full_dup_app` -> **127.0.0.1:9001**; unique zones
+    `*_mfd`, TLS cache `MEGH_FULL_DUP_SSL`, certs `/etc/nginx/tls/megh-full-dup-*.pem` (self-signed for the IP: the
+    openssl line is in the file); Host = `$http_host`; stapling off. Same 15 routes incl. `/ws/voice`, `/ws/dictate`.
+  - `docker-compose.megh-full-dup.yml`: project `megh-full-dup`, network `megh-full-dup-net`; containers
+    `megh-full-dup-app` (127.0.0.1:9001 -> 8401; `VOICE_LIVE_URL=ws://megh-full-dup-engine:8170`, no Gemini),
+    `megh-full-dup-engine` and `megh-full-dup-voicesvc` (internal only).
+  - Images: `Dockerfile.megh-full-dup` -> `megh-full-dup-app` (path /opt/megh-full-dup); `voice_engine/Dockerfile` ->
+    `megh-full-dup-voice` (one image, two services).
+  - `voice_engine/`: the sovereign voice packaged from `D:\Full Duplex Architecture` (megh/adapter.py + shaper /
+    natural / places / fixed_lines + 8-scheme domain pack; fdx ears + protocol; sidevoice/server.py maya2 f=Jahnavi
+    m=Akshat; ops/keys.py; pinned requirements). The engine reads place names from data/ (copied into the image).
+    Both services now take `FDX_BIND_HOST` (default 127.0.0.1; the image sets 0.0.0.0) — also patched in the Full
+    Duplex originals. **Keep `voice_engine/` in step with the Full Duplex originals when either changes.**
+- **Settings** (never in an image, never in git): `deploy/megh-full-dup/app.env` (92 app keys, Docker env_file form:
+  NO inline comments — the dev .env has 20 that Docker would keep inside values; this build's own JWT_SECRET /
+  ADMIN_TOKEN, JWT_ISSUER=megh-full-dup) and `voice.env` (17: Kyutai STT, qwen3-asr, qwen4-deploy, maya2). Templates
+  `*.env.example` are tracked. The owner's decisions (recorded in app.env): postgres superuser, 10.48.242.4 for DB /
+  gateway / Qdrant, sign-in via superadmin, gateway TLS unverified as today. The real files go to the deployer
+  separately (they live at `D:\meg one clone\meghoneai\deploy\megh-full-dup\` on this laptop).
+- **Fixed on the way:** `.dockerignore` now drops certs/voice.env (the Gemini key was being COPIED into the app image),
+  gateway_models.env and every *.env; `.gitattributes` keeps deployment files LF (a CRLF env_file = a hidden `\r` in
+  every value).
+- **Verified on Docker Desktop here:** both images build with no secret file inside; all three containers healthy;
+  maya warm-up 34/34 from inside; nginx:1.27 accepts the site (`nginx -t`); http->https 301, https /health and
+  /megh-chat 200; `tests/voice/ui_voice.py --real` through nginx on `https://127.0.0.1:9000`: **16/16** (/ws/voice 101).
+  Test tip: the voice tests sign their own JWT with this laptop's .env secret — against the container export
+  `JWT_SECRET` from app.env and `JWT_ISSUER=megh-full-dup`; with a self-signed cert set `SSL_CERT_FILE` to it.
+- **Deploy on the server:** put app.env + voice.env in deploy/megh-full-dup/; free + open port 9000 (9001 local);
+  create the IP certificate; `docker compose -f docker-compose.megh-full-dup.yml build && … up -d` (all healthy);
+  install the nginx site (sites-available/megh-full-dup + symlink), `nginx -t`, reload; open
+  `https://<server-ip>:9000/megh-chat`. Rollback: `… down` + remove the symlink; the older builds are never touched.
+- Also today: MGNREGA mishearings "Mandira / Mandraya / Mandriga" -> MGNREGA in the engine's ASR fixes (voice_overlay
+  + both packs); "by financial year AND across all the districts" = the state's year series (c16, 9c75760).
+
 ### 0e. 16 Nov 2026 07:10 — STOPPED for the user's meeting (read first)
 - Everything stopped (app 8401, engine 8170, voice 8144). Last live check 07:02 after the VPN came back: `ui_voice.py
   --real` 16/16. Restart steps and open items: `D:\Full Duplex Architecture\CLAUDE.md` §0 top ("WHERE WE STOPPED").
