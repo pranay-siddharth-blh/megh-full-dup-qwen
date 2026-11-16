@@ -7,3 +7,4 @@ Dockerfile* text eol=lf
 voice_engine/** text eol=lf
 voice_engine/**/*.json text eol=lf
 docker-compose*.yml text eol=lf
+voice_engine/**/*.wav binary
