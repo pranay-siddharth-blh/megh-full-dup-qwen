@@ -6,6 +6,21 @@ gateway outage of 2–3 Nov). **Voice layer updated 10–11 Nov 2026 (§0); `doc
 
 ## 0. Current state of the live voice (10–11 Nov 2026) — read before touching anything voice
 
+### 0g. 16 Nov 2026 (evening) — THIS BRANCH `release/megh-full-dup-qwen`: the deployment build with the qwen3-tts voice
+
+- **Identical to `release/megh-full-dup` (the Maya2 build, which stays the MAIN build) except the voice.** The user:
+  Maya2 cannot be deployed; swap only the voice, Maya2 -> qwen3-tts; nothing else changes.
+- The only changes (4 files + 1 clip): `voice_engine/Dockerfile` ENV FDX_TTS_ENGINE=qwen, FDX_TTS_REF=.../voices/designed_a.wav,
+  FDX_TTS_CLONE=full (FDX_MAYA_VOICE gone); `voice_engine/voices/voices.json` f and m = voice A (designed_a, full clone,
+  seed 2026; m is TEMPORARY until a male reference clip is chosen); `voice_engine/voices/designed_a.wav` + `.txt` added;
+  `deploy/megh-full-dup/voice.env(.example)` MAYA_TTS_* out, FDX_TTS_KEY in; a comment in `docker-compose.megh-full-dup.yml`.
+  App code, pipeline, engine code, UI, nginx, ports (https :9000 -> 9001), names and images are the same as the Maya build.
+- qwen3-tts on the gateway is the Base checkpoint: it needs the reference clip (sent by sidevoice). First sound of an
+  uncached line ~2.5 s (Maya ~0.1 s); fixed lines are warmed at start.
+- Local side-by-side test (16 Nov): Maya = app 8401 / engine 8170 / voice 8144 (the main); qwen = app 8402 / engine 8171 /
+  voice 8145, all from the worktree `D:\megwt\qwen` (start script: the session scratchpad `start_qwen.ps1`).
+- Kyutai TTS 1.6B is NOT on the gateway (404); PersonaPlex cannot be the voice (does not say numbers exactly).
+
 ### 0f. 16 Nov 2026 (midday) — DEPLOYMENT BUILD `megh-full-dup` (read first)
 - **Where:** branch `release/megh-full-dup` (cut from arch/step1 9c75760) in this clone, pushed to the PRIVATE GitHub
   repo **`pranay-siddharth-blh/megh-full-dup`** (remote `github`, default branch = this one). The team's Bitbucket

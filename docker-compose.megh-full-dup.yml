@@ -2,7 +2,7 @@
 #
 #   app       megh-full-dup-app     the API + chat / admin UI + voice relay   host 127.0.0.1:9001 -> 8401 (nginx :9000 in front)
 #   engine    megh-full-dup-engine  the voice engine (Kyutai ears, shaper)    internal only (8170)
-#   voicesvc  megh-full-dup-voicesvc the maya2 voice (Jahnavi / Akshat)       internal only (8144)
+#   voicesvc  megh-full-dup-voicesvc the qwen3-tts voice (voice A)           internal only (8144)
 #
 #   docker compose -f docker-compose.megh-full-dup.yml build
 #   docker compose -f docker-compose.megh-full-dup.yml up -d

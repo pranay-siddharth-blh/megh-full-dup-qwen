@@ -5,8 +5,8 @@
 #   engine    python megh/adapter.py 8170     speaks the Gemini-Live message subset the app's relay uses;
 #                                              ears = Kyutai STT 1B (timing) + qwen3-asr (words), shaper, brain =
 #                                              the app's own pipeline (ask_megh), mouth = the voice service
-#   voicesvc  python sidevoice/server.py 8144  the voice: maya2-native (Female Jahnavi / Male Akshat)
-# Every model is on the team's GPU gateway (FDX_* / MAYA_* settings, deploy/megh-full-dup/voice.env).
+#   voicesvc  python sidevoice/server.py 8144  the voice: qwen3-tts, cloned from voices/designed_a.wav (voice A)
+# Every model is on the team's GPU gateway (FDX_* settings, deploy/megh-full-dup/voice.env).
 #
 # Build context = the repository root (it also copies data/: the engine reads the place names from
 # data/*/*_entity_resolver.yaml).
@@ -15,7 +15,7 @@
 FROM python:3.11-slim
 
 LABEL org.opencontainers.image.title="megh-full-dup-voice" \
-      org.opencontainers.image.description="Megh One AI sovereign full-duplex voice: engine + maya2 voice service"
+      org.opencontainers.image.description="Megh One AI sovereign full-duplex voice: engine + qwen3-tts voice service"
 
 ENV PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
@@ -37,8 +37,9 @@ ENV PYTHONPATH=/opt/megh-full-dup-voice \
     FDX_BIND_HOST=0.0.0.0 \
     MEGH_DATA_DIR=/opt/megh-full-dup-voice/megh-data \
     MEGH_DOMAIN_PACK=/opt/megh-full-dup-voice/megh/domain/megh_pack.json \
-    FDX_TTS_ENGINE=maya \
-    FDX_MAYA_VOICE=Jahnavi
+    FDX_TTS_ENGINE=qwen \
+    FDX_TTS_REF=/opt/megh-full-dup-voice/voices/designed_a.wav \
+    FDX_TTS_CLONE=full
 
 RUN rm -f requirements.txt Dockerfile && chown -R meghvoice:meghvoice /opt/megh-full-dup-voice
 USER meghvoice

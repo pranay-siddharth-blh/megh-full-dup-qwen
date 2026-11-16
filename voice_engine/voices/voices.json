@@ -1,10 +1,14 @@
 {
  "f": {
-  "maya": "Jahnavi",
-  "label": "Female (maya2-native Jahnavi; the default, the user's pick 16 Nov 2026)"
+  "ref": "designed_a.wav",
+  "seed": 2026,
+  "clone": "full",
+  "label": "Female (qwen3-tts voice A, warm Bengaluru woman; the default)"
  },
  "m": {
-  "maya": "Akshat",
-  "label": "Male (maya2-native Akshat; the user's pick 16 Nov 2026)"
+  "ref": "designed_a.wav",
+  "seed": 2026,
+  "clone": "full",
+  "label": "Male (TEMPORARY: voice A until a male reference clip is chosen)"
  }
 }
