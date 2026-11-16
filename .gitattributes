@@ -1,0 +1,9 @@
+
+# megh-full-dup (2026-11-16): deployment files keep LF on every checkout — a CRLF in a Docker env_file would put an
+# invisible "\r" at the end of every value (keys, URLs), and nginx / shell / Dockerfiles expect LF on Linux.
+deploy/megh-full-dup/*.env* text eol=lf
+deploy/nginx/*.conf text eol=lf
+Dockerfile* text eol=lf
+voice_engine/** text eol=lf
+voice_engine/**/*.json text eol=lf
+docker-compose*.yml text eol=lf
