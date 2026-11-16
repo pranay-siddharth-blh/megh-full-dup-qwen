@@ -6,6 +6,14 @@ gateway outage of 2–3 Nov). **Voice layer updated 10–11 Nov 2026 (§0); `doc
 
 ## 0. Current state of the live voice (10–11 Nov 2026) — read before touching anything voice
 
+### 0e. 16 Nov 2026 07:10 — STOPPED for the user's meeting (read first)
+- Everything stopped (app 8401, engine 8170, voice 8144). Last live check 07:02 after the VPN came back: `ui_voice.py
+  --real` 16/16. Restart steps and open items: `D:\Full Duplex Architecture\CLAUDE.md` §0 top ("WHERE WE STOPPED").
+- New tonight and worth knowing: `tests/accuracy/run_log_bank.py` (367 cases from the user's real questions; run with
+  --root and concurrency 2: megh_db's `megh_readonly` role hits "too many connections" when several banks run at once),
+  `tests/accuracy/run_perms.py` (472 voice + typed permutations), `tests/voice/ui_voice_transcript.py`, `ui_voice_audit.py`,
+  `ui_chat_audit.py` (all take --real for the sovereign engine).
+
 ### 0d. 16 Nov 2026 04:35 — DEMO VERSION frozen: tag `demo-final-2026-11-16` (read first)
 - Overnight run for the user's meeting (four Opus agents + lead; full record in `D:\Full Duplex Architecture\CLAUDE.md`
   §0 top). Code 222171b, results commit 811c9ef. Final verification on exactly this code: full suite 7,202 passed 0 failed,
