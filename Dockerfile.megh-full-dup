@@ -1,0 +1,77 @@
+# syntax=docker/dockerfile:1
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MEGH-FULL-DUP — the Megh One AI app image (API, chat UI, admin UI, the voice relay /ws/voice and dictation
+# /ws/dictate). Its live voice is the sovereign engine (voice_engine/Dockerfile), reached on the compose network
+# through VOICE_LIVE_URL; nothing is sent to Gemini.
+#
+#   docker compose -f docker-compose.megh-full-dup.yml build
+#   (image megh-full-dup-app:latest; the older builds use megh-nlp:latest and megh-langgraph:latest)
+#
+# Same build as the project Dockerfile, under this build's own names and path. Settings and secrets are NOT in
+# the image: they come at run time from deploy/megh-full-dup/app.env (see the compose file).
+# Build uses requirements.txt, NOT requirements.lock (the lock pins Windows-only packages).
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ---- Stage 1: the virtualenv ------------------------------------------------
+FROM python:3.11-slim AS builder
+
+ENV PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+COPY requirements.txt .
+RUN pip install --upgrade pip && pip install -r requirements.txt
+
+# Pre-seed the local embedding model (bge-small-en-v1.5) so the container works with no outbound HTTPS on first
+# run. Best effort: a network-less build still succeeds and the model downloads at first use.
+ENV HF_HOME=/opt/hf-cache
+RUN python -c "from fastembed import TextEmbedding; TextEmbedding(model_name='BAAI/bge-small-en-v1.5'); print('fastembed model cached')" \
+    || echo "WARN: could not pre-cache fastembed model; it will download on first use"
+
+
+# ---- Stage 2: runtime -------------------------------------------------------
+FROM python:3.11-slim AS runtime
+
+LABEL org.opencontainers.image.title="megh-full-dup-app" \
+      org.opencontainers.image.description="Megh One AI with the sovereign full-duplex voice (app)"
+
+# libgomp1: required by onnxruntime (fastembed local embeddings).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libgomp1 \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --create-home --uid 10001 megh
+
+ENV PATH="/opt/venv/bin:$PATH" \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    HF_HOME=/opt/hf-cache
+
+COPY --from=builder /opt/venv /opt/venv
+COPY --from=builder /opt/hf-cache /opt/hf-cache
+
+# The tree must keep its shape: app/ resolves data/ and web/ as siblings (Path(__file__).resolve().parents[1]).
+WORKDIR /opt/megh-full-dup
+COPY app/   ./app/
+COPY data/  ./data/
+COPY web/   ./web/
+COPY certs/ ./certs/
+
+RUN mkdir -p logs \
+    && chown -R megh:megh /opt/megh-full-dup /opt/hf-cache
+
+USER megh
+EXPOSE 8401
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
+    CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8401/health', timeout=4).status==200 else 1)"
+
+# 2 workers (as the older builds). Each voice session lives on one worker; the voice engine serves both.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8401", "--workers", "2"]

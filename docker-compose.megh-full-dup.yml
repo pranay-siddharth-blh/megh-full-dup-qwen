@@ -1,0 +1,104 @@
+# MEGH-FULL-DUP — Megh One AI with the sovereign full-duplex voice. Three containers on one private network:
+#
+#   app       megh-full-dup-app     the API + chat / admin UI + voice relay   host 127.0.0.1:9000 -> 8401 (nginx in front)
+#   engine    megh-full-dup-engine  the voice engine (Kyutai ears, shaper)    internal only (8170)
+#   voicesvc  megh-full-dup-voicesvc the maya2 voice (Jahnavi / Akshat)       internal only (8144)
+#
+#   docker compose -f docker-compose.megh-full-dup.yml build
+#   docker compose -f docker-compose.megh-full-dup.yml up -d
+#   docker compose -f docker-compose.megh-full-dup.yml ps        # all three "healthy"
+#   docker compose -f docker-compose.megh-full-dup.yml logs -f engine
+#   docker compose -f docker-compose.megh-full-dup.yml down      # stops THIS build only
+#
+# SIDE-BY-SIDE with the older builds on the same server: every Docker name is new, so `up` never adopts or replaces
+# them. Older builds: compose "meghalaya" / megh-nlp (host port 8401) and "megh-langgraph" (host port 8411).
+#   compose project   megh-full-dup
+#   images            megh-full-dup-app:latest, megh-full-dup-voice:latest
+#   containers        megh-full-dup-app, megh-full-dup-engine, megh-full-dup-voicesvc
+#   network           megh-full-dup-net        volumes  megh-full-dup_hf_cache
+#   host port         127.0.0.1:9000 (only the app; nginx-megh-full-dup.conf proxies to it)
+#
+# Settings (never in an image): deploy/megh-full-dup/app.env (the app's own settings, the keys app/config.py knows —
+# it refuses unknown keys) and deploy/megh-full-dup/voice.env (the voice engine + voice service). Both are
+# git-ignored and docker-ignored; templates sit beside them as *.env.example.
+name: megh-full-dup
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.megh-full-dup
+    image: megh-full-dup-app:latest
+    container_name: megh-full-dup-app
+    restart: unless-stopped
+    env_file:
+      - deploy/megh-full-dup/app.env
+    environment:
+      # The live voice = the sovereign engine on this network (no Gemini key, nothing leaves the gateway).
+      VOICE_ENGINE: gemini            # the relay's protocol name (the engine speaks that message subset)
+      VOICE_LIVE_URL: ws://megh-full-dup-engine:8170
+      MEGH_VOICE_ENV: /dev/null       # no certs/voice.env inside the image
+      PIPELINE_GRAPH_CHECKPOINTER_DSN: ${PIPELINE_GRAPH_CHECKPOINTER_DSN:-postgres}
+    ports:
+      - "127.0.0.1:9000:8401"
+    volumes:
+      - ./logs:/opt/megh-full-dup/logs
+      - hf_cache:/opt/hf-cache
+    depends_on:
+      engine:
+        condition: service_healthy
+    networks: [megh-full-dup-net]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8401/health', timeout=4).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+  engine:
+    build:
+      context: .
+      dockerfile: voice_engine/Dockerfile
+    image: megh-full-dup-voice:latest
+    container_name: megh-full-dup-engine
+    restart: unless-stopped
+    command: ["python", "megh/adapter.py", "8170"]
+    env_file:
+      - deploy/megh-full-dup/voice.env
+    environment:
+      MEGH_VOICE_URL: ws://megh-full-dup-voicesvc:8144/api/chat
+    depends_on:
+      voicesvc:
+        condition: service_healthy
+    networks: [megh-full-dup-net]
+    expose: ["8170"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8170/health', timeout=4).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  voicesvc:
+    image: megh-full-dup-voice:latest    # the same image as the engine (built once, by the engine service)
+    pull_policy: never                   # built locally by the engine service; never pulled
+    container_name: megh-full-dup-voicesvc
+    restart: unless-stopped
+    command: ["python", "sidevoice/server.py", "8144"]
+    env_file:
+      - deploy/megh-full-dup/voice.env
+    networks: [megh-full-dup-net]
+    expose: ["8144"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8144/health', timeout=4).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+networks:
+  megh-full-dup-net:
+    name: megh-full-dup-net
+
+volumes:
+  hf_cache:

@@ -1,0 +1,4624 @@
+{
+ "pack_version": 1,
+ "built": "2026-11-14 16:44:48",
+ "megh_root": "D:\\meg one clone\\meghoneai",
+ "sources": {
+  "D:\\meg one clone\\meghoneai\\app\\scheme_registry.py": "640ec3f05d3f",
+  "D:\\meg one clone\\meghoneai\\data\\spelling_aliases.yaml": "e5a811c984f4",
+  "D:\\meg one clone\\meghoneai\\frontend\\src\\chat\\chartTheme.js": "b2c83083fea6",
+  "D:\\Full Duplex Architecture\\megh\\domain\\voice_overlay.yaml": "077d651ade87",
+  "D:\\meg one clone\\meghoneai\\data\\mgnrega\\mgnrega_entity_resolver.yaml": "8716a6ee59e0",
+  "D:\\meg one clone\\meghoneai\\data\\pmay\\pmay_entity_resolver.yaml": "fc7f2fbd18e1",
+  "D:\\meg one clone\\meghoneai\\data\\focus_plus\\focusplus_entity_resolver.yaml": "226cec0f6338",
+  "D:\\meg one clone\\meghoneai\\data\\cm_elevate\\cmelevate_entity_resolver.yaml": "d66618416280",
+  "D:\\meg one clone\\meghoneai\\data\\focus_legacy\\focuslegacy_entity_resolver.yaml": "f4f3c2cb3531",
+  "D:\\meg one clone\\meghoneai\\data\\cm_elevate_legacy\\cmelevatelegacy_entity_resolver.yaml": "ddf0a80b71cd",
+  "D:\\meg one clone\\meghoneai\\data\\cmss\\cmss_entity_resolver.yaml": "f4d936038e4f",
+  "D:\\meg one clone\\meghoneai\\data\\homestay\\homestay_entity_resolver.yaml": "d2d466b1cef3"
+ },
+ "warnings": [],
+ "product": {
+  "name": "Megh One AI",
+  "call_name": "megh",
+  "state": "Meghalaya"
+ },
+ "schemes": [
+  {
+   "name": "MGNREGA",
+   "id": "mgnrega",
+   "full_name": "Mahatma Gandhi National Rural Employment Guarantee Act",
+   "registry_order": 0,
+   "aliases": [
+    "MGNREGA",
+    "MNREGA",
+    "NREGA",
+    "NREGS",
+    "MGNREGS",
+    "Mahatma Gandhi NREGA",
+    "employment guarantee scheme",
+    "job card scheme",
+    "100 days work scheme",
+    "rural employment scheme"
+   ],
+   "ambiguous_aliases": [],
+   "spelling_aliases": [
+    "mgnrega",
+    "mnrega",
+    "mgnregs",
+    "mgnrega scheme",
+    "nrega",
+    "narega",
+    "nrga",
+    "manrega",
+    "mgnerga",
+    "mgrega"
+   ],
+   "money_unit": "lakh",
+   "has_dates": true,
+   "years": [
+    "2022-23",
+    "2023-24",
+    "2024-25",
+    "2025-26"
+   ],
+   "measures": [
+    {
+     "key": "total_exp",
+     "aliases": [
+      "total expenditure",
+      "total spending",
+      "total spend",
+      "total expense",
+      "expenditure",
+      "spending",
+      "spend",
+      "money spent",
+      "amount spent",
+      "funds spent",
+      "outlay"
+     ],
+     "unit": null
+    },
+    {
+     "key": "exp_unskilled_wage",
+     "aliases": [
+      "unskilled wage",
+      "unskilled wages",
+      "unskilled wage expenditure",
+      "unskilled labour wages",
+      "wage expenditure",
+      "wages"
+     ],
+     "unit": null
+    },
+    {
+     "key": "exp_semi_skilled_wage",
+     "aliases": [
+      "semi skilled wage",
+      "semi-skilled wages",
+      "semiskilled wage expenditure"
+     ],
+     "unit": null
+    },
+    {
+     "key": "exp_material",
+     "aliases": [
+      "material",
+      "materials",
+      "material expenditure",
+      "material cost",
+      "material spending"
+     ],
+     "unit": null
+    },
+    {
+     "key": "exp_tax",
+     "aliases": [
+      "tax",
+      "tax expenditure",
+      "tax expense",
+      "taxes"
+     ],
+     "unit": null
+    },
+    {
+     "key": "employment_provided_persons",
+     "aliases": [
+      "persons employed",
+      "people employed",
+      "workers",
+      "number of people",
+      "persons provided employment",
+      "individuals employed"
+     ],
+     "unit": null
+    },
+    {
+     "key": "employment_provided_households",
+     "aliases": [
+      "households employed",
+      "families employed",
+      "households provided employment",
+      "households given work"
+     ],
+     "unit": null
+    },
+    {
+     "key": "employment_provided_total_person_days",
+     "aliases": [
+      "person days",
+      "person-days",
+      "mandays",
+      "man days",
+      "total person days",
+      "employment days",
+      "days of work generated"
+     ],
+     "unit": null
+    },
+    {
+     "key": "households_completed_100_days_work",
+     "aliases": [
+      "100 days",
+      "100 days completed",
+      "households completed 100 days",
+      "full employment households",
+      "hundred days work"
+     ],
+     "unit": null
+    },
+    {
+     "key": "job_cards_issued_total",
+     "aliases": [
+      "job cards",
+      "job cards issued",
+      "total job cards",
+      "cards issued"
+     ],
+     "unit": null
+    },
+    {
+     "key": "women_employment_provided",
+     "aliases": [
+      "women employed",
+      "female employment",
+      "women provided employment",
+      "women workers",
+      "female workers"
+     ],
+     "unit": null
+    },
+    {
+     "key": "benefit_to_households",
+     "aliases": [
+      "benefit",
+      "household benefit",
+      "benefit to households",
+      "benefit amount"
+     ],
+     "unit": null
+    }
+   ],
+   "voice": {
+    "source": "overlay",
+    "asr_fixes": [
+     {
+      "pattern": "\\b(?:m\\.?\\s*g\\.?\\s*n\\.?\\s*r\\.?\\s*e\\.?\\s*g\\.?\\s*a|mgn\\s*rega|m\\s*n\\s*rega|mnrega|magnrega|magna\\s*rega|man\\s*d?\\s*re[gk]a|mandreka|mandrega|mandi?ra|mandraya|mandra[gk]a|mandria|mandri[gk]a|mandiga|mandar[gk]a|manrega|manreka|narega|nrega|en\\s*rega|mgnreg,?\\s+a|mgnr\\s+ega|mgn\\s+r\\s*e\\s*g\\s*a)\\b",
+      "to": "MGNREGA"
+     }
+    ],
+    "spoken_forms": [
+     "mgnrega",
+     "m g n r e g a",
+     "nrega",
+     "mnrega",
+     "narega"
+    ],
+    "measure_words": [
+     "cards",
+     "days",
+     "employment",
+     "expenditure",
+     "household",
+     "households",
+     "job",
+     "person",
+     "person-days",
+     "wages",
+     "works"
+    ],
+    "asr_terms": [],
+    "dashboard": "Show me MGNREGA person-days generated by district"
+   },
+   "hue": {
+    "main": "#eb6834",
+    "deep": "#b8461b"
+   },
+   "hue_source": "chartTheme.js",
+   "registry": "data/mgnrega/mgnrega_entity_resolver.yaml"
+  },
+  {
+   "name": "PMAY-G",
+   "id": "pmay",
+   "full_name": "Pradhan Mantri Awaas Yojana - Gramin",
+   "registry_order": 1,
+   "aliases": [
+    "PMAY",
+    "PMAYG",
+    "PMAY-G",
+    "PMAY G",
+    "PM Awas",
+    "PM Awaas",
+    "Awas Yojana",
+    "Awaas Yojana",
+    "Pradhan Mantri Awas Yojana",
+    "Pradhan Mantri Awaas Yojana",
+    "housing scheme",
+    "rural housing scheme",
+    "PM housing scheme",
+    "gramin housing",
+    "IAY",
+    "Indira Awaas Yojana"
+   ],
+   "ambiguous_aliases": [],
+   "spelling_aliases": [
+    "pmay-g",
+    "pmay g",
+    "pmayg",
+    "pmay",
+    "pmay gramin",
+    "pmay grameen",
+    "awas yojana",
+    "awaas yojana",
+    "pradhan mantri awas yojana gramin",
+    "awas",
+    "awaas"
+   ],
+   "money_unit": "rupees",
+   "has_dates": true,
+   "years": [
+    "2017-18",
+    "2018-19",
+    "2019-20",
+    "2020-21",
+    "2021-22",
+    "2022-23",
+    "2023-24"
+   ],
+   "measures": [
+    {
+     "key": "sanctioned_amount",
+     "aliases": [
+      "sanctioned amount",
+      "sanction amount",
+      "amount sanctioned",
+      "approved amount",
+      "allocated amount",
+      "sanctioned money",
+      "allocation"
+     ],
+     "unit": null
+    },
+    {
+     "key": "amount_released",
+     "aliases": [
+      "amount released",
+      "released amount",
+      "funds released",
+      "money released",
+      "disbursed",
+      "payment released",
+      "utilised amount",
+      "utilisation"
+     ],
+     "unit": null
+    },
+    {
+     "key": "installments_paid",
+     "aliases": [
+      "installments paid",
+      "installment count",
+      "number of installments",
+      "payments made",
+      "instalments"
+     ],
+     "unit": null
+    },
+    {
+     "key": "record_count",
+     "aliases": [
+      "houses",
+      "records",
+      "beneficiaries",
+      "how many",
+      "number of houses",
+      "count",
+      "total houses",
+      "sanctioned houses"
+     ],
+     "unit": null
+    },
+    {
+     "key": "amount_pending",
+     "aliases": [
+      "pending amount",
+      "unreleased amount",
+      "balance",
+      "outstanding",
+      "remaining funds",
+      "not yet released",
+      "amount pending"
+     ],
+     "unit": "rupees"
+    },
+    {
+     "key": "completion_rate",
+     "aliases": [
+      "completion rate",
+      "completion percentage",
+      "percent completed",
+      "completion pct"
+     ],
+     "unit": null
+    },
+    {
+     "key": "utilisation_rate",
+     "aliases": [
+      "utilisation",
+      "utilization rate",
+      "fund utilisation",
+      "percent utilised"
+     ],
+     "unit": null
+    }
+   ],
+   "voice": {
+    "source": "overlay",
+    "asr_fixes": [
+     {
+      "pattern": "\\bp\\.?\\s*m\\.?\\s*a\\.?\\s*y\\.?(?:\\s*-?\\s*g)?\\b\\.?",
+      "to": "PMAY-G"
+     },
+     {
+      "pattern": "\\bpm\\s*awas(?:\\s*yojana)?(?:\\s*gramin)?\\b",
+      "to": "PMAY-G"
+     },
+     {
+      "pattern": "\\b(?:pip|pep|pee|pea|peep|pe)[,\\s]+(?:e\\s+)?(?:em|m)\\s*(?:ay|eh|a)\\s*(?:why|wy|y)(?:\\s*-?\\s*(?:gee|ji|g))?\\b\\.?",
+      "to": "PMAY-G"
+     }
+    ],
+    "spoken_forms": [
+     "pmay g",
+     "pmay",
+     "p m a y",
+     "awas"
+    ],
+    "measure_words": [
+     "completed",
+     "house",
+     "houses",
+     "released",
+     "sanctioned"
+    ],
+    "asr_terms": [],
+    "dashboard": "Show me PMAY-G houses sanctioned by district"
+   },
+   "hue": {
+    "main": "#2a78d6",
+    "deep": "#1c4f95"
+   },
+   "hue_source": "chartTheme.js",
+   "registry": "data/pmay/pmay_entity_resolver.yaml"
+  },
+  {
+   "name": "Focus Plus",
+   "id": "focus_plus",
+   "full_name": "Focus Plus",
+   "registry_order": 2,
+   "aliases": [
+    "Focus Plus",
+    "Focus+",
+    "FocusPlus",
+    "Focus-Plus",
+    "Focus Plus scheme",
+    "focus plus payment",
+    "focus plus DBT",
+    "farmer support scheme"
+   ],
+   "ambiguous_aliases": [],
+   "spelling_aliases": [
+    "focus plus",
+    "focus+",
+    "focusplus",
+    "fokus plus",
+    "fokus+",
+    "fokusplus",
+    "focas plus",
+    "focus pls",
+    "focus plas"
+   ],
+   "money_unit": "rupees",
+   "has_dates": true,
+   "years": [
+    "2022-23",
+    "2025-26"
+   ],
+   "measures": [
+    {
+     "key": "amount_disbursed",
+     "aliases": [
+      "amount",
+      "amount disbursed",
+      "disbursement",
+      "disbursed amount",
+      "payment",
+      "paid",
+      "money paid",
+      "money disbursed",
+      "DBT amount",
+      "funds",
+      "funds disbursed",
+      "spend",
+      "total spend",
+      "expenditure",
+      "payout"
+     ],
+     "unit": "unverified"
+    },
+    {
+     "key": "payment_count",
+     "aliases": [
+      "payments",
+      "disbursements",
+      "transactions",
+      "how many payments",
+      "number of payments",
+      "count of payments"
+     ],
+     "unit": null
+    },
+    {
+     "key": "member_count",
+     "aliases": [
+      "members",
+      "people",
+      "persons",
+      "individuals",
+      "distinct members",
+      "unique members",
+      "how many members"
+     ],
+     "unit": null
+    },
+    {
+     "key": "village_count",
+     "aliases": [
+      "villages",
+      "how many villages",
+      "number of villages",
+      "distinct villages"
+     ],
+     "unit": null
+    },
+    {
+     "key": "district_count",
+     "aliases": [
+      "districts",
+      "how many districts",
+      "number of districts",
+      "coverage"
+     ],
+     "unit": null
+    }
+   ],
+   "voice": {
+    "source": "overlay",
+    "asr_fixes": [],
+    "spoken_forms": [
+     "focus plus"
+    ],
+    "measure_words": [],
+    "asr_terms": [],
+    "dashboard": "Show me Focus Plus beneficiaries by district"
+   },
+   "hue": {
+    "main": "#1baf7a",
+    "deep": "#0f7a54"
+   },
+   "hue_source": "chartTheme.js",
+   "registry": "data/focus_plus/focusplus_entity_resolver.yaml"
+  },
+  {
+   "name": "CM Elevate",
+   "id": "cm_elevate",
+   "full_name": "CM Elevate (Meghalaya livelihood and enterprise programme)",
+   "registry_order": 3,
+   "aliases": [
+    "CM Elevate",
+    "CMElevate",
+    "CM-Elevate",
+    "CM elevate scheme",
+    "Elevate",
+    "Chief Minister's Elevate",
+    "Chief Ministers Elevate",
+    "CM Elevate programme",
+    "CME",
+    "elevate programme",
+    "CM Elevate Meghalaya"
+   ],
+   "ambiguous_aliases": [],
+   "spelling_aliases": [
+    "cm elevate",
+    "cmelevate",
+    "cm-elevate",
+    "c m elevate"
+   ],
+   "money_unit": null,
+   "has_dates": false,
+   "years": [],
+   "measures": [
+    {
+     "key": "application_count",
+     "aliases": [
+      "applications",
+      "how many",
+      "number of",
+      "count",
+      "total",
+      "applicants",
+      "beneficiaries",
+      "records",
+      "farmers",
+      "people",
+      "cases",
+      "requests",
+      "files"
+     ],
+     "unit": null
+    },
+    {
+     "key": "distinct_application_count",
+     "aliases": [
+      "distinct applications",
+      "unique applications",
+      "distinct application numbers",
+      "unique requests"
+     ],
+     "unit": null
+    },
+    {
+     "key": "distinct_village_count",
+     "aliases": [
+      "villages",
+      "how many villages",
+      "village count",
+      "villages covered",
+      "coverage"
+     ],
+     "unit": null
+    },
+    {
+     "key": "distinct_block_count",
+     "aliases": [
+      "blocks",
+      "how many blocks",
+      "block count",
+      "blocks covered"
+     ],
+     "unit": null
+    },
+    {
+     "key": "distinct_district_count",
+     "aliases": [
+      "districts",
+      "how many districts",
+      "district count",
+      "districts covered"
+     ],
+     "unit": null
+    },
+    {
+     "key": "distinct_scheme_count",
+     "aliases": [
+      "schemes",
+      "how many schemes",
+      "sub-schemes",
+      "number of schemes"
+     ],
+     "unit": null
+    },
+    {
+     "key": "share_of_applications",
+     "aliases": [
+      "share",
+      "percentage",
+      "proportion",
+      "percent",
+      "what share",
+      "how much of"
+     ],
+     "unit": null
+    }
+   ],
+   "voice": {
+    "source": "overlay",
+    "asr_fixes": [
+     {
+      "pattern": "\\bc\\.?\\s*m\\.?\\s+elevate\\b",
+      "to": "CM Elevate"
+     },
+     {
+      "pattern": "\\b(?:c\\s*m\\s*l\\s*(?:8|eight|ate|ait)|cml\\s*8|see\\s+(?:em|m)\\s+elevate|seam\\s+elevate|cm\\s*l\\s*evate|cmelevate)\\b",
+      "to": "CM Elevate"
+     }
+    ],
+    "spoken_forms": [
+     "cm elevate",
+     "c m elevate"
+    ],
+    "measure_words": [
+     "application",
+     "applications"
+    ],
+    "asr_terms": [],
+    "dashboard": "Show me all the CM Elevate (applications) by their status"
+   },
+   "hue": {
+    "main": "#6250d6",
+    "deep": "#3f2f9e"
+   },
+   "hue_source": "chartTheme.js",
+   "registry": "data/cm_elevate/cmelevate_entity_resolver.yaml"
+  },
+  {
+   "name": "Focus Legacy",
+   "id": "focus_legacy",
+   "full_name": "Focus (legacy producer-group disbursement programme), Meghalaya",
+   "registry_order": 4,
+   "aliases": [
+    "Focus Legacy",
+    "FocusLegacy",
+    "legacy Focus",
+    "old Focus",
+    "Focus scheme",
+    "FOCUS",
+    "Focus programme",
+    "producer group scheme",
+    "PG scheme",
+    "producer group payments",
+    "Focus PG"
+   ],
+   "ambiguous_aliases": [],
+   "spelling_aliases": [
+    "focus legacy",
+    "old focus",
+    "original focus",
+    "focuslegacy"
+   ],
+   "money_unit": "rupees",
+   "has_dates": true,
+   "years": [
+    "2021-22",
+    "2022-23",
+    "2024-25",
+    "2025-26"
+   ],
+   "measures": [
+    {
+     "key": "amount_disbursed",
+     "aliases": [
+      "amount",
+      "amount disbursed",
+      "disbursement",
+      "disbursed",
+      "money",
+      "funds",
+      "payment",
+      "remittance",
+      "remitted",
+      "released",
+      "total amount",
+      "spend",
+      "expenditure"
+     ],
+     "unit": null
+    },
+    {
+     "key": "no_of_pg_members",
+     "aliases": [
+      "members",
+      "number of members",
+      "membership",
+      "group size",
+      "PG members",
+      "member count",
+      "how many members",
+      "people covered"
+     ],
+     "unit": null
+    },
+    {
+     "key": "record_count",
+     "aliases": [
+      "payments",
+      "disbursements",
+      "records",
+      "transactions",
+      "how many payments",
+      "count",
+      "number of payments"
+     ],
+     "unit": null
+    },
+    {
+     "key": "group_count",
+     "aliases": [
+      "producer groups",
+      "groups",
+      "PGs",
+      "how many groups",
+      "number of groups",
+      "organisations"
+     ],
+     "unit": null
+    },
+    {
+     "key": "village_count",
+     "aliases": [
+      "villages",
+      "how many villages",
+      "number of villages",
+      "village coverage"
+     ],
+     "unit": null
+    }
+   ],
+   "voice": {
+    "source": "overlay",
+    "asr_fixes": [],
+    "spoken_forms": [
+     "focus legacy"
+    ],
+    "measure_words": [
+     "groups",
+     "members",
+     "remittance",
+     "remitted"
+    ],
+    "asr_terms": [],
+    "dashboard": "Show me Focus Legacy amount by financial year"
+   },
+   "hue": {
+    "main": "#008300",
+    "deep": "#005a00"
+   },
+   "hue_source": "chartTheme.js",
+   "registry": "data/focus_legacy/focuslegacy_entity_resolver.yaml"
+  },
+  {
+   "name": "CM Elevate Legacy",
+   "id": "cm_elevate_legacy",
+   "full_name": "CM Elevate Disbursement (Meghalaya)",
+   "registry_order": 5,
+   "aliases": [
+    "CM Elevate Legacy",
+    "CM-ELEVATE Legacy",
+    "CM Elevate Disbursement",
+    "CM Elevate disbursements",
+    "CM Elevate legacy data",
+    "Elevate legacy",
+    "CM Elevate sanctions",
+    "CM Elevate loans",
+    "CM Elevate subsidy"
+   ],
+   "ambiguous_aliases": [
+    "CM Elevate",
+    "CM-ELEVATE",
+    "CMELEVATE",
+    "CM elevate scheme",
+    "Elevate",
+    "Chief Minister Elevate"
+   ],
+   "spelling_aliases": [
+    "cm elevate legacy",
+    "cmelevate legacy",
+    "elevate legacy",
+    "cm elevate disbursement",
+    "cmelevatelegacy"
+   ],
+   "money_unit": "rupees",
+   "has_dates": true,
+   "years": [
+    "2024-25",
+    "2025-26"
+   ],
+   "measures": [
+    {
+     "key": "record_count",
+     "aliases": [
+      "records",
+      "applications",
+      "applicants",
+      "beneficiaries",
+      "cases",
+      "how many",
+      "count",
+      "number of records"
+     ],
+     "unit": null
+    },
+    {
+     "key": "sanctioned_amount",
+     "aliases": [
+      "sanctioned amount",
+      "sanction amount",
+      "amount sanctioned",
+      "approved amount",
+      "entitlement",
+      "allocation",
+      "sanctioned money"
+     ],
+     "unit": "rupees"
+    },
+    {
+     "key": "total_disbursement",
+     "aliases": [
+      "total disbursement",
+      "total disbursed",
+      "amount disbursed",
+      "disbursed",
+      "payout",
+      "money paid",
+      "released"
+     ],
+     "unit": "rupees"
+    },
+    {
+     "key": "total_subsidy_disbursement",
+     "aliases": [
+      "subsidy",
+      "total subsidy",
+      "subsidy disbursed",
+      "grant",
+      "assistance",
+      "subsidy amount"
+     ],
+     "unit": "rupees"
+    },
+    {
+     "key": "total_loan_disbursement",
+     "aliases": [
+      "loan",
+      "total loan",
+      "loan disbursed",
+      "credit",
+      "borrowing",
+      "loan amount"
+     ],
+     "unit": "rupees"
+    },
+    {
+     "key": "bank_sanctioned_amount",
+     "aliases": [
+      "bank sanctioned",
+      "bank amount",
+      "bank share",
+      "bank contribution"
+     ],
+     "unit": "rupees"
+    },
+    {
+     "key": "disbursement_rate",
+     "aliases": [
+      "utilisation",
+      "utilization",
+      "disbursement rate",
+      "share disbursed",
+      "how much was actually paid",
+      "fund utilisation"
+     ],
+     "unit": null
+    },
+    {
+     "key": "pending_amount",
+     "aliases": [
+      "pending",
+      "outstanding",
+      "not yet paid",
+      "balance",
+      "yet to be disbursed"
+     ],
+     "unit": null
+    }
+   ],
+   "voice": {
+    "source": "overlay",
+    "asr_fixes": [],
+    "spoken_forms": [
+     "cm elevate legacy",
+     "c m elevate legacy",
+     "elevate legacy"
+    ],
+    "measure_words": [
+     "disbursed",
+     "disbursement",
+     "sanctioned"
+    ],
+    "asr_terms": [],
+    "dashboard": "Show me CM Elevate Legacy amount disbursed by scheme"
+   },
+   "hue": {
+    "main": "#d55181",
+    "deep": "#9c2c56"
+   },
+   "hue_source": "chartTheme.js",
+   "registry": "data/cm_elevate_legacy/cmelevatelegacy_entity_resolver.yaml"
+  },
+  {
+   "name": "CMSS",
+   "id": "cmss",
+   "full_name": "Chief Minister's Scholarship Scheme",
+   "registry_order": 6,
+   "aliases": [
+    "CMSS",
+    "CM Scholarship",
+    "CM Scholarship Scheme",
+    "Chief Minister Scholarship",
+    "Chief Minister's Scholarship",
+    "Chief Minister's Scholarship Scheme",
+    "Chief Minister Scholarship Scheme Meghalaya",
+    "CMSS Meghalaya",
+    "Meghalaya CM Scholarship",
+    "Meghalaya CM Scholarship Scheme",
+    "CM scholarship scheme 2025",
+    "state scholarship",
+    "post matric state scholarship",
+    "Rs 6000 scholarship",
+    "6000 scholarship",
+    "chief minister scholarship scheme 2025"
+   ],
+   "ambiguous_aliases": [],
+   "spelling_aliases": [
+    "cmss",
+    "cm scholarship",
+    "cm scholarship scheme",
+    "chief minister scholarship",
+    "chief minister's scholarship",
+    "chief minister's scholarship scheme",
+    "chief minister scholarship scheme meghalaya",
+    "cmss meghalaya",
+    "meghalaya cm scholarship",
+    "meghalaya cm scholarship scheme",
+    "cm scholarship scheme 2025",
+    "state scholarship",
+    "post matric state scholarship",
+    "rs 6000 scholarship",
+    "6000 scholarship",
+    "chief minister scholarship scheme 2025"
+   ],
+   "money_unit": "rupees",
+   "has_dates": true,
+   "years": [
+    "2025-26"
+   ],
+   "measures": [
+    {
+     "key": "applications",
+     "aliases": [
+      "applications",
+      "applicants",
+      "students applied",
+      "records",
+      "registrations",
+      "how many applied",
+      "total applications"
+     ],
+     "unit": "applications"
+    },
+    {
+     "key": "beneficiaries",
+     "aliases": [
+      "beneficiaries",
+      "students paid",
+      "recipients",
+      "scholars",
+      "awardees",
+      "students who received",
+      "students covered",
+      "beneficiary count"
+     ],
+     "unit": "students"
+    },
+    {
+     "key": "not_paid",
+     "aliases": [
+      "not paid",
+      "unpaid",
+      "not disbursed",
+      "zero disbursement",
+      "missing disbursement",
+      "no amount"
+     ],
+     "unit": "applications"
+    },
+    {
+     "key": "distinct_students",
+     "aliases": [
+      "unique students",
+      "distinct students",
+      "individual students",
+      "unique beneficiaries"
+     ],
+     "unit": "students"
+    },
+    {
+     "key": "amount_disbursed",
+     "aliases": [
+      "amount disbursed",
+      "amount",
+      "total amount",
+      "money",
+      "scholarship amount",
+      "disbursement",
+      "funds",
+      "grant",
+      "assistance",
+      "DBT amount",
+      "paid out",
+      "released",
+      "expenditure on CMSS",
+      "spending"
+     ],
+     "unit": "rupees"
+    }
+   ],
+   "voice": {
+    "source": "derived",
+    "asr_fixes": [
+     {
+      "pattern": "\\bc\\.?\\s*-?\\s*m\\.?\\s*-?\\s*s\\.?\\s*-?\\s*s\\b\\.?",
+      "to": "CMSS"
+     },
+     {
+      "pattern": "\\bchief\\s*minister\\s*scholarship\\s*scheme\\s*meghalaya\\b",
+      "to": "CMSS"
+     },
+     {
+      "pattern": "\\bchief\\s*minister\\s*scholarship\\s*scheme\\s*2025\\b",
+      "to": "CMSS"
+     },
+     {
+      "pattern": "\\bchief\\s*minister\\s*s\\s*scholarship\\s*scheme\\b",
+      "to": "CMSS"
+     },
+     {
+      "pattern": "\\bmeghalaya\\s*cm\\s*scholarship\\s*scheme\\b",
+      "to": "CMSS"
+     },
+     {
+      "pattern": "\\bpost\\s*matric\\s*state\\s*scholarship\\b",
+      "to": "CMSS"
+     },
+     {
+      "pattern": "\\bchief\\s*minister\\s*s\\s*scholarship\\b",
+      "to": "CMSS"
+     },
+     {
+      "pattern": "\\bchief\\s*minister\\s*scholarship\\b",
+      "to": "CMSS"
+     },
+     {
+      "pattern": "\\bcm\\s*scholarship\\s*scheme\\s*2025\\b",
+      "to": "CMSS"
+     },
+     {
+      "pattern": "\\bmeghalaya\\s*cm\\s*scholarship\\b",
+      "to": "CMSS"
+     },
+     {
+      "pattern": "\\bcm\\s*scholarship\\s*scheme\\b",
+      "to": "CMSS"
+     },
+     {
+      "pattern": "\\brs\\s*6000\\s*scholarship\\b",
+      "to": "CMSS"
+     },
+     {
+      "pattern": "\\bstate\\s*scholarship\\b",
+      "to": "CMSS"
+     },
+     {
+      "pattern": "\\b6000\\s*scholarship\\b",
+      "to": "CMSS"
+     },
+     {
+      "pattern": "\\bcm\\s*scholarship\\b",
+      "to": "CMSS"
+     },
+     {
+      "pattern": "\\bcmss\\s*meghalaya\\b",
+      "to": "CMSS"
+     }
+    ],
+    "spoken_forms": [
+     "cmss",
+     "c m s s"
+    ],
+    "measure_words": [
+     "amount",
+     "applicants",
+     "applications",
+     "applied",
+     "assistance",
+     "awardees",
+     "beneficiaries",
+     "beneficiary",
+     "cmss",
+     "count",
+     "covered",
+     "dbt",
+     "disbursed",
+     "disbursement",
+     "expenditure",
+     "funds",
+     "grant",
+     "individual",
+     "missing",
+     "money",
+     "out",
+     "paid",
+     "received",
+     "recipients",
+     "records",
+     "registrations",
+     "released",
+     "scholars",
+     "scholarship",
+     "spending",
+     "students",
+     "total",
+     "unpaid",
+     "who",
+     "zero"
+    ],
+    "asr_terms": [
+     "students applied",
+     "students paid",
+     "not paid"
+    ],
+    "dashboard": "Show me CMSS students paid by district"
+   },
+   "hue": {
+    "main": "#d99a00",
+    "deep": "#8a5f00"
+   },
+   "hue_source": "chartTheme.js",
+   "registry": "data/cmss/cmss_entity_resolver.yaml"
+  },
+  {
+   "name": "Homestay",
+   "id": "homestay",
+   "full_name": "Chief Minister's Meghalaya Homestay Mission (formerly Meghalaya Tourism Homestay Scheme)",
+   "registry_order": 7,
+   "aliases": [
+    "Homestay",
+    "Home Stay",
+    "Home-stay",
+    "homestay scheme",
+    "homestay mission",
+    "CM Homestay Mission",
+    "Chief Minister's Meghalaya Homestay Mission",
+    "CMMHM",
+    "CM's Meghalaya Homestay Mission",
+    "Meghalaya Tourism Homestay Scheme",
+    "tourism homestay scheme",
+    "homestay subsidy scheme",
+    "homestay applications",
+    "Homestay API",
+    "new homestay scheme",
+    "homestay upgradation scheme"
+   ],
+   "ambiguous_aliases": [],
+   "spelling_aliases": [
+    "homestay",
+    "home stay",
+    "home-stay",
+    "homestay scheme",
+    "homestay mission",
+    "cm homestay mission",
+    "chief minister's meghalaya homestay mission",
+    "cmmhm",
+    "cm's meghalaya homestay mission",
+    "meghalaya tourism homestay scheme",
+    "tourism homestay scheme",
+    "homestay subsidy scheme",
+    "homestay applications",
+    "homestay api",
+    "new homestay scheme",
+    "homestay upgradation scheme"
+   ],
+   "money_unit": null,
+   "has_dates": true,
+   "years": [
+    "2025-26",
+    "2026-27"
+   ],
+   "measures": [
+    {
+     "key": "applications",
+     "aliases": [
+      "applications",
+      "applicants",
+      "beneficiaries",
+      "records",
+      "how many applied",
+      "total applications",
+      "applications received",
+      "number of homestays (no site cue)"
+     ],
+     "unit": "applications"
+    },
+    {
+     "key": "approved",
+     "aliases": [
+      "approved",
+      "approvals",
+      "approved applications",
+      "approved homestays"
+     ],
+     "unit": "applications"
+    },
+    {
+     "key": "distinct_applicants",
+     "aliases": [
+      "unique applicants",
+      "distinct applicants",
+      "individual applicants",
+      "people",
+      "persons"
+     ],
+     "unit": "people"
+    },
+    {
+     "key": "approval_rate",
+     "aliases": [
+      "approval rate",
+      "approval percentage",
+      "success rate",
+      "share approved"
+     ],
+     "unit": "percent"
+    },
+    {
+     "key": "proposed_rooms",
+     "aliases": [
+      "rooms",
+      "total rooms",
+      "room capacity",
+      "guest rooms",
+      "proposed rooms",
+      "capacity"
+     ],
+     "unit": "rooms"
+    },
+    {
+     "key": "average_rooms",
+     "aliases": [
+      "average rooms",
+      "rooms per homestay",
+      "mean rooms"
+     ],
+     "unit": "rooms"
+    },
+    {
+     "key": "existing_rooms",
+     "aliases": [
+      "existing rooms",
+      "rooms to upgrade"
+     ],
+     "unit": "rooms"
+    },
+    {
+     "key": "solar_share",
+     "aliases": [
+      "solar adoption",
+      "share with solar"
+     ],
+     "unit": "percent"
+    },
+    {
+     "key": "rainwater_share",
+     "aliases": [
+      "rainwater adoption",
+      "share with rainwater harvesting"
+     ],
+     "unit": "percent"
+    },
+    {
+     "key": "villages_covered",
+     "aliases": [
+      "villages",
+      "villages covered",
+      "number of villages"
+     ],
+     "unit": "villages"
+    }
+   ],
+   "voice": {
+    "source": "derived",
+    "asr_fixes": [
+     {
+      "pattern": "\\bc\\.?\\s*-?\\s*m\\.?\\s*-?\\s*m\\.?\\s*-?\\s*h\\.?\\s*-?\\s*m\\b\\.?",
+      "to": "Homestay"
+     },
+     {
+      "pattern": "\\bchief\\s*minister\\s*s\\s*meghalaya\\s*homestay\\s*mission\\b",
+      "to": "Homestay"
+     },
+     {
+      "pattern": "\\bmeghalaya\\s*tourism\\s*homestay\\s*scheme\\b",
+      "to": "Homestay"
+     },
+     {
+      "pattern": "\\bcm\\s*s\\s*meghalaya\\s*homestay\\s*mission\\b",
+      "to": "Homestay"
+     },
+     {
+      "pattern": "\\bhomestay\\s*upgradation\\s*scheme\\b",
+      "to": "Homestay"
+     },
+     {
+      "pattern": "\\btourism\\s*homestay\\s*scheme\\b",
+      "to": "Homestay"
+     },
+     {
+      "pattern": "\\bhomestay\\s*subsidy\\s*scheme\\b",
+      "to": "Homestay"
+     },
+     {
+      "pattern": "\\bhomestay\\s*applications\\b",
+      "to": "Homestay"
+     },
+     {
+      "pattern": "\\bcm\\s*homestay\\s*mission\\b",
+      "to": "Homestay"
+     },
+     {
+      "pattern": "\\bnew\\s*homestay\\s*scheme\\b",
+      "to": "Homestay"
+     },
+     {
+      "pattern": "\\bhomestay\\s*mission\\b",
+      "to": "Homestay"
+     },
+     {
+      "pattern": "\\bhomestay\\s*scheme\\b",
+      "to": "Homestay"
+     },
+     {
+      "pattern": "\\bhomestay\\s*api\\b",
+      "to": "Homestay"
+     }
+    ],
+    "spoken_forms": [
+     "homestay",
+     "c m m h m",
+     "cmmhm"
+    ],
+    "measure_words": [
+     "adoption",
+     "applicants",
+     "applications",
+     "applied",
+     "approval",
+     "approvals",
+     "approved",
+     "average",
+     "beneficiaries",
+     "capacity",
+     "covered",
+     "cue",
+     "existing",
+     "guest",
+     "harvesting",
+     "homestay",
+     "homestays",
+     "individual",
+     "mean",
+     "people",
+     "persons",
+     "proposed",
+     "rainwater",
+     "received",
+     "records",
+     "room",
+     "rooms",
+     "site",
+     "solar",
+     "success",
+     "total",
+     "upgrade",
+     "villages"
+    ],
+    "asr_terms": [
+     "total applications",
+     "approved applications",
+     "unique applicants"
+    ],
+    "dashboard": "Show me Homestay applications by district"
+   },
+   "hue": {
+    "main": "#0e9aa7",
+    "deep": "#0a6670"
+   },
+   "hue_source": "chartTheme.js",
+   "registry": "data/homestay/homestay_entity_resolver.yaml"
+  }
+ ],
+ "order": {
+  "registry": [
+   "MGNREGA",
+   "PMAY-G",
+   "Focus Plus",
+   "CM Elevate",
+   "Focus Legacy",
+   "CM Elevate Legacy",
+   "CMSS",
+   "Homestay"
+  ],
+  "say": [
+   "MGNREGA",
+   "PMAY-G",
+   "Focus Plus",
+   "Focus Legacy",
+   "CM Elevate",
+   "CM Elevate Legacy",
+   "CMSS",
+   "Homestay"
+  ],
+  "match": [
+   "CM Elevate Legacy",
+   "Focus Legacy",
+   "Focus Plus",
+   "CM Elevate",
+   "Homestay",
+   "MGNREGA",
+   "PMAY-G",
+   "CMSS"
+  ]
+ },
+ "places": {
+  "districts": [
+   {
+    "name": "East Garo Hills",
+    "key": "EAST GARO HILLS",
+    "region": "Garo Hills",
+    "lgd_code": 273,
+    "acronym": "EGH",
+    "aliases": [
+     "EGH",
+     "E.G.H.",
+     "East Garo Hill",
+     "East Garo",
+     "E Garo Hills",
+     "E Garo Hill",
+     "E Garo",
+     "EastGaroHills",
+     "East Garo Hills District",
+     "Williamnagar district",
+     "eastgaro hills"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Plus",
+     "CM Elevate",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "East Khasi Hills",
+    "key": "EAST KHASI HILLS",
+    "region": "Khasi Hills",
+    "lgd_code": 274,
+    "acronym": "EKH",
+    "aliases": [
+     "EKH",
+     "E.K.H.",
+     "East Khasi Hill",
+     "East Khasi",
+     "E Khasi Hills",
+     "E Khasi Hill",
+     "E Khasi",
+     "EastKhasiHills",
+     "East Khasi Hills District",
+     "Shillong district"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Plus",
+     "CM Elevate",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "West Jaintia Hills",
+    "key": "WEST JAINTIA HILLS",
+    "region": "Jaintia Hills",
+    "lgd_code": 275,
+    "acronym": "WJH",
+    "aliases": [
+     "WJH",
+     "W.J.H.",
+     "West Jaintia Hill",
+     "West Jaintia",
+     "W Jaintia Hills",
+     "W Jaintia Hill",
+     "W Jaintia",
+     "WestJaintiaHills",
+     "West Jaintia Hills District",
+     "Jowai district"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Plus",
+     "CM Elevate",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Ri Bhoi",
+    "key": "RI BHOI",
+    "region": "Ri Bhoi",
+    "lgd_code": 276,
+    "acronym": "RB",
+    "aliases": [
+     "RB",
+     "R.B.",
+     "Ribhoi",
+     "Ri-Bhoi",
+     "Ri Bhoi District",
+     "Nongpoh district",
+     "Bhoi",
+     "ribhoy",
+     "ri bhoy",
+     "ri boi",
+     "rbhoi"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Plus",
+     "CM Elevate",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "South Garo Hills",
+    "key": "SOUTH GARO HILLS",
+    "region": "Garo Hills",
+    "lgd_code": 277,
+    "acronym": "SGH",
+    "aliases": [
+     "SGH",
+     "S.G.H.",
+     "South Garo Hill",
+     "South Garo",
+     "S Garo Hills",
+     "S Garo Hill",
+     "S Garo",
+     "SouthGaroHills",
+     "South Garo Hills District",
+     "Baghmara district"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Plus",
+     "CM Elevate",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "West Garo Hills",
+    "key": "WEST GARO HILLS",
+    "region": "Garo Hills",
+    "lgd_code": 278,
+    "acronym": "WGH",
+    "aliases": [
+     "WGH",
+     "W.G.H.",
+     "West Garo Hill",
+     "West Garo",
+     "W Garo Hills",
+     "W Garo Hill",
+     "W Garo",
+     "WestGaroHills",
+     "West Garo Hills District",
+     "Tura district",
+     "westgaro hills"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Plus",
+     "CM Elevate",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "West Khasi Hills",
+    "key": "WEST KHASI HILLS",
+    "region": "Khasi Hills",
+    "lgd_code": 279,
+    "acronym": "WKH",
+    "aliases": [
+     "WKH",
+     "W.K.H.",
+     "West Khasi Hill",
+     "West Khasi",
+     "W Khasi Hills",
+     "W Khasi Hill",
+     "W Khasi",
+     "WestKhasiHills",
+     "West Khasi Hills District",
+     "Nongstoin district"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Plus",
+     "CM Elevate",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "North Garo Hills",
+    "key": "NORTH GARO HILLS",
+    "region": "Garo Hills",
+    "lgd_code": 656,
+    "acronym": "NGH",
+    "aliases": [
+     "NGH",
+     "N.G.H.",
+     "North Garo Hill",
+     "North Garo",
+     "N Garo Hills",
+     "N Garo Hill",
+     "N Garo",
+     "NorthGaroHills",
+     "North Garo Hills District",
+     "Resubelpara district"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Plus",
+     "CM Elevate",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "East Jaintia Hills",
+    "key": "EAST JAINTIA HILLS",
+    "region": "Jaintia Hills",
+    "lgd_code": 657,
+    "acronym": "EJH",
+    "aliases": [
+     "EJH",
+     "E.J.H.",
+     "East Jaintia Hill",
+     "East Jaintia",
+     "E Jaintia Hills",
+     "E Jaintia Hill",
+     "E Jaintia",
+     "EastJaintiaHills",
+     "East Jaintia Hills District",
+     "Khliehriat district"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Plus",
+     "CM Elevate",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "South West Khasi Hills",
+    "key": "SOUTH WEST KHASI HILLS",
+    "region": "Khasi Hills",
+    "lgd_code": 658,
+    "acronym": "SWKH",
+    "aliases": [
+     "SWKH",
+     "S.W.K.H.",
+     "South West Khasi Hill",
+     "South West Khasi",
+     "S W Khasi Hills",
+     "S W Khasi Hill",
+     "S W Khasi",
+     "SouthWestKhasiHills",
+     "South West Khasi Hills District",
+     "Mawkyrwat district",
+     "S West Khasi Hills",
+     "SW Khasi Hills",
+     "sw khasi",
+     "south-west khasi"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Plus",
+     "CM Elevate",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "South West Garo Hills",
+    "key": "SOUTH WEST GARO HILLS",
+    "region": "Garo Hills",
+    "lgd_code": 663,
+    "acronym": "SWGH",
+    "aliases": [
+     "SWGH",
+     "S.W.G.H.",
+     "South West Garo Hill",
+     "South West Garo",
+     "S W Garo Hills",
+     "S W Garo Hill",
+     "S W Garo",
+     "SouthWestGaroHills",
+     "South West Garo Hills District",
+     "Ampati district",
+     "S West Garo Hills",
+     "SW Garo Hills",
+     "sw garo",
+     "south-west garo"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Plus",
+     "CM Elevate",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Eastern West Khasi Hills",
+    "key": "EASTERN WEST KHASI HILLS",
+    "region": "Khasi Hills",
+    "lgd_code": 740,
+    "acronym": "EWKH",
+    "aliases": [
+     "EWKH",
+     "E.W.K.H.",
+     "Eastern West Khasi Hill",
+     "Eastern West Khasi",
+     "Eastern W Khasi Hills",
+     "Eastern W Khasi Hill",
+     "Eastern W Khasi",
+     "EasternWestKhasiHills",
+     "Eastern West Khasi Hills District",
+     "Mairang district",
+     "E West Khasi Hills",
+     "Eastern WKH",
+     "East West Khasi Hills",
+     "Eern West Khasi Hills",
+     "Eern West Khasi Hill",
+     "Eern West Khasi"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Plus",
+     "CM Elevate",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   }
+  ],
+  "district_match_order": [
+   "Eastern West Khasi Hills",
+   "South West Khasi Hills",
+   "South West Garo Hills",
+   "West Jaintia Hills",
+   "East Jaintia Hills",
+   "East Khasi Hills",
+   "South Garo Hills",
+   "West Khasi Hills",
+   "North Garo Hills",
+   "East Garo Hills",
+   "West Garo Hills",
+   "Ri Bhoi"
+  ],
+  "blocks": [
+   {
+    "name": "Dambo Rongjeng",
+    "district": "East Garo Hills",
+    "aliases": [
+     "DamboRongjeng",
+     "Rongjeng",
+     "Dambo-Rongjeng",
+     "Dambo Rongjeng Block",
+     "Dambo Rongjeng C & RD Block",
+     "Dambo Rongjeng C&RD Block",
+     "Dambo Rongjeng CRD Block",
+     "Dambo Rongjeng CD Block"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Plus",
+     "CM Elevate",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Samanda",
+    "district": "East Garo Hills",
+    "aliases": [
+     "Samanda Block",
+     "Samanda C & RD Block",
+     "Samanda C&RD Block",
+     "Samanda CRD Block",
+     "Samanda CD Block",
+     "Samanda"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Plus",
+     "CM Elevate",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Songsak",
+    "district": "East Garo Hills",
+    "aliases": [
+     "Songsak Block",
+     "Songsak C & RD Block",
+     "Songsak C&RD Block",
+     "Songsak CRD Block",
+     "Songsak CD Block"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Plus",
+     "CM Elevate",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS"
+    ]
+   },
+   {
+    "name": "Williamnagar",
+    "district": "East Garo Hills",
+    "aliases": [
+     "Williamnagar MB",
+     "Williamnagar Municipal Board",
+     "Williamnagar-Municipal Board"
+    ],
+    "schemes": [
+     "CM Elevate"
+    ]
+   },
+   {
+    "name": "Williamnagar-Municipal Board",
+    "district": "East Garo Hills",
+    "aliases": [
+     "William Nagar-Municipal Board",
+     "WILLIAM NAGAR MUNICIPAL BOARD",
+     "Williamnagar Municipal Board",
+     "William Nagar MB",
+     "Williamnagar MB",
+     "Williamnagar town",
+     "William Nagar town",
+     "William Nagar Municipality"
+    ],
+    "schemes": [
+     "Focus Plus",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Khliehriat",
+    "district": "East Jaintia Hills",
+    "aliases": [
+     "Khliehriat Block",
+     "Khliehriat C & RD Block",
+     "Khliehriat C&RD Block",
+     "Khliehriat CRD Block"
+    ],
+    "schemes": [
+     "CM Elevate"
+    ]
+   },
+   {
+    "name": "Khliehriat Town Committee",
+    "district": "East Jaintia Hills",
+    "aliases": [
+     "Khliehriat-Town Committee",
+     "KHLIEHRIAT TOWN COMMITTEE",
+     "Khliehriat TC",
+     "Khliehriat town",
+     "Khliehriat Town Committee area"
+    ],
+    "schemes": [
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Lumshnong",
+    "district": "East Jaintia Hills",
+    "aliases": [
+     "Lumshnong Block",
+     "Lumshnong C&RD Block",
+     "Lumshnong CD Block",
+     "Lumshnong"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "CM Elevate",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Saipung",
+    "district": "East Jaintia Hills",
+    "aliases": [
+     "Sutnga Saipung",
+     "Saipung Block",
+     "Saipung C & RD Block",
+     "Saipung C&RD Block",
+     "Saipung CRD Block",
+     "Saipung CD Block",
+     "Saipung"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Plus",
+     "CM Elevate",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Wapung",
+    "district": "East Jaintia Hills",
+    "aliases": [
+     "Wapung Block",
+     "Wapung C&RD Block",
+     "Wapung CD Block",
+     "Wapung"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Plus",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Khatarshnong Laitkroh",
+    "district": "East Khasi Hills",
+    "aliases": [
+     "KhatarshnongLaitkroh",
+     "Khatarshnong",
+     "Laitkroh",
+     "Khatarshnong-Laitkroh",
+     "Khatarshnong Laitkroh Block",
+     "Khatarshnong Laitkroh C & RD Block",
+     "Khatarshnong Laitkroh C&RD Block",
+     "Khatarshnong Laitkroh CRD Block",
+     "Khatarshnong Laitkroh CD Block"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Plus",
+     "CM Elevate",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Lawsohtun",
+    "district": "East Khasi Hills",
+    "aliases": [],
+    "schemes": [
+     "Focus Plus"
+    ]
+   },
+   {
+    "name": "Mawkynrew",
+    "district": "East Khasi Hills",
+    "aliases": [
+     "Mawkynrew Block",
+     "Mawkynrew C & RD Block",
+     "Mawkynrew C&RD Block",
+     "Mawkynrew CRD Block",
+     "Mawkynrew CD Block",
+     "Mawkynrew"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Plus",
+     "CM Elevate",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Mawlai",
+    "district": "East Khasi Hills",
+    "aliases": [
+     "Mawlai Block",
+     "Mawlai C & RD Block",
+     "Mawlai C&RD Block",
+     "Mawlai CRD Block",
+     "Mawlai CD Block",
+     "Mawlai"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "CM Elevate",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Mawpat",
+    "district": "East Khasi Hills",
+    "aliases": [
+     "Mawpat Block",
+     "Mawpat C & RD Block",
+     "Mawpat C&RD Block",
+     "Mawpat CRD Block",
+     "Mawpat CD Block",
+     "Mawpat"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Plus",
+     "CM Elevate",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Mawphlang",
+    "district": "East Khasi Hills",
+    "aliases": [
+     "Mawphlang Block",
+     "Mawphlang C & RD Block",
+     "Mawphlang C&RD Block",
+     "Mawphlang CRD Block",
+     "Mawphlang CD Block",
+     "Mawphlang"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Plus",
+     "CM Elevate",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Mawryngkneng",
+    "district": "East Khasi Hills",
+    "aliases": [
+     "Mawryngkneng Block",
+     "Mawryngkneng C & RD Block",
+     "Mawryngkneng C&RD Block",
+     "Mawryngkneng CRD Block",
+     "Mawryngkneng CD Block",
+     "Mawryngkneng"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Plus",
+     "CM Elevate",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Mawsynram",
+    "district": "East Khasi Hills",
+    "aliases": [
+     "Mawsynram Block",
+     "Mawsynram C & RD Block",
+     "Mawsynram C&RD Block",
+     "Mawsynram CRD Block",
+     "Mawsynram CD Block",
+     "Mawsynram"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Plus",
+     "CM Elevate",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Mylliem",
+    "district": "East Khasi Hills",
+    "aliases": [
+     "Mylliem Block",
+     "Mylliem C & RD Block",
+     "Mylliem C&RD Block",
+     "Mylliem CRD Block",
+     "Mylliem CD Block",
+     "Mylliem"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Plus",
+     "CM Elevate",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Pynursla",
+    "district": "East Khasi Hills",
+    "aliases": [
+     "Pynursla Block",
+     "Pynursla C & RD Block",
+     "Pynursla C&RD Block",
+     "Pynursla CRD Block",
+     "Pynursla CD Block",
+     "Pynursla"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Plus",
+     "CM Elevate",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Shella Bholaganj",
+    "district": "East Khasi Hills",
+    "aliases": [
+     "ShellaBholaganj",
+     "Shella",
+     "Bholaganj",
+     "Shella-Bholaganj",
+     "Shella Bholaganj Block",
+     "Shella Bholaganj C & RD Block",
+     "Shella Bholaganj C&RD Block",
+     "Shella Bholaganj CRD Block",
+     "Shella Bholaganj CD Block"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Plus",
+     "CM Elevate",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Shillong",
+    "district": "East Khasi Hills",
+    "aliases": [
+     "Shillong MB",
+     "Shillong Municipal Board",
+     "Shillong-Municipal Board"
+    ],
+    "schemes": [
+     "CM Elevate"
+    ]
+   },
+   {
+    "name": "Shillong-Municipal Board",
+    "district": "East Khasi Hills",
+    "aliases": [
+     "Shillong-Municipal Board",
+     "SHILLONG MUNICIPAL BOARD",
+     "Shillong MB",
+     "SMB",
+     "Shillong town",
+     "Shillong city",
+     "Shillong urban",
+     "Shillong municipality"
+    ],
+    "schemes": [
+     "Focus Plus",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Sohiong",
+    "district": "East Khasi Hills",
+    "aliases": [
+     "Sohing",
+     "Sohiong Block",
+     "Sohiong C & RD Block",
+     "Sohiong C&RD Block",
+     "Sohiong CRD Block",
+     "Sohiong CD Block",
+     "Sohiong"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Plus",
+     "CM Elevate",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Mairang",
+    "district": "Eastern West Khasi Hills",
+    "aliases": [
+     "Mairang Block",
+     "Mairang C & RD Block",
+     "Mairang C&RD Block",
+     "Mairang CRD Block",
+     "Mairang TC",
+     "Mairang Town Committee",
+     "Mairang-Town Committee",
+     "Mairang CD Block",
+     "Mairang"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Plus",
+     "CM Elevate",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Mairang Town Committee",
+    "district": "Eastern West Khasi Hills",
+    "aliases": [
+     "Mairang-Town Committee",
+     "MAIRANG TOWN COMMITTEE",
+     "Mairang TC",
+     "Mairang town",
+     "Mairang Town Committee area"
+    ],
+    "schemes": [
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Mawthadraishan",
+    "district": "Eastern West Khasi Hills",
+    "aliases": [
+     "Mawthadraishan Block",
+     "Mawthadraishan C & RD Block",
+     "Mawthadraishan C&RD Block",
+     "Mawthadraishan CRD Block",
+     "Mawthadraishan CD Block",
+     "Mawthadraishan"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Plus",
+     "CM Elevate",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Adokgre",
+    "district": "North Garo Hills",
+    "aliases": [
+     "Adokgre Block",
+     "Adokgre C&RD Block",
+     "Adokgre CD Block",
+     "Adokgre"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Bajengdoba",
+    "district": "North Garo Hills",
+    "aliases": [
+     "Bajengdoba Block",
+     "Bajengdoba C & RD Block",
+     "Bajengdoba C&RD Block",
+     "Bajengdoba CRD Block",
+     "Bajengdoba CD Block",
+     "Bajengdoba"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Plus",
+     "CM Elevate",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Kharkutta",
+    "district": "North Garo Hills",
+    "aliases": [
+     "Kharkutta Block",
+     "Kharkutta C & RD Block",
+     "Kharkutta C&RD Block",
+     "Kharkutta CRD Block",
+     "Kharkutta CD Block",
+     "Kharkutta"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Plus",
+     "CM Elevate",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Resubelpara",
+    "district": "North Garo Hills",
+    "aliases": [
+     "Resubelpara Block",
+     "Resubelpara C & RD Block",
+     "Resubelpara C&RD Block",
+     "Resubelpara CRD Block",
+     "Resubelpara MB",
+     "Resubelpara Municipal Board",
+     "Resubelpara-Municipal Board",
+     "Resubelpara CD Block",
+     "Resubelpara"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Plus",
+     "CM Elevate",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Resubelpara-Municipal Board",
+    "district": "North Garo Hills",
+    "aliases": [
+     "Resubelpara-Municipal Board",
+     "RESUBELPARA MUNICIPAL BOARD",
+     "Resubelpara MB",
+     "Resubelpara town",
+     "Resubelpara municipality"
+    ],
+    "schemes": [
+     "Focus Plus",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Bhoirymbong",
+    "district": "Ri Bhoi",
+    "aliases": [
+     "Bhoirymbong Block",
+     "Bhoirymbong C & RD Block",
+     "Bhoirymbong C&RD Block",
+     "Bhoirymbong CRD Block",
+     "Bhoirymbong CD Block",
+     "Bhoirymbong"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "CM Elevate",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Jirang",
+    "district": "Ri Bhoi",
+    "aliases": [
+     "Jirang Block",
+     "Jirang C & RD Block",
+     "Jirang C&RD Block",
+     "Jirang CRD Block",
+     "Jirang CD Block",
+     "Jirang"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Plus",
+     "CM Elevate",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Mawhati",
+    "district": "Ri Bhoi",
+    "aliases": [
+     "Mawhati Block",
+     "Mawhati C&RD Block",
+     "Mawhati CD Block",
+     "Mawhati"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Nongpoh",
+    "district": "Ri Bhoi",
+    "aliases": [
+     "Nongpoh TC",
+     "Nongpoh Town Committee",
+     "Nongpoh-Town Committee"
+    ],
+    "schemes": [
+     "CM Elevate"
+    ]
+   },
+   {
+    "name": "Nongpoh Town Committee",
+    "district": "Ri Bhoi",
+    "aliases": [
+     "Nongpoh-Town Committee",
+     "NONGPOH TOWN COMMITTEE",
+     "Nongpoh TC",
+     "Nongpoh town",
+     "Nongpoh Town Committee area"
+    ],
+    "schemes": [
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Umling",
+    "district": "Ri Bhoi",
+    "aliases": [
+     "Umling Block",
+     "Umling C & RD Block",
+     "Umling C&RD Block",
+     "Umling CRD Block",
+     "Umling CD Block",
+     "Umling"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Plus",
+     "CM Elevate",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Umsning",
+    "district": "Ri Bhoi",
+    "aliases": [
+     "Umsning Block",
+     "Umsning C & RD Block",
+     "Umsning C&RD Block",
+     "Umsning CRD Block",
+     "Umsning CD Block",
+     "Umsning"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Plus",
+     "CM Elevate",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Baghmara",
+    "district": "South Garo Hills",
+    "aliases": [
+     "Baghmara Block",
+     "Baghmara C & RD Block",
+     "Baghmara C&RD Block",
+     "Baghmara CRD Block",
+     "Baghmara MB",
+     "Baghmara Municipal Board",
+     "Baghmara-Municipal Board",
+     "Baghmara CD Block",
+     "Baghmara"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Plus",
+     "CM Elevate",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Baghmara-Municipal Board",
+    "district": "South Garo Hills",
+    "aliases": [
+     "Baghmara-Municipal Board",
+     "BAGHMARA MUNICIPAL BOARD",
+     "Baghmara MB",
+     "Baghmara town",
+     "Baghmara municipality"
+    ],
+    "schemes": [
+     "Focus Plus",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Chokpot",
+    "district": "South Garo Hills",
+    "aliases": [
+     "Chokpot Block",
+     "Chokpot C & RD Block",
+     "Chokpot C&RD Block",
+     "Chokpot CRD Block",
+     "Chokpot CD Block",
+     "Chokpot"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Plus",
+     "CM Elevate",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Gasuapara",
+    "district": "South Garo Hills",
+    "aliases": [
+     "Gasuapara Block",
+     "Gasuapara C & RD Block",
+     "Gasuapara C&RD Block",
+     "Gasuapara CRD Block",
+     "Gasuapara CD Block",
+     "Gasuapara"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Plus",
+     "CM Elevate",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Rongara",
+    "district": "South Garo Hills",
+    "aliases": [
+     "Rongara Siju",
+     "Rongara Block",
+     "Rongara C & RD Block",
+     "Rongara C&RD Block",
+     "Rongara CRD Block",
+     "Rongara CD Block",
+     "Rongara"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Plus",
+     "CM Elevate",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Siju",
+    "district": "South Garo Hills",
+    "aliases": [
+     "Siju Block",
+     "Siju C&RD Block",
+     "Siju CD Block",
+     "Siju"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Betasing",
+    "district": "South West Garo Hills",
+    "aliases": [
+     "Betasing Block",
+     "Betasing C & RD Block",
+     "Betasing C&RD Block",
+     "Betasing CRD Block",
+     "Betasing CD Block",
+     "Betasing"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Plus",
+     "CM Elevate",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Damalgre",
+    "district": "South West Garo Hills",
+    "aliases": [
+     "Damalgre Block"
+    ],
+    "schemes": [
+     "Focus Plus",
+     "CM Elevate"
+    ]
+   },
+   {
+    "name": "Purakhasia",
+    "district": "South West Garo Hills",
+    "aliases": [
+     "Purakhasia Block",
+     "Purakhasia C&RD Block",
+     "Purakhasia CD Block",
+     "Purakhasia"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Rerapara",
+    "district": "South West Garo Hills",
+    "aliases": [
+     "Rerapara Block",
+     "Rerapara C&RD Block",
+     "Rerapara CD Block",
+     "Rerapara"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Plus",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Zikzak",
+    "district": "South West Garo Hills",
+    "aliases": [
+     "Zikzak Block",
+     "Zikzak C & RD Block",
+     "Zikzak C&RD Block",
+     "Zikzak CRD Block",
+     "Zikzak CD Block",
+     "Zikzak"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Plus",
+     "CM Elevate",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Mawkyrwat",
+    "district": "South West Khasi Hills",
+    "aliases": [
+     "Mawkyrwat Block",
+     "Mawkyrwat TC",
+     "Mawkyrwat Town Committee",
+     "Mawkyrwat-Town Committee",
+     "Mawkyrwat C&RD Block",
+     "Mawkyrwat CD Block",
+     "Mawkyrwat"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Plus",
+     "CM Elevate",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Mawkyrwat Town Committee",
+    "district": "South West Khasi Hills",
+    "aliases": [
+     "Mawkyrwat-Town Committee",
+     "MAWKYRWAT TOWN COMMITTEE",
+     "Mawkyrwat TC",
+     "Mawkyrwat town",
+     "Mawkyrwat Town Committee area"
+    ],
+    "schemes": [
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Ranikor",
+    "district": "South West Khasi Hills",
+    "aliases": [
+     "Ranikor Block",
+     "Ranikor C & RD Block",
+     "Ranikor C&RD Block",
+     "Ranikor CRD Block",
+     "Ranikor CD Block",
+     "Ranikor"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Plus",
+     "CM Elevate",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Batabari",
+    "district": "West Garo Hills",
+    "aliases": [
+     "Batabari Block",
+     "Batabari C&RD Block",
+     "Batabari CD Block",
+     "Batabari"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Dadenggiri",
+    "district": "West Garo Hills",
+    "aliases": [
+     "Dadenggre",
+     "Dadenggri",
+     "Dadenggiri Block",
+     "Dadenggiri C & RD Block",
+     "Dadenggiri C&RD Block",
+     "Dadenggiri CRD Block",
+     "Dadenggiri CD Block",
+     "Dadenggiri"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Plus",
+     "CM Elevate",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Dalu",
+    "district": "West Garo Hills",
+    "aliases": [
+     "Dalu Block",
+     "Dalu C & RD Block",
+     "Dalu C&RD Block",
+     "Dalu CRD Block",
+     "Dalu CD Block",
+     "Dalu"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Plus",
+     "CM Elevate",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Demdema",
+    "district": "West Garo Hills",
+    "aliases": [
+     "Demdema Block",
+     "Demdema C & RD Block",
+     "Demdema C&RD Block",
+     "Demdema CRD Block",
+     "Demdema CD Block"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Plus",
+     "CM Elevate",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS"
+    ]
+   },
+   {
+    "name": "Gambegre",
+    "district": "West Garo Hills",
+    "aliases": [
+     "Gambegre Block",
+     "Gambegre C & RD Block",
+     "Gambegre C&RD Block",
+     "Gambegre CRD Block",
+     "Gambegre CD Block",
+     "Gambegre"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Plus",
+     "CM Elevate",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Rongram",
+    "district": "West Garo Hills",
+    "aliases": [
+     "Rongram Block",
+     "Rongram C & RD Block",
+     "Rongram C&RD Block",
+     "Rongram CRD Block",
+     "Rongram CD Block",
+     "Rongram"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Plus",
+     "CM Elevate",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Selsella",
+    "district": "West Garo Hills",
+    "aliases": [
+     "Selsella Block",
+     "Selsella C & RD Block",
+     "Selsella C&RD Block",
+     "Selsella CRD Block",
+     "Selsella CD Block",
+     "Selsella"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Plus",
+     "CM Elevate",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Tikrikilla",
+    "district": "West Garo Hills",
+    "aliases": [
+     "Tikrikila",
+     "Tikrikilla Block",
+     "Tikrikilla C & RD Block",
+     "Tikrikilla C&RD Block",
+     "Tikrikilla CRD Block",
+     "Tikrikilla CD Block",
+     "Tikrikilla"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Plus",
+     "CM Elevate",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Tura",
+    "district": "West Garo Hills",
+    "aliases": [
+     "Tura MB",
+     "Tura Municipal Board",
+     "Tura Municipal Board-Municipal Board"
+    ],
+    "schemes": [
+     "CM Elevate"
+    ]
+   },
+   {
+    "name": "Tura Municipal Board",
+    "district": "West Garo Hills",
+    "aliases": [
+     "Tura Municipal Board-Municipal Board",
+     "TURA MUNICIPAL BOARD",
+     "Tura MB",
+     "TMB",
+     "Tura town",
+     "Tura municipality",
+     "Tura urban"
+    ],
+    "schemes": [
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Tura Municipal Board-Municipal Board",
+    "district": "West Garo Hills",
+    "aliases": [],
+    "schemes": [
+     "Focus Plus",
+     "CM Elevate Legacy"
+    ]
+   },
+   {
+    "name": "Amlarem",
+    "district": "West Jaintia Hills",
+    "aliases": [
+     "Amlarem Block",
+     "Amlarem C & RD Block",
+     "Amlarem C&RD Block",
+     "Amlarem CRD Block",
+     "Amlarem CD Block",
+     "Amlarem"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "CM Elevate",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Jowai",
+    "district": "West Jaintia Hills",
+    "aliases": [
+     "Jowai MB",
+     "Jowai Municipal Board",
+     "Jowai-Municipal Board"
+    ],
+    "schemes": [
+     "CM Elevate"
+    ]
+   },
+   {
+    "name": "Jowai Municipal Board",
+    "district": "West Jaintia Hills",
+    "aliases": [
+     "Jowai-Municipal Board",
+     "JOWAI MUNICIPAL BOARD",
+     "Jowai MB",
+     "Jowai town",
+     "Jowai municipality"
+    ],
+    "schemes": [
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Laskein",
+    "district": "West Jaintia Hills",
+    "aliases": [
+     "Laskein Block",
+     "Laskein C & RD Block",
+     "Laskein C&RD Block",
+     "Laskein CRD Block",
+     "Laskein CD Block",
+     "Laskein"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Plus",
+     "CM Elevate",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Namdong",
+    "district": "West Jaintia Hills",
+    "aliases": [
+     "Namdong Block",
+     "Namdong C&RD Block",
+     "Namdong CD Block",
+     "Namdong"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Thadlaskein",
+    "district": "West Jaintia Hills",
+    "aliases": [
+     "Thadlaskein Block",
+     "Thadlaskein C & RD Block",
+     "Thadlaskein C&RD Block",
+     "Thadlaskein CRD Block",
+     "Thadlaskein CD Block",
+     "Thadlaskein"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Plus",
+     "CM Elevate",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Mawshynrut",
+    "district": "West Khasi Hills",
+    "aliases": [
+     "Mawshynrut Block",
+     "Mawshynrut C & RD Block",
+     "Mawshynrut C&RD Block",
+     "Mawshynrut CRD Block",
+     "Mawshynrut CD Block",
+     "Mawshynrut"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Plus",
+     "CM Elevate",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Nongstoin",
+    "district": "West Khasi Hills",
+    "aliases": [
+     "Nongstoin Block",
+     "Nongstoin C & RD Block",
+     "Nongstoin C&RD Block",
+     "Nongstoin CRD Block",
+     "Nongstoin TC",
+     "Nongstoin Town Committee",
+     "Nongstoin-Town Committee",
+     "Nongstoin CD Block",
+     "Nongstoin"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Plus",
+     "CM Elevate",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Nongstoin Town Committee",
+    "district": "West Khasi Hills",
+    "aliases": [
+     "Nongstoin-Town Committee",
+     "NONGSTOIN TOWN COMMITTEE",
+     "Nongstoin TC",
+     "Nongstoin town",
+     "Nongstoin Town Committee area"
+    ],
+    "schemes": [
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Rambrai",
+    "district": "West Khasi Hills",
+    "aliases": [
+     "Rambrai Jyrngam",
+     "Rambrai Block",
+     "Rambrai C&RD Block",
+     "Rambrai CD Block",
+     "Rambrai"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Ri Muliang",
+    "district": "West Khasi Hills",
+    "aliases": [
+     "RiMuliang",
+     "Ri Muliang Block",
+     "Ri-Muliang Block",
+     "Ri-Muliang",
+     "Ri Muliang C&RD Block",
+     "Ri Muliang CD Block"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "CM Elevate",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   },
+   {
+    "name": "Shallang",
+    "district": "West Khasi Hills",
+    "aliases": [
+     "Shallang Block",
+     "Shallang C&RD Block",
+     "Shallang CD Block",
+     "Shallang"
+    ],
+    "schemes": [
+     "MGNREGA",
+     "PMAY-G",
+     "Focus Legacy",
+     "CM Elevate Legacy",
+     "CMSS",
+     "Homestay"
+    ]
+   }
+  ],
+  "constituencies": [
+   {
+    "name": "Nartiang",
+    "number": 1,
+    "districts": [
+     "West Jaintia Hills"
+    ],
+    "aliases": [
+     "1 NARTIANG",
+     "AC 1",
+     "AC-1",
+     "Nartiang constituency",
+     "Nartiang AC"
+    ]
+   },
+   {
+    "name": "Jowai",
+    "number": 2,
+    "districts": [
+     "West Jaintia Hills"
+    ],
+    "aliases": [
+     "2 JOWAI",
+     "AC 2",
+     "AC-2",
+     "Jowai constituency",
+     "Jowai AC"
+    ]
+   },
+   {
+    "name": "Raliang",
+    "number": 3,
+    "districts": [
+     "West Jaintia Hills"
+    ],
+    "aliases": [
+     "3 RALIANG",
+     "AC 3",
+     "AC-3",
+     "Raliang constituency",
+     "Raliang AC"
+    ]
+   },
+   {
+    "name": "Mowkaiaw",
+    "number": 4,
+    "districts": [
+     "West Jaintia Hills"
+    ],
+    "aliases": [
+     "4 MOWKAIAW",
+     "AC 4",
+     "AC-4",
+     "Mowkaiaw constituency",
+     "Mowkaiaw AC"
+    ]
+   },
+   {
+    "name": "Sutnga-saipung",
+    "number": 5,
+    "districts": [
+     "East Jaintia Hills"
+    ],
+    "aliases": [
+     "SUTNGA",
+     "5 SUTNGA",
+     "AC 5",
+     "AC-5",
+     "5 Sutnga-Saipung",
+     "Sutnga-Saipung constituency",
+     "Sutnga-Saipung AC",
+     "Sutnga Saipung"
+    ]
+   },
+   {
+    "name": "Khliehriat",
+    "number": 6,
+    "districts": [
+     "East Jaintia Hills"
+    ],
+    "aliases": [
+     "6 KHLIEHRIAT",
+     "AC 6",
+     "AC-6",
+     "Khliehriat constituency",
+     "Khliehriat AC"
+    ]
+   },
+   {
+    "name": "Amlarem",
+    "number": 7,
+    "districts": [
+     "West Jaintia Hills"
+    ],
+    "aliases": [
+     "7 AMLAREM",
+     "AC 7",
+     "AC-7",
+     "Amlarem constituency",
+     "Amlarem AC"
+    ]
+   },
+   {
+    "name": "Mawhati",
+    "number": 8,
+    "districts": [
+     "Ri Bhoi"
+    ],
+    "aliases": [
+     "8 MAWHATI",
+     "AC 8",
+     "AC-8",
+     "Mawhati constituency",
+     "Mawhati AC"
+    ]
+   },
+   {
+    "name": "Nongpoh",
+    "number": 9,
+    "districts": [
+     "Ri Bhoi"
+    ],
+    "aliases": [
+     "9 NONGPOH",
+     "AC 9",
+     "AC-9",
+     "Nongpoh constituency",
+     "Nongpoh AC"
+    ]
+   },
+   {
+    "name": "Jirang",
+    "number": 10,
+    "districts": [
+     "Ri Bhoi"
+    ],
+    "aliases": [
+     "10 JIRANG",
+     "AC 10",
+     "AC-10",
+     "Jirang constituency",
+     "Jirang AC"
+    ]
+   },
+   {
+    "name": "Umsning",
+    "number": 11,
+    "districts": [
+     "Ri Bhoi"
+    ],
+    "aliases": [
+     "11 UMSNING",
+     "AC 11",
+     "AC-11",
+     "Umsning constituency",
+     "Umsning AC"
+    ]
+   },
+   {
+    "name": "Umroi",
+    "number": 12,
+    "districts": [
+     "Ri Bhoi"
+    ],
+    "aliases": [
+     "12 UMROI",
+     "AC 12",
+     "AC-12",
+     "Umroi constituency",
+     "Umroi AC"
+    ]
+   },
+   {
+    "name": "Mawryngkneng",
+    "number": 13,
+    "districts": [
+     "East Khasi Hills"
+    ],
+    "aliases": [
+     "13 MAWRYNGKNENG",
+     "AC 13",
+     "AC-13",
+     "Mawryngkneng constituency",
+     "Mawryngkneng AC"
+    ]
+   },
+   {
+    "name": "Pynthorumkhrah",
+    "number": 14,
+    "districts": [
+     "East Khasi Hills"
+    ],
+    "aliases": [
+     "14 PYNTHORUMKHRAH",
+     "AC 14",
+     "AC-14",
+     "Pynthorumkhrah constituency",
+     "Pynthorumkhrah AC"
+    ]
+   },
+   {
+    "name": "Mawlai",
+    "number": 15,
+    "districts": [
+     "East Khasi Hills"
+    ],
+    "aliases": [
+     "15 MAWLAI",
+     "AC 15",
+     "AC-15",
+     "Mawlai constituency",
+     "Mawlai AC"
+    ]
+   },
+   {
+    "name": "East Shillong",
+    "number": 16,
+    "districts": [
+     "East Khasi Hills"
+    ],
+    "aliases": [
+     "16 EAST SHILLONG",
+     "AC 16",
+     "AC-16",
+     "East Shillong constituency",
+     "East Shillong AC"
+    ]
+   },
+   {
+    "name": "North Shillong",
+    "number": 17,
+    "districts": [
+     "East Khasi Hills"
+    ],
+    "aliases": [
+     "17 NORTH SHILLONG",
+     "AC 17",
+     "AC-17",
+     "North Shillong constituency",
+     "North Shillong AC"
+    ]
+   },
+   {
+    "name": "West Shillong",
+    "number": 18,
+    "districts": [
+     "East Khasi Hills"
+    ],
+    "aliases": [
+     "18 WEST SHILLONG",
+     "AC 18",
+     "AC-18",
+     "West Shillong constituency",
+     "West Shillong AC"
+    ]
+   },
+   {
+    "name": "South Shillong",
+    "number": 19,
+    "districts": [
+     "East Khasi Hills"
+    ],
+    "aliases": [
+     "19 SOUTH SHILLONG",
+     "AC 19",
+     "AC-19",
+     "South Shillong constituency",
+     "South Shillong AC"
+    ]
+   },
+   {
+    "name": "Mylliem",
+    "number": 20,
+    "districts": [
+     "East Khasi Hills"
+    ],
+    "aliases": [
+     "20 MYLLIEM",
+     "AC 20",
+     "AC-20",
+     "Mylliem constituency",
+     "Mylliem AC"
+    ]
+   },
+   {
+    "name": "Nongthymmai",
+    "number": 21,
+    "districts": [
+     "East Khasi Hills"
+    ],
+    "aliases": [
+     "21 NONGTHYMMAI",
+     "AC 21",
+     "AC-21",
+     "Nongthymmai constituency",
+     "Nongthymmai AC"
+    ]
+   },
+   {
+    "name": "Nongkrem",
+    "number": 22,
+    "districts": [
+     "East Khasi Hills"
+    ],
+    "aliases": [
+     "22 NONGKREM",
+     "AC 22",
+     "AC-22",
+     "Nongkrem constituency",
+     "Nongkrem AC"
+    ]
+   },
+   {
+    "name": "Sohing",
+    "number": 23,
+    "districts": [
+     "East Khasi Hills"
+    ],
+    "aliases": [
+     "SOHIONG",
+     "23 SOHIONG",
+     "AC 23",
+     "AC-23",
+     "23 Sohing",
+     "Sohing constituency",
+     "Sohing AC"
+    ]
+   },
+   {
+    "name": "Mawphlang",
+    "number": 24,
+    "districts": [
+     "East Khasi Hills"
+    ],
+    "aliases": [
+     "24 MAWPHLANG",
+     "AC 24",
+     "AC-24",
+     "Mawphlang constituency",
+     "Mawphlang AC"
+    ]
+   },
+   {
+    "name": "Mawsynram",
+    "number": 25,
+    "districts": [
+     "East Khasi Hills"
+    ],
+    "aliases": [
+     "25 MAWSYNRAM",
+     "AC 25",
+     "AC-25",
+     "Mawsynram constituency",
+     "Mawsynram AC"
+    ]
+   },
+   {
+    "name": "Shella",
+    "number": 26,
+    "districts": [
+     "East Khasi Hills"
+    ],
+    "aliases": [
+     "26 SHELLA",
+     "AC 26",
+     "AC-26",
+     "Shella constituency",
+     "Shella AC"
+    ]
+   },
+   {
+    "name": "Pynursla",
+    "number": 27,
+    "districts": [
+     "East Khasi Hills"
+    ],
+    "aliases": [
+     "27 PYNURSLA",
+     "AC 27",
+     "AC-27",
+     "Pynursla constituency",
+     "Pynursla AC"
+    ]
+   },
+   {
+    "name": "Sohra",
+    "number": 28,
+    "districts": [
+     "East Khasi Hills"
+    ],
+    "aliases": [
+     "28 SOHRA",
+     "AC 28",
+     "AC-28",
+     "Sohra constituency",
+     "Sohra AC"
+    ]
+   },
+   {
+    "name": "Mawkynrew",
+    "number": 29,
+    "districts": [
+     "East Khasi Hills"
+    ],
+    "aliases": [
+     "29 MAWKYNREW",
+     "AC 29",
+     "AC-29",
+     "Mawkynrew constituency",
+     "Mawkynrew AC"
+    ]
+   },
+   {
+    "name": "Mairang",
+    "number": 30,
+    "districts": [
+     "Eastern West Khasi Hills"
+    ],
+    "aliases": [
+     "30 MAIRANG",
+     "AC 30",
+     "AC-30",
+     "Mairang constituency",
+     "Mairang AC"
+    ]
+   },
+   {
+    "name": "Mawthadraishan",
+    "number": 31,
+    "districts": [
+     "Eastern West Khasi Hills",
+     "West Khasi Hills"
+    ],
+    "aliases": [
+     "31 MAWTHADRAISHAN",
+     "AC 31",
+     "AC-31",
+     "Mawthadraishan constituency",
+     "Mawthadraishan AC"
+    ]
+   },
+   {
+    "name": "Nongstoin",
+    "number": 32,
+    "districts": [
+     "West Khasi Hills"
+    ],
+    "aliases": [
+     "32 NONGSTOIN",
+     "AC 32",
+     "AC-32",
+     "Nongstoin constituency",
+     "Nongstoin AC"
+    ]
+   },
+   {
+    "name": "Rambrai Jyrngam",
+    "number": 33,
+    "districts": [
+     "West Khasi Hills"
+    ],
+    "aliases": [
+     "RAMBRAI",
+     "33 RAMBRAI",
+     "AC 33",
+     "AC-33",
+     "33 Rambrai Jyrngam",
+     "Rambrai Jyrngam constituency",
+     "Rambrai Jyrngam AC"
+    ]
+   },
+   {
+    "name": "Mawshynrut",
+    "number": 34,
+    "districts": [
+     "West Khasi Hills"
+    ],
+    "aliases": [
+     "34 MAWSHYNRUT",
+     "AC 34",
+     "AC-34",
+     "Mawshynrut constituency",
+     "Mawshynrut AC"
+    ]
+   },
+   {
+    "name": "Ranikor",
+    "number": 35,
+    "districts": [
+     "South West Khasi Hills"
+    ],
+    "aliases": [
+     "35 RANIKOR",
+     "AC 35",
+     "AC-35",
+     "Ranikor constituency",
+     "Ranikor AC"
+    ]
+   },
+   {
+    "name": "Mawkyrwat",
+    "number": 36,
+    "districts": [
+     "South West Khasi Hills"
+    ],
+    "aliases": [
+     "36 MAWKYRWAT",
+     "AC 36",
+     "AC-36",
+     "Mawkyrwat constituency",
+     "Mawkyrwat AC"
+    ]
+   },
+   {
+    "name": "Kharkutta",
+    "number": 37,
+    "districts": [
+     "North Garo Hills"
+    ],
+    "aliases": [
+     "37 KHARKUTTA",
+     "AC 37",
+     "AC-37",
+     "Kharkutta constituency",
+     "Kharkutta AC"
+    ]
+   },
+   {
+    "name": "Mendipathar",
+    "number": 38,
+    "districts": [
+     "North Garo Hills"
+    ],
+    "aliases": [
+     "38 MENDIPATHAR",
+     "AC 38",
+     "AC-38",
+     "Mendipathar constituency",
+     "Mendipathar AC"
+    ]
+   },
+   {
+    "name": "Resubelpara",
+    "number": 39,
+    "districts": [
+     "North Garo Hills"
+    ],
+    "aliases": [
+     "39 RESUBELPARA",
+     "AC 39",
+     "AC-39",
+     "Resubelpara constituency",
+     "Resubelpara AC"
+    ]
+   },
+   {
+    "name": "Bajengdoba",
+    "number": 40,
+    "districts": [
+     "North Garo Hills"
+    ],
+    "aliases": [
+     "40 BAJENGDOBA",
+     "AC 40",
+     "AC-40",
+     "Bajengdoba constituency",
+     "Bajengdoba AC"
+    ]
+   },
+   {
+    "name": "Songsak",
+    "number": 41,
+    "districts": [
+     "East Garo Hills"
+    ],
+    "aliases": [
+     "41 SONGSAK",
+     "AC 41",
+     "AC-41",
+     "Songsak constituency",
+     "Songsak AC"
+    ]
+   },
+   {
+    "name": "Rongjeng",
+    "number": 42,
+    "districts": [
+     "East Garo Hills",
+     "North Garo Hills"
+    ],
+    "aliases": [
+     "42 RONGJENG",
+     "AC 42",
+     "AC-42",
+     "Rongjeng constituency",
+     "Rongjeng AC"
+    ]
+   },
+   {
+    "name": "William Nagar",
+    "number": 43,
+    "districts": [
+     "East Garo Hills"
+    ],
+    "aliases": [
+     "WILLIAM",
+     "43 WILLIAM",
+     "AC 43",
+     "AC-43",
+     "43 William Nagar",
+     "William Nagar constituency",
+     "William Nagar AC"
+    ]
+   },
+   {
+    "name": "Raksamgre",
+    "number": 44,
+    "districts": [
+     "North Garo Hills",
+     "West Garo Hills"
+    ],
+    "aliases": [
+     "44 RAKSAMGRE",
+     "AC 44",
+     "AC-44",
+     "Raksamgre constituency",
+     "Raksamgre AC"
+    ]
+   },
+   {
+    "name": "Tikrikila",
+    "number": 45,
+    "districts": [
+     "West Garo Hills"
+    ],
+    "aliases": [
+     "TIKRIKILLA",
+     "45 TIKRIKILLA",
+     "AC 45",
+     "AC-45",
+     "45 Tikrikila",
+     "Tikrikila constituency",
+     "Tikrikila AC"
+    ]
+   },
+   {
+    "name": "Phulbari",
+    "number": 46,
+    "districts": [
+     "West Garo Hills"
+    ],
+    "aliases": [
+     "46 PHULBARI",
+     "AC 46",
+     "AC-46",
+     "Phulbari constituency",
+     "Phulbari AC"
+    ]
+   },
+   {
+    "name": "Rajabala",
+    "number": 47,
+    "districts": [
+     "West Garo Hills"
+    ],
+    "aliases": [
+     "47 RAJABALA",
+     "AC 47",
+     "AC-47",
+     "Rajabala constituency",
+     "Rajabala AC"
+    ]
+   },
+   {
+    "name": "Selsella",
+    "number": 48,
+    "districts": [
+     "South West Garo Hills",
+     "West Garo Hills"
+    ],
+    "aliases": [
+     "48 SELSELLA",
+     "AC 48",
+     "AC-48",
+     "Selsella constituency",
+     "Selsella AC"
+    ]
+   },
+   {
+    "name": "Dadenggre",
+    "number": 49,
+    "districts": [
+     "West Garo Hills"
+    ],
+    "aliases": [
+     "49 DADENGGRE",
+     "AC 49",
+     "AC-49",
+     "Dadenggre constituency",
+     "Dadenggre AC"
+    ]
+   },
+   {
+    "name": "North Tura",
+    "number": 50,
+    "districts": [
+     "West Garo Hills"
+    ],
+    "aliases": [
+     "50 NORTH TURA",
+     "AC 50",
+     "AC-50",
+     "North Tura constituency",
+     "North Tura AC"
+    ]
+   },
+   {
+    "name": "South Tura",
+    "number": 51,
+    "districts": [
+     "West Garo Hills"
+    ],
+    "aliases": [
+     "51 SOUTH TURA",
+     "AC 51",
+     "AC-51",
+     "South Tura constituency",
+     "South Tura AC"
+    ]
+   },
+   {
+    "name": "Rangsakona",
+    "number": 52,
+    "districts": [
+     "South West Garo Hills",
+     "West Garo Hills"
+    ],
+    "aliases": [
+     "52 RANGSAKONA",
+     "AC 52",
+     "AC-52",
+     "Rangsakona constituency",
+     "Rangsakona AC"
+    ]
+   },
+   {
+    "name": "Ampathi",
+    "number": 53,
+    "districts": [
+     "South West Garo Hills"
+    ],
+    "aliases": [
+     "AMPATI",
+     "53 AMPATI",
+     "AC 53",
+     "AC-53",
+     "53 Ampathi",
+     "Ampathi constituency",
+     "Ampathi AC"
+    ]
+   },
+   {
+    "name": "Mahendraganj",
+    "number": 54,
+    "districts": [
+     "South West Garo Hills"
+    ],
+    "aliases": [
+     "54 MAHENDRAGANJ",
+     "AC 54",
+     "AC-54",
+     "Mahendraganj constituency",
+     "Mahendraganj AC"
+    ]
+   },
+   {
+    "name": "Salmanpara",
+    "number": 55,
+    "districts": [
+     "South West Garo Hills",
+     "West Garo Hills"
+    ],
+    "aliases": [
+     "55 SALMANPARA",
+     "AC 55",
+     "AC-55",
+     "Salmanpara constituency",
+     "Salmanpara AC"
+    ]
+   },
+   {
+    "name": "Gambegre",
+    "number": 56,
+    "districts": [
+     "South West Garo Hills",
+     "West Garo Hills"
+    ],
+    "aliases": [
+     "56 GAMBEGRE",
+     "AC 56",
+     "AC-56",
+     "Gambegre constituency",
+     "Gambegre AC"
+    ]
+   },
+   {
+    "name": "Dalu",
+    "number": 57,
+    "districts": [
+     "South West Garo Hills",
+     "West Garo Hills"
+    ],
+    "aliases": [
+     "57 DALU",
+     "AC 57",
+     "AC-57",
+     "Dalu constituency",
+     "Dalu AC"
+    ]
+   },
+   {
+    "name": "Rongara-siju",
+    "number": 58,
+    "districts": [
+     "South Garo Hills"
+    ],
+    "aliases": [
+     "RONGARA",
+     "58 RONGARA",
+     "AC 58",
+     "AC-58",
+     "58 Rongara-Siju",
+     "Rongara-Siju constituency",
+     "Rongara-Siju AC",
+     "Rongara Siju"
+    ]
+   },
+   {
+    "name": "Chokpot",
+    "number": 59,
+    "districts": [
+     "South Garo Hills"
+    ],
+    "aliases": [
+     "59 CHOKPOT",
+     "AC 59",
+     "AC-59",
+     "Chokpot constituency",
+     "Chokpot AC"
+    ]
+   },
+   {
+    "name": "Baghmara",
+    "number": 60,
+    "districts": [
+     "South Garo Hills"
+    ],
+    "aliases": [
+     "60 BAGHMARA",
+     "AC 60",
+     "AC-60",
+     "Baghmara constituency",
+     "Baghmara AC"
+    ]
+   }
+  ]
+ },
+ "asr": {
+  "prompt": "Meghalaya government scheme data. Schemes: MGNREGA, PMAY-G, Focus Plus, Focus Legacy, CM Elevate, CM Elevate Legacy, CMSS, Homestay. Districts: East Khasi Hills, West Khasi Hills, South West Khasi Hills, Eastern West Khasi Hills, Ri Bhoi, East Jaintia Hills, West Jaintia Hills, East Garo Hills, West Garo Hills, North Garo Hills, South Garo Hills, South West Garo Hills. Terms: person-days, job cards, beneficiaries, producer groups, disbursement, sanctioned, tranche, financial year 2023-24, students applied, students paid, not paid, total applications, approved applications, unique applicants.",
+  "district_order": [
+   "East Khasi Hills",
+   "West Khasi Hills",
+   "South West Khasi Hills",
+   "Eastern West Khasi Hills",
+   "Ri Bhoi",
+   "East Jaintia Hills",
+   "West Jaintia Hills",
+   "East Garo Hills",
+   "West Garo Hills",
+   "North Garo Hills",
+   "South Garo Hills",
+   "South West Garo Hills"
+  ],
+  "terms": [
+   "person-days",
+   "job cards",
+   "beneficiaries",
+   "producer groups",
+   "disbursement",
+   "sanctioned",
+   "tranche",
+   "financial year 2023-24",
+   "students applied",
+   "students paid",
+   "not paid",
+   "total applications",
+   "approved applications",
+   "unique applicants"
+  ],
+  "fixes": [
+   {
+    "pattern": "\\b(?:m\\.?\\s*g\\.?\\s*n\\.?\\s*r\\.?\\s*e\\.?\\s*g\\.?\\s*a|mgn\\s*rega|m\\s*n\\s*rega|mnrega|magnrega|magna\\s*rega|man\\s*d?\\s*re[gk]a|mandreka|mandrega|mandi?ra|mandraya|mandra[gk]a|mandria|mandri[gk]a|mandiga|mandar[gk]a|manrega|manreka|narega|nrega|en\\s*rega|mgnreg,?\\s+a|mgnr\\s+ega|mgn\\s+r\\s*e\\s*g\\s*a)\\b",
+    "to": "MGNREGA"
+   },
+   {
+    "pattern": "\\bp\\.?\\s*m\\.?\\s*a\\.?\\s*y\\.?(?:\\s*-?\\s*g)?\\b\\.?",
+    "to": "PMAY-G"
+   },
+   {
+    "pattern": "\\bpm\\s*awas(?:\\s*yojana)?(?:\\s*gramin)?\\b",
+    "to": "PMAY-G"
+   },
+   {
+    "pattern": "\\b(?:pip|pep|pee|pea|peep|pe)[,\\s]+(?:e\\s+)?(?:em|m)\\s*(?:ay|eh|a)\\s*(?:why|wy|y)(?:\\s*-?\\s*(?:gee|ji|g))?\\b\\.?",
+    "to": "PMAY-G"
+   },
+   {
+    "pattern": "\\bc\\.?\\s*m\\.?\\s+elevate\\b",
+    "to": "CM Elevate"
+   },
+   {
+    "pattern": "\\b(?:c\\s*m\\s*l\\s*(?:8|eight|ate|ait)|cml\\s*8|see\\s+(?:em|m)\\s+elevate|seam\\s+elevate|cm\\s*l\\s*evate|cmelevate)\\b",
+    "to": "CM Elevate"
+   },
+   {
+    "pattern": "\\bc\\.?\\s*-?\\s*m\\.?\\s*-?\\s*s\\.?\\s*-?\\s*s\\b\\.?",
+    "to": "CMSS"
+   },
+   {
+    "pattern": "\\bchief\\s*minister\\s*scholarship\\s*scheme\\s*meghalaya\\b",
+    "to": "CMSS"
+   },
+   {
+    "pattern": "\\bchief\\s*minister\\s*scholarship\\s*scheme\\s*2025\\b",
+    "to": "CMSS"
+   },
+   {
+    "pattern": "\\bchief\\s*minister\\s*s\\s*scholarship\\s*scheme\\b",
+    "to": "CMSS"
+   },
+   {
+    "pattern": "\\bmeghalaya\\s*cm\\s*scholarship\\s*scheme\\b",
+    "to": "CMSS"
+   },
+   {
+    "pattern": "\\bpost\\s*matric\\s*state\\s*scholarship\\b",
+    "to": "CMSS"
+   },
+   {
+    "pattern": "\\bchief\\s*minister\\s*s\\s*scholarship\\b",
+    "to": "CMSS"
+   },
+   {
+    "pattern": "\\bchief\\s*minister\\s*scholarship\\b",
+    "to": "CMSS"
+   },
+   {
+    "pattern": "\\bcm\\s*scholarship\\s*scheme\\s*2025\\b",
+    "to": "CMSS"
+   },
+   {
+    "pattern": "\\bmeghalaya\\s*cm\\s*scholarship\\b",
+    "to": "CMSS"
+   },
+   {
+    "pattern": "\\bcm\\s*scholarship\\s*scheme\\b",
+    "to": "CMSS"
+   },
+   {
+    "pattern": "\\brs\\s*6000\\s*scholarship\\b",
+    "to": "CMSS"
+   },
+   {
+    "pattern": "\\bstate\\s*scholarship\\b",
+    "to": "CMSS"
+   },
+   {
+    "pattern": "\\b6000\\s*scholarship\\b",
+    "to": "CMSS"
+   },
+   {
+    "pattern": "\\bcm\\s*scholarship\\b",
+    "to": "CMSS"
+   },
+   {
+    "pattern": "\\bcmss\\s*meghalaya\\b",
+    "to": "CMSS"
+   },
+   {
+    "pattern": "\\bc\\.?\\s*-?\\s*m\\.?\\s*-?\\s*m\\.?\\s*-?\\s*h\\.?\\s*-?\\s*m\\b\\.?",
+    "to": "Homestay"
+   },
+   {
+    "pattern": "\\bchief\\s*minister\\s*s\\s*meghalaya\\s*homestay\\s*mission\\b",
+    "to": "Homestay"
+   },
+   {
+    "pattern": "\\bmeghalaya\\s*tourism\\s*homestay\\s*scheme\\b",
+    "to": "Homestay"
+   },
+   {
+    "pattern": "\\bcm\\s*s\\s*meghalaya\\s*homestay\\s*mission\\b",
+    "to": "Homestay"
+   },
+   {
+    "pattern": "\\bhomestay\\s*upgradation\\s*scheme\\b",
+    "to": "Homestay"
+   },
+   {
+    "pattern": "\\btourism\\s*homestay\\s*scheme\\b",
+    "to": "Homestay"
+   },
+   {
+    "pattern": "\\bhomestay\\s*subsidy\\s*scheme\\b",
+    "to": "Homestay"
+   },
+   {
+    "pattern": "\\bhomestay\\s*applications\\b",
+    "to": "Homestay"
+   },
+   {
+    "pattern": "\\bcm\\s*homestay\\s*mission\\b",
+    "to": "Homestay"
+   },
+   {
+    "pattern": "\\bnew\\s*homestay\\s*scheme\\b",
+    "to": "Homestay"
+   },
+   {
+    "pattern": "\\bhomestay\\s*mission\\b",
+    "to": "Homestay"
+   },
+   {
+    "pattern": "\\bhomestay\\s*scheme\\b",
+    "to": "Homestay"
+   },
+   {
+    "pattern": "\\bhomestay\\s*api\\b",
+    "to": "Homestay"
+   }
+  ],
+  "term_fixes": [
+   {
+    "pattern": "\\bperson[\\s-]*(?:dies|dyes|daze|days|day)\\b",
+    "to": "person-days"
+   },
+   {
+    "pattern": "\\bjob\\s+cods?\\b",
+    "to": "job cards"
+   }
+  ],
+  "vocabulary": [
+   "MGNREGA",
+   "PMAY-G",
+   "Focus Plus",
+   "Focus Legacy",
+   "CM Elevate",
+   "CM Elevate Legacy",
+   "CMSS",
+   "Homestay",
+   "East Garo Hills",
+   "East Khasi Hills",
+   "West Jaintia Hills",
+   "Ri Bhoi",
+   "South Garo Hills",
+   "West Garo Hills",
+   "West Khasi Hills",
+   "North Garo Hills",
+   "East Jaintia Hills",
+   "South West Khasi Hills",
+   "South West Garo Hills",
+   "Eastern West Khasi Hills",
+   "Dambo Rongjeng",
+   "Samanda",
+   "Songsak",
+   "Williamnagar",
+   "Williamnagar-Municipal Board",
+   "Khliehriat",
+   "Khliehriat Town Committee",
+   "Lumshnong",
+   "Saipung",
+   "Wapung",
+   "Khatarshnong Laitkroh",
+   "Lawsohtun",
+   "Mawkynrew",
+   "Mawlai",
+   "Mawpat",
+   "Mawphlang",
+   "Mawryngkneng",
+   "Mawsynram",
+   "Mylliem",
+   "Pynursla",
+   "Shella Bholaganj",
+   "Shillong",
+   "Shillong-Municipal Board",
+   "Sohiong",
+   "Mairang",
+   "Mairang Town Committee",
+   "Mawthadraishan",
+   "Adokgre",
+   "Bajengdoba",
+   "Kharkutta",
+   "Resubelpara",
+   "Resubelpara-Municipal Board",
+   "Bhoirymbong",
+   "Jirang",
+   "Mawhati",
+   "Nongpoh",
+   "Nongpoh Town Committee",
+   "Umling",
+   "Umsning",
+   "Baghmara",
+   "Baghmara-Municipal Board",
+   "Chokpot",
+   "Gasuapara",
+   "Rongara",
+   "Siju",
+   "Betasing",
+   "Damalgre",
+   "Purakhasia",
+   "Rerapara",
+   "Zikzak",
+   "Mawkyrwat",
+   "Mawkyrwat Town Committee",
+   "Ranikor",
+   "Batabari",
+   "Dadenggiri",
+   "Dalu",
+   "Demdema",
+   "Gambegre",
+   "Rongram",
+   "Selsella",
+   "Tikrikilla",
+   "Tura",
+   "Tura Municipal Board",
+   "Tura Municipal Board-Municipal Board",
+   "Amlarem",
+   "Jowai",
+   "Jowai Municipal Board",
+   "Laskein",
+   "Namdong",
+   "Thadlaskein",
+   "Mawshynrut",
+   "Nongstoin",
+   "Nongstoin Town Committee",
+   "Rambrai",
+   "Ri Muliang",
+   "Shallang",
+   "person-days",
+   "job cards",
+   "beneficiaries",
+   "producer groups",
+   "disbursement",
+   "sanctioned",
+   "tranche",
+   "financial year 2023-24",
+   "students applied",
+   "students paid",
+   "not paid",
+   "total applications",
+   "approved applications",
+   "unique applicants"
+  ]
+ },
+ "shaper": {
+  "measure_words": [
+   "adoption",
+   "amount",
+   "amounts",
+   "applicants",
+   "application",
+   "applications",
+   "applied",
+   "approval",
+   "approvals",
+   "approved",
+   "assistance",
+   "average",
+   "awardees",
+   "beneficiaries",
+   "beneficiary",
+   "budget",
+   "capacity",
+   "cards",
+   "cmss",
+   "completed",
+   "count",
+   "coverage",
+   "covered",
+   "cue",
+   "days",
+   "dbt",
+   "disbursed",
+   "disbursement",
+   "employment",
+   "existing",
+   "expenditure",
+   "figure",
+   "figures",
+   "funds",
+   "grant",
+   "groups",
+   "guest",
+   "harvesting",
+   "homestay",
+   "homestays",
+   "house",
+   "household",
+   "households",
+   "houses",
+   "individual",
+   "job",
+   "mean",
+   "members",
+   "missing",
+   "money",
+   "number",
+   "out",
+   "paid",
+   "payments",
+   "people",
+   "person",
+   "person-days",
+   "persons",
+   "proposed",
+   "rainwater",
+   "received",
+   "recipients",
+   "records",
+   "registrations",
+   "released",
+   "remittance",
+   "remitted",
+   "room",
+   "rooms",
+   "sanctioned",
+   "scholars",
+   "scholarship",
+   "site",
+   "solar",
+   "spend",
+   "spending",
+   "spent",
+   "status",
+   "students",
+   "success",
+   "total",
+   "unpaid",
+   "upgrade",
+   "villages",
+   "wages",
+   "who",
+   "works",
+   "zero"
+  ],
+  "scheme_count": 8,
+  "scheme_count_word": "eight"
+ }
+}

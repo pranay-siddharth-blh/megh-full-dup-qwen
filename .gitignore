@@ -46,3 +46,6 @@ documents/~$*
 reference_documents/~$*
 # all model keys and endpoints (12 Nov 2026): never commit
 gateway_models.env
+
+# megh-full-dup deploy settings (secrets; templates are *.env.example)
+deploy/megh-full-dup/*.env
